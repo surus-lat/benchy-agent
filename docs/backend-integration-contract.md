@@ -8,6 +8,35 @@ Status as of 2026-09-18: the identity/multi-tenancy foundation is built and
 tested. The engine and the agent are **not** built, and have no spec yet. This
 document is the contract between them and what exists.
 
+## Start here: what to build, in what order
+
+Everything below is reference. This is the path through it.
+
+1. **Read** "Authenticating a request", "The identity model", "Adding tables",
+   and "Visibility rule" — that is the world you are building inside.
+2. **Add the tables** `conversations`, `conversationMessages` (shapes in "The
+   agent is user-specific and conversation-specific") and `orgAgentEndpoints`
+   (shape in "The Worker side"). Generate and commit the migration.
+3. **Build the agent image** under `apps/agent/`: `FROM` Hermes's image, core
+   skills at `/opt/benchy/skills` (root-owned, read-only), a pinned
+   `config.yaml` (Together via `custom` provider, `platform_toolsets.api_server`,
+   `skills.external_dirs`), and an entrypoint pre-step that runs the boot
+   guards and fail-fast checks. All of it is specified under "How the per-org
+   Hermes is configured".
+4. **Run one instance locally** with Docker against Together. Confirm
+   `GET /v1/toolsets` shows exactly the pinned tools and no `terminal`; do one
+   manual `POST /api/sessions` then `POST /api/sessions/{id}/chat`.
+5. **Worker routes** in `apps/api`: create conversation, send a turn, list
+   conversations, list messages — the exact request path is under "The Worker
+   side: routing a request to the right org's Hermes", including the
+   per-conversation turn lock.
+6. **Provision org #1** by hand following "Provisioning a new organization".
+7. The chat UI in `apps/web` is a separate track; it calls only the Worker.
+
+Three things not to do, each explained later: no second Worker; the browser
+never calls Hermes; Hermes never touches D1 or makes an authorization
+decision.
+
 ## What exists, and what doesn't
 
 Built, tested, merged to `main`:
@@ -23,8 +52,8 @@ Not built, no spec, deliberately out of scope of the above:
 - The benchy engine (running benchmarks).
 - The benchy agent (LLM-assisted YAML editing and synthetic dataset building).
 - Any table for benchmarks, runs, datasets, or agent conversations.
-- Any deployment. Nothing has ever been deployed; no Cloudflare resources
-  exist yet (see "Deferred" below).
+- Any deployment. Nothing has ever been deployed: no Cloudflare resources,
+  no Railway services, no Together AI key (see "Deferred" below).
 
 Authoritative documents:
 
@@ -48,6 +77,10 @@ apps/api/src/
 packages/db/src/
   schema.ts       Drizzle schema. Your new tables go here.
 packages/db/migrations/  Generated SQL. Committed. Never hand-edit.
+apps/agent/              (you create this) the Hermes image: Dockerfile,
+  skills/                core benchy skills (source of /opt/benchy/skills)
+  config.yaml            pinned Hermes config baked into the image
+  entrypoint-pre.sh      boot guards, runs as root before the privilege drop
 ```
 
 ## Authenticating a request
@@ -240,6 +273,27 @@ Long benchmark runs are a separate problem and do not belong in a request
 handler at all: a Worker request's wall-clock budget is far below a real
 benchmark. Treat the engine's execution model as its own design decision.
 
+### Which system owns conversation state
+
+This matters more than the hosting question, and it is easy to get wrong,
+because Hermes ships its own memory system — sessions, FTS5 session search,
+skills, user modeling. Our D1 schema also wants to own conversations. Two
+systems both believing they are the source of truth for "what did this user
+say" will hurt.
+
+The split:
+
+- **D1 owns the conversation record** — id, owner, org, title, which benchmark
+  it is about. This is what the UI lists, and what has to be multi-tenant-safe.
+- **Hermes owns its internal working memory** for a conversation, under the
+  Hermes `session_id` that the row's `hermesSessionId` points at.
+- **Do not try to reconcile the two memory models before launch.**
+
+If that split turns out wrong, you have duplicated a little storage, which is
+cheap. The reverse — letting Hermes own the multi-tenant data — puts org
+isolation inside a system that was not designed around our org model, which is
+not cheap.
+
 ## Where the agent runs, and why not the Cloudflare Agents SDK
 
 Cloudflare publishes an Agents SDK (`agents`) — persistent, stateful agents on
@@ -266,10 +320,12 @@ request, then calls Hermes over plain HTTP.
 
 ### The rule that keeps this reversible
 
-Make the boundary **plain authenticated HTTP from the Worker to Hermes,
-passing `userId` and `conversationId`**. Nothing else crosses it. Keep that
-boundary clean and *where* Hermes runs stays a deployment decision you can
-revisit — not an architecture you are married to.
+Make the boundary **plain authenticated HTTP from the Worker to Hermes**:
+the Worker chooses *which org's instance* to call, addresses *which Hermes
+session* in the URL, and carries speaker attribution in a per-turn
+`system_message`. Nothing else crosses it. Keep that boundary clean and
+*where* Hermes runs stays a deployment decision you can revisit — not an
+architecture you are married to.
 
 Concretely, that means: Hermes does not talk to D1 directly, does not read the
 session cookie, and does not make authorization decisions. The Worker has
@@ -291,7 +347,7 @@ Cloudflare Worker                    https://api.<domain> — apps/api, Hono
   • D1: users, orgs, invites, conversations, benchmarks
   • THE ONLY authorization boundary
   │
-  │  server-to-server HTTPS, shared secret, never from the browser
+  │  server-to-server HTTPS, per-org bearer key, never from the browser
   │  routed to THAT ORG's instance; body carries message + speaker attribution
   ▼
 Hermes, one container PER ORGANIZATION (Railway)
@@ -331,8 +387,9 @@ Starting on Together rather than Bedrock removes the one complication Railway
 carried — AWS credentials would otherwise have to live in Railway as
 long-lived static IAM keys. With Together it is a single API key.
 
-The complexity budget for this project belongs to the Hermes multi-tenancy
-work described above, not to the host. Pick the host that disappears.
+The complexity budget for this project belongs to the core skills, the
+per-org image, and the provisioning runbook — not to the host. Pick the host
+that disappears.
 
 Cloudflare compute was evaluated and cannot host this at all: Workers have no
 process model (Hermes has ~1,391 subprocess call sites), Python Workers are
@@ -370,10 +427,10 @@ Keep model ids in configuration. Never hardcode a model id, a provider name,
 or a base URL in agent logic. The whole swap should be reachable by changing
 environment variables.
 
-#### The Worker → agent service call
+#### The Worker → Hermes call
 
-The Worker authenticates the researcher, then calls the agent service. The
-agent service trusts what the Worker tells it, because the Worker has already
+The Worker authenticates the researcher, then calls that researcher's org's
+Hermes. Hermes trusts what the Worker tells it, because the Worker has already
 done the work.
 
 - **Transport:** HTTPS, server-to-server only. The browser never calls the
@@ -410,10 +467,12 @@ done the work.
   not a platform limit; keeping the non-streaming path intact just means the
   simple case stays simple.
 
-A consequence worth internalising: because the agent service trusts
-`userId`/`orgId` blindly, anyone holding the shared secret can impersonate any
-researcher. Treat that secret with the same care as the auth secret, keep it
-out of the frontend bundle, and rotate it if a Railway collaborator leaves.
+A consequence worth internalising: Hermes has no notion of *which*
+researcher is calling beyond the attribution string the Worker writes, so
+anyone holding an org's `API_SERVER_KEY` can read and drive every conversation
+in that org and claim to be anyone in it. Treat each org key with the same
+care as the auth secret, never let it near the frontend bundle, and rotate it
+if a Railway collaborator leaves.
 
 #### Railway service shape
 
@@ -423,13 +482,16 @@ out of the frontend bundle, and rotate it if a Railway collaborator leaves.
   number of universities, not researchers.
 - Deployed from a Dockerfile built on Hermes's own, with benchy's curated
   skills added under `/opt/benchy/skills` and a pinned `config.yaml`.
-- A Railway **volume per service**, mounted at the profile home: it holds the
-  org's memory, self-written skills, and Hermes's SQLite state. D1 remains the
+- A Railway **volume per service**, mounted at `$HERMES_HOME` — `/opt/data`
+  in Hermes's image (`Dockerfile:290`). It holds the org's memory,
+  self-written skills, and Hermes's SQLite state. D1 remains the
   record of which conversations exist and who owns them; the volume is what
   makes the org's agent get better over time.
 - Environment variables per service: `API_SERVER_ENABLED`, `API_SERVER_KEY`
-  (fresh per org), `API_SERVER_HOST`, `API_SERVER_PORT`, `TOGETHER_API_KEY`,
-  and the sandbox backend's key if one is used.
+  (fresh per org), `API_SERVER_HOST`, `API_SERVER_PORT`, `TOGETHER_API_KEY`.
+  Set them as Railway service variables — Hermes reads `API_SERVER_*` from
+  the process environment (`api_server.py:745-750`), so no `.env` file needs
+  to exist on the volume.
 - Plan: Pro ($20/month minimum usage) for the 99.99% availability target.
 
 #### Swapping Together → Bedrock later
@@ -493,7 +555,8 @@ inside one shared home; at org grain most stop being leaks:
 - **The terminal sandbox is one container** for all top-level agents
   (`tools/terminal_tool.py:1002-1034`). Per org this is arbitrary code
   execution shared by an org's researchers — stronger than "can read a
-  colleague's benchmark." **This one needs a decision; see below.**
+  colleague's benchmark." **Decided: the terminal tool is disabled in every
+  org container; see below.**
 - **No per-user authorization; single bearer key; `GET /api/sessions` lists
   every session** (`gateway/platforms/api_server.py:750, 1362-1389`). Per
   org: one key per org, held only by the Worker, which is the sole caller and
@@ -507,8 +570,8 @@ reach another org's instance. Both are routing rules, stated concretely below.
 
 ### How the per-org Hermes is configured (all configuration, no code)
 
-**HTTP surface.** The API server is a first-class Hermes feature. In the
-org's profile `.env`:
+**HTTP surface.** The API server is a first-class Hermes feature. Set, as
+Railway service variables (a profile `.env` works too — same keys):
 
 ```
 API_SERVER_ENABLED=true
@@ -685,19 +748,13 @@ is the sandbox path below — not `backend: local`.
 
 For the record, the backend is configuration
 (`cli-config.yaml.example:169-290`): `local`, `ssh`, `docker`, `singularity`,
-`modal`, `daytona`. On Railway, `local` means researchers' commands run inside
+`modal`, `daytona`. On Railway, `local` would run researchers' commands inside
 the org's own container, and `docker` needs docker-in-docker, which Railway
-does not offer. The two sane choices:
-
-- **Sandbox it:** `terminal: { backend: modal }` or `daytona` — Hermes's
-  native cloud-sandbox backends, each an optional extra (`modal`, `daytona` in
-  `pyproject.toml`). Adds a vendor and a key, buys a real per-command sandbox.
-- **Disable it:** omit `terminal` from the toolset via `platform_toolsets`.
-  Fine if the agent's job is YAML editing and dataset generation through its
-  own tools rather than shelling out.
-
-Whichever is chosen, it must be the same for every org container — this is a
-security posture, not a per-customer preference.
+does not offer. **The only acceptable way to re-enable a shell later** is a
+cloud sandbox backend — `terminal: { backend: modal }` or `daytona`, Hermes's
+native options, each an optional extra in `pyproject.toml` — and it would have
+to be the same for every org container. This is a security posture, not a
+per-customer preference.
 
 **Toolsets (verified in source).** The API server resolves its tools from
 `platform_toolsets.api_server` in `config.yaml`
@@ -707,7 +764,7 @@ security posture, not a per-customer preference.
 
 ```yaml
 platform_toolsets:
-  api_server: [file, skills, todo, web]   # no terminal — see above; adjust to need
+  api_server: [file, skills, todo, web]   # no terminal. 'file' REQUIRES the boot guards in "Core skills"; drop it if benchmarks are edited via a skill that calls the Worker instead
 ```
 
 `GET /v1/toolsets` on a running instance returns the toolset surface it is
@@ -734,7 +791,19 @@ export const orgAgentEndpoints = sqliteTable("orgAgentEndpoints", {
 Do not store the org's `API_SERVER_KEY` in D1. Store the *name* of a Worker
 secret and resolve it at request time, so a D1 read never yields a credential.
 
-The request path, in order, every time:
+**Creating a conversation** (`POST /api/conversations`, authenticated):
+
+1. Resolve the researcher and `orgId` from the session; 401/403 as above.
+2. Look up `orgAgentEndpoints` for the org (see step 4 below for the
+   not-provisioned case).
+3. `POST {baseUrl}/api/sessions` with the org's bearer key; take `session_id`
+   from the response.
+4. Insert the `conversations` row with `userId`, `orgId`, optional
+   `benchmarkId`, and `hermesSessionId = session_id`. If the Hermes call
+   failed, do not insert — return the error; a conversation without a Hermes
+   session is not a valid state.
+
+**Sending a turn** — the request path, in order, every time:
 
 1. `sessionMiddleware` resolves the researcher; 401 if none.
 2. Read `orgId` from the session — never from the request body.
@@ -762,8 +831,8 @@ runbook:
 
 1. `pnpm invite --org "Stanford" --email …` creates the org row (existing).
 2. Create the org's Hermes service on Railway from the shared image, with its
-   own volume mounted at the profile home, and env vars: `API_SERVER_*` (fresh
-   random key), `TOGETHER_API_KEY`, and the sandbox backend's key if used.
+   own volume mounted at `/opt/data`, and env vars: `API_SERVER_*` (fresh
+   random key) and `TOGETHER_API_KEY`.
 3. `wrangler secret put AGENT_KEY_<ORG_SLUG>` with that key.
 4. Insert the `orgAgentEndpoints` row (`baseUrl`, `apiKeyRef =
    "AGENT_KEY_<ORG_SLUG>"`).
@@ -781,27 +850,6 @@ volume and the secrets are what differ.
 - Composite within-org user model (accepted).
 - A per-org provisioning step (above).
 - Terminal-tool decision (above).
-
-### Which system owns conversation state
-
-This matters more than the hosting question, and it is easy to get wrong,
-because Hermes ships its own memory system — sessions, FTS5 session search,
-skills, user modeling. Our D1 schema also wants to own conversations. Two
-systems both believing they are the source of truth for "what did this user
-say" will hurt.
-
-The split:
-
-- **D1 owns the conversation record** — id, owner, org, title, which benchmark
-  it is about. This is what the UI lists, and what has to be multi-tenant-safe.
-- **Hermes owns its internal working memory** for a conversation, keyed by the
-  `conversationId` we hand it.
-- **Do not try to reconcile the two memory models before launch.**
-
-If that split turns out wrong, you have duplicated a little storage, which is
-cheap. The reverse — letting Hermes own the multi-tenant data — puts org
-isolation inside a system that was not designed around our org model, which is
-not cheap.
 
 ## Gotchas that will cost you an afternoon
 
@@ -837,10 +885,13 @@ domain, no Google OAuth client. The `database_id` in `wrangler.jsonc` is a
 placeholder zero-UUID, and `.dev.vars` holds local placeholder credentials.
 Everything runs and tests fine offline against Miniflare's simulated D1.
 
-The ordered checklist to make it real is the "Deferred: needs your Cloudflare
-account" section at the end of
-`docs/superpowers/plans/2026-09-17-identity-multitenancy.md`. Until it is done,
-build and test locally and do not assume a deployed API exists.
+The ordered checklist to make the Cloudflare side real is the "Deferred:
+needs your Cloudflare account" section at the end of
+`docs/superpowers/plans/2026-09-17-identity-multitenancy.md`. The agent side
+— a Together AI key, a Railway project, and the first org's service — is the
+"Provisioning a new organization" runbook above. Until both are done, build
+and test locally: the Worker against Miniflare, one Hermes instance in local
+Docker against Together.
 
 ## Running it
 
