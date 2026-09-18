@@ -4,6 +4,8 @@ import {
   generateInviteToken,
   generateId,
   escapeSqlString,
+  buildUserExistsSql,
+  assertNoExistingUser,
 } from "./invite-lib";
 
 const DB_NAME = "benchy-db";
@@ -71,6 +73,12 @@ function extractResultRows(
   return results as Array<Record<string, unknown>>;
 }
 
+function refuseIfUserExists(email: string): void {
+  const raw = d1Execute(buildUserExistsSql(email));
+  const rows = extractResultRows(raw, "checking for an existing account");
+  assertNoExistingUser(email, rows);
+}
+
 function findOrgIdBySlug(slug: string): string | null {
   const raw = d1Execute(
     `SELECT id FROM orgs WHERE slug = '${escapeSqlString(slug)}'`,
@@ -133,6 +141,11 @@ function sendInviteEmail(email: string, orgName: string, token: string) {
 function main() {
   const { org, email } = parseArgs(process.argv.slice(2));
   const slug = slugify(org);
+
+  // Before anything is written: an invite for someone who already has an
+  // account can never be accepted, and creating the org first would leave a
+  // stray org behind when this refuses.
+  refuseIfUserExists(email);
 
   let orgId = findOrgIdBySlug(slug);
   if (!orgId) {

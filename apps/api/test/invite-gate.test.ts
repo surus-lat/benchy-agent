@@ -139,9 +139,12 @@ it("picks the most recent invite when several are pending", async ({
 it("requireInviteForSignup throws when there is no invite", async ({
   expect,
 }) => {
+  // Matched on the gate's own message: a bare `.toThrow()` would also pass on
+  // an unrelated failure (a schema mismatch, say), which is exactly how a test
+  // that never exercised its feature stayed green elsewhere in this codebase.
   await expect(
     requireInviteForSignup(db, "nobody@example.com"),
-  ).rejects.toThrow();
+  ).rejects.toThrow(/no pending invite/i);
 });
 
 it("requireInviteForSignup returns the invite when one is pending", async ({
@@ -177,7 +180,7 @@ it("requireInviteOrExistingUser allows a returning user with no pending invite",
 it("requireInviteOrExistingUser rejects a stranger", async ({ expect }) => {
   await expect(
     requireInviteOrExistingUser(db, "stranger@example.com"),
-  ).rejects.toThrow();
+  ).rejects.toThrow(/no pending invite/i);
 });
 
 it("markInviteAccepted flips exactly that invite", async ({ expect }) => {

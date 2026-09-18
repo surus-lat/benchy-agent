@@ -3,17 +3,50 @@ import { signIn } from "@/lib/auth-client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 
+const NO_INVITE_FALLBACK =
+  "This email has no pending invite. Ask your university admin for one.";
+
+/**
+ * Where better-auth should send the browser when a flow finishes.
+ *
+ * It must be absolute. A relative `callbackURL` is resolved against the API's
+ * own `baseURL` (`https://api.benchy.example`), a different subdomain from
+ * this app, so `"/"` would land a magic-link click or a completed Google
+ * sign-in on the API root — a Hono 404 — instead of back here.
+ */
+function appCallbackURL() {
+  return `${window.location.origin}/`;
+}
+
+/**
+ * The failure better-auth handed back on the redirect, if any.
+ *
+ * Both failing paths that can reach this page — the OAuth callback
+ * (`/callback/:id`) and magic-link verification — redirect to the error
+ * callback with the same two query parameters in better-auth 1.7.5: `error`
+ * carries a machine-readable code, and `error_description` the human message
+ * from the API error, which for an uninvited signup is the invite gate's own
+ * text. `error_description` is only set when the failing endpoint had a
+ * message to pass on, hence the fallback.
+ */
+function readCallbackError(): string | null {
+  const params = new URLSearchParams(window.location.search);
+  if (!params.get("error")) return null;
+  return params.get("error_description") || NO_INVITE_FALLBACK;
+}
+
 export default function Login() {
   // Read straight from the URL rather than a router hook: this component is
   // rendered by AuthGate outside any <Route>, so there are no route params
   // to read, and the invite link can land on any path.
+  const [callbackError] = useState(readCallbackError);
   const [email, setEmail] = useState(
     () => new URLSearchParams(window.location.search).get("email") ?? "",
   );
   const [status, setStatus] = useState<
     "idle" | "sending" | "sent" | "error"
-  >("idle");
-  const [errorMessage, setErrorMessage] = useState("");
+  >(callbackError ? "error" : "idle");
+  const [errorMessage, setErrorMessage] = useState(callbackError ?? "");
 
   async function handleMagicLink(e: React.FormEvent) {
     e.preventDefault();
@@ -21,21 +54,30 @@ export default function Login() {
     setErrorMessage("");
     const { error } = await signIn.magicLink({
       email,
-      callbackURL: "/",
+      // Verification failures reuse this as their error callback (better-auth
+      // falls back to `callbackURL` when no `errorCallbackURL` is given), so
+      // a rejected click also lands back here and is read above.
+      callbackURL: appCallbackURL(),
     });
     if (error) {
       setStatus("error");
-      setErrorMessage(
-        error.message ??
-          "This email has no pending invite. Ask your university admin for one.",
-      );
+      setErrorMessage(error.message ?? NO_INVITE_FALLBACK);
       return;
     }
     setStatus("sent");
   }
 
   async function handleGoogle() {
-    await signIn.social({ provider: "google", callbackURL: "/" });
+    // Unlike the magic-link call there is no response to inspect — the browser
+    // leaves for Google and comes back through the API's OAuth callback — so
+    // the rejection can only surface as a query parameter on the redirect.
+    // `errorCallbackURL` is what decides where that redirect goes; without it
+    // an uninvited person dead-ends on the API origin and sees nothing.
+    await signIn.social({
+      provider: "google",
+      callbackURL: appCallbackURL(),
+      errorCallbackURL: appCallbackURL(),
+    });
   }
 
   if (status === "sent") {
