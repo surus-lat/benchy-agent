@@ -9,6 +9,7 @@
     "dev": "wrangler dev",
     "deploy": "wrangler deploy",
     "test": "vitest run",
+    "test:scripts": "vitest run --config vitest.node.config.ts",
     "types": "wrangler types",
     "db:migrate:local": "wrangler d1 migrations apply benchy-db --local",
     "db:migrate:remote": "wrangler d1 migrations apply benchy-db --remote"

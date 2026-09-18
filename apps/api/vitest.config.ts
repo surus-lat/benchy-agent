@@ -25,6 +25,11 @@ export default defineConfig(async () => {
         }),
       ],
       test: {
+        // Scoped to test/ so this Miniflare-backed suite never picks up
+        // scripts/**/*.test.ts (those run under plain Node via
+        // `test:scripts` / vitest.node.config.ts — node:crypto usage there
+        // isn't meant for the Workers pool).
+        include: ["test/**/*.test.ts"],
         setupFiles: ["./test/apply-migrations.ts"],
       },
     }),
