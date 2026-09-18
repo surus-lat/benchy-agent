@@ -618,6 +618,55 @@ tool logic evolves.
 - Rebuild-and-redeploy replaces the core tree wholesale and leaves each org's
   volume untouched, so an image update never clobbers what an org has learned.
 
+*On "global" vs "local" skills — Hermes has no such tier.* The only place
+"global" appears in Hermes's skills code is `skills.disabled` — a skill can be
+disabled *globally* (every platform) or per platform
+(`agent/skill_utils.py:381-388`, `hermes_cli/skills_config.py:5-42`). That is
+an on/off scope for a skill name, not a storage location and not an ownership
+level. Hermes's actual two storage tiers are the ones above:
+
+- **local** — `~/.hermes/skills/`, "primary, read-write", where creation goes
+  (`website/docs/user-guide/features/skills.md:278`) → **the org tier**;
+- **external** — `skills.external_dirs` → **the core tier**.
+
+So the mapping is the one already specified, and the direction matters: core
+= external, org = local. Do not put core skills in `~/.hermes/skills/` — that
+is the writable tier by definition.
+
+The docs also state the in-place-edit behaviour plainly, which is why the
+tier alone is precedence and not protection (`skills.md:269`): "Existing
+skills are modified where they are found, **including skills under
+`external_dirs`**, when the agent uses `skill_manage` actions such as `patch`,
+`edit`, `write_file`, `remove_file`, or `delete`." Filesystem permissions
+remain the control.
+
+*One residual vector, and its guard.* `skill_manage create` refuses a name
+that exists in any tier, but the generic `file` tool has no path denylist
+(`tools/file_tools.py:69, 286`). If `file` is in the API server's toolset, a
+researcher can ask the agent to write `~/.hermes/skills/benchy-eval/SKILL.md`
+directly, bypassing `create`. Result: not a silent replacement — bare-name
+loading then hits the ambiguity refusal (`skills_tool.py:1085-1105`) — but the
+core skill becomes unloadable by name for that org, and the shadow is loadable
+by explicit path. Org-local and self-inflicted, but cheap to prevent:
+
+1. **Reserve the names on the volume.** In the benchy image's entrypoint
+   pre-step (runs as root, before the wrapper drops to `hermes`), for every
+   core skill name create `$HERMES_HOME/skills/<name>/` as an **empty,
+   root-owned, mode `0555`** directory if nothing is there yet. Hermes ignores
+   a skill dir with no `SKILL.md`, so it causes no collision — and the agent
+   cannot write into it. The core skill names are known at image build time,
+   which is exactly the set you control.
+2. **Sweep legacy-flat shadows at boot.** Hermes also treats any
+   `<name>.md` under the skills tree as a candidate (`skills_tool.py:1075-
+   1083`). In the same pre-step, remove any file under `$HERMES_HOME/skills`
+   whose stem matches a core skill name, and log it. Combined with the
+   `benchy-` prefix, "any `benchy-*` name under the org tier" is the rule.
+
+If the agent builder decides the API server does not need the `file` tool at
+all (benchmarks edited through a core skill that calls the Worker's API
+rather than local files), the vector disappears and the guards are belt and
+braces. Either way, implement both — they cost a few lines.
+
 *What this does not protect, so nobody assumes it does:*
 
 - **The model's compliance.** Permissions protect the file, not whether the
