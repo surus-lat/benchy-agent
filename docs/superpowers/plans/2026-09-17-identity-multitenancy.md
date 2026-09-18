@@ -210,7 +210,8 @@ export const invites = sqliteTable("invites", {
 
 export const user = sqliteTable("user", {
   id: text("id").primaryKey(),
-  name: text("name").notNull(),
+  // Defaulted, not just NOT NULL: magic-link signup has no name to supply.
+  name: text("name").notNull().default(""),
   email: text("email").notNull().unique(),
   emailVerified: integer("emailVerified", { mode: "boolean" })
     .notNull()
@@ -544,6 +545,12 @@ Create `apps/api/.dev.vars` (this file is gitignored — never commit it):
 BETTER_AUTH_SECRET=<paste the generated hex string here>
 ```
 
+Then regenerate types, so the generated `Env` includes `BETTER_AUTH_SECRET` (wrangler reads `.dev.vars` when generating types):
+
+```bash
+pnpm --filter @benchy/api types
+```
+
 For production, set the real secret once you deploy:
 
 ```bash
@@ -573,7 +580,7 @@ export const auth = betterAuth({
   trustedOrigins: [
     "https://app.<your-domain>",
     "https://api.<your-domain>",
-    "http://localhost:5173",
+    "http://localhost:21707",
   ],
   advanced: {
     crossSubDomainCookies: {
@@ -609,7 +616,7 @@ const app = new Hono<{ Bindings: Env }>();
 app.use(
   "/api/auth/*",
   cors({
-    origin: ["https://app.<your-domain>", "http://localhost:5173"],
+    origin: ["https://app.<your-domain>", "http://localhost:21707"],
     credentials: true,
   }),
 );
@@ -725,36 +732,31 @@ Add these two top-level keys to the `betterAuth({...})` call, alongside `databas
   ],
 ```
 
-- [ ] **Step 4: Write a magic-link sign-in test**
+- [ ] **Step 4: Verify it typechecks and boots**
 
-This test captures the magic-link URL by asserting on the outbound email content rather than actually sending it — `env.EMAIL.send` still runs against the real binding in tests, so use a throwaway address you don't need delivered.
-
-Create `apps/api/test/magic-link.test.ts`:
-
-```ts
-import { exports } from "cloudflare:workers";
-import { it } from "vitest";
-import { auth } from "../src/auth";
-
-it("issues a magic link for sign-in", async ({ expect }) => {
-  const result = await auth.api.signInMagicLink({
-    body: { email: "researcher@example.com" },
-  });
-  expect(result.status).toBe(true);
-});
-```
-
-If `auth.api.signInMagicLink` doesn't exist under that exact name in your installed version, run `pnpm --filter @benchy/api dev` and check `http://localhost:8787/api/auth/reference` for the generated method name (better-auth mirrors every REST route as a camelCase method on `auth.api`) and use that instead.
-
-- [ ] **Step 5: Run the test**
+There is deliberately no automated test in this task. Both sign-in paths reach outward — magic link calls `env.EMAIL.send`, Google needs a real OAuth redirect — and the invite gate that makes either meaningful doesn't exist until Task 6, which is where the sign-in behaviour gets its tests.
 
 ```bash
-cd apps/api && pnpm test && cd ../..
+cd apps/api
+pnpm exec tsc --noEmit
+pnpm dev
 ```
 
-Expected: 3 tests pass. This test will currently send a real (harmless, undeliverable) email attempt through the `EMAIL` binding in Miniflare — that's expected and fine in tests.
+With `wrangler dev` running, in another terminal:
 
-- [ ] **Step 6: Commit**
+```bash
+curl -s -o /dev/null -w "%{http_code}\n" http://localhost:8787/api/auth/get-session
+```
+
+Expected: `200`, and no startup errors in the `wrangler dev` output (a missing `GOOGLE_CLIENT_ID`/`GOOGLE_CLIENT_SECRET` in `.dev.vars` shows up here as a better-auth config error). Also confirm the existing tests still pass:
+
+```bash
+pnpm test
+```
+
+Expected: the 2 tests from Tasks 3 and 4 still pass. Stop the dev server.
+
+- [ ] **Step 5: Commit**
 
 ```bash
 git add apps/api
@@ -763,29 +765,345 @@ git commit -m "Add magic link and Google OAuth sign-in"
 
 ---
 
-## Task 6: Invite-gate database hook
+## Task 6: Invite gate
 
-This is the core business rule from the spec: account creation is blocked unless a pending, non-expired invite exists for that email.
+This is the core business rule from the spec: an account may only be created for an email that has a pending, non-expired invite. It is enforced in two places, both calling the same module:
+
+1. **At magic-link request time** — so an uninvited person gets an immediate error on the login form instead of an email, and so the Worker can't be used to mail arbitrary addresses.
+2. **At user-creation time** — the authoritative gate. This is the one that also covers Google OAuth, where no magic link is ever requested.
+
+Returning users must keep working: once someone signs up, their invite is `accepted`, so they no longer have a pending invite. The request-time gate therefore passes anyone who already has a user row.
 
 **Files:**
-- Modify: `apps/api/src/auth.ts`
+- Create: `apps/api/src/invite-gate.ts`
 - Create: `apps/api/test/invite-gate.test.ts`
+- Create: `apps/api/test/magic-link-gate.test.ts`
+- Modify: `apps/api/src/auth.ts`
 
 **Interfaces:**
-- Consumes: `schema.invites`, `schema.orgs` from `@benchy/db`; the `db` Drizzle instance already created in `auth.ts` (Task 4).
-- Produces: every new user created via magic link or Google gets `orgId` set from their invite, and the invite's `status` becomes `"accepted"`. An email with no matching invite gets `APIError("FORBIDDEN")` instead of an account.
+- Consumes: `schema.invites`, `schema.user`, `schema.orgs` from `@benchy/db`; the `db` Drizzle instance created in `auth.ts` (Task 4).
+- Produces: `findPendingInvite(db, email)`, `requireInviteForSignup(db, email)`, `requireInviteOrExistingUser(db, email)`, `markInviteAccepted(db, inviteId)` from `apps/api/src/invite-gate.ts`. After this task, a new user's `orgId` is set from their invite and that invite becomes `accepted`.
 
 - [ ] **Step 1: Write the failing tests**
 
-This drives account creation through `signUpEmail` (email/password) rather than magic link. Magic link only creates a user when its emailed link is *clicked* — there is no way to reach the create-user path synchronously from a test without first intercepting a token out of a sent email. `signUpEmail` reaches the exact same `databaseHooks.user.create.before`/`after` hook synchronously, which is what this task is actually testing. Password sign-up itself is never exposed to end users (no password UI exists in the frontend, Task 9) — this is a test-only entry point into the shared hook, and the hook governs magic link and Google OAuth identically in production.
+The business rules are tested directly against the gate module rather than through a sign-in flow. Magic link only creates a user when its emailed link is *clicked*, and Google OAuth needs a real redirect — neither is reachable synchronously from a test, so driving the rules through them would test plumbing instead of rules. Step 6 adds one integration test that proves the module is actually wired in.
 
 Create `apps/api/test/invite-gate.test.ts`:
 
 ```ts
 import { env } from "cloudflare:workers";
-import { it, beforeEach } from "vitest";
+import { beforeEach, it } from "vitest";
 import { drizzle } from "drizzle-orm/d1";
 import { eq } from "drizzle-orm";
+import { schema } from "@benchy/db";
+import {
+  findPendingInvite,
+  markInviteAccepted,
+  requireInviteForSignup,
+  requireInviteOrExistingUser,
+} from "../src/invite-gate";
+
+const db = drizzle(env.DB, { schema });
+
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+async function seedOrg(id = "org_stanford") {
+  await db.insert(schema.orgs).values({
+    id,
+    name: "Stanford",
+    slug: id,
+    createdAt: new Date(),
+  });
+  return id;
+}
+
+async function seedInvite(overrides: {
+  id: string;
+  orgId: string;
+  email: string;
+  status?: "pending" | "accepted" | "expired";
+  createdAt?: Date;
+  expiresAt?: Date;
+}) {
+  const now = new Date();
+  await db.insert(schema.invites).values({
+    id: overrides.id,
+    orgId: overrides.orgId,
+    email: overrides.email,
+    token: `token_${overrides.id}`,
+    status: overrides.status ?? "pending",
+    createdAt: overrides.createdAt ?? now,
+    expiresAt: overrides.expiresAt ?? new Date(now.getTime() + 7 * DAY_MS),
+  });
+}
+
+beforeEach(async () => {
+  await db.delete(schema.invites);
+  await db.delete(schema.user);
+  await db.delete(schema.orgs);
+});
+
+it("finds nothing when the email was never invited", async ({ expect }) => {
+  expect(await findPendingInvite(db, "nobody@example.com")).toBeNull();
+});
+
+it("finds a valid pending invite, case-insensitively", async ({ expect }) => {
+  const orgId = await seedOrg();
+  await seedInvite({ id: "invite_1", orgId, email: "invited@example.com" });
+
+  const invite = await findPendingInvite(db, "INVITED@example.com");
+  expect(invite?.id).toBe("invite_1");
+  expect(invite?.orgId).toBe(orgId);
+});
+
+it("ignores expired invites", async ({ expect }) => {
+  const orgId = await seedOrg();
+  await seedInvite({
+    id: "invite_1",
+    orgId,
+    email: "invited@example.com",
+    expiresAt: new Date(Date.now() - 1000),
+  });
+
+  expect(await findPendingInvite(db, "invited@example.com")).toBeNull();
+});
+
+it("ignores already-accepted invites", async ({ expect }) => {
+  const orgId = await seedOrg();
+  await seedInvite({
+    id: "invite_1",
+    orgId,
+    email: "invited@example.com",
+    status: "accepted",
+  });
+
+  expect(await findPendingInvite(db, "invited@example.com")).toBeNull();
+});
+
+it("picks the most recent invite when several are pending", async ({
+  expect,
+}) => {
+  const orgId = await seedOrg();
+  await seedInvite({
+    id: "invite_old",
+    orgId,
+    email: "invited@example.com",
+    createdAt: new Date(Date.now() - 3 * DAY_MS),
+  });
+  await seedInvite({
+    id: "invite_new",
+    orgId,
+    email: "invited@example.com",
+    createdAt: new Date(),
+  });
+
+  const invite = await findPendingInvite(db, "invited@example.com");
+  expect(invite?.id).toBe("invite_new");
+});
+
+it("requireInviteForSignup throws when there is no invite", async ({
+  expect,
+}) => {
+  await expect(
+    requireInviteForSignup(db, "nobody@example.com"),
+  ).rejects.toThrow();
+});
+
+it("requireInviteForSignup returns the invite when one is pending", async ({
+  expect,
+}) => {
+  const orgId = await seedOrg();
+  await seedInvite({ id: "invite_1", orgId, email: "invited@example.com" });
+
+  const invite = await requireInviteForSignup(db, "invited@example.com");
+  expect(invite.orgId).toBe(orgId);
+});
+
+it("requireInviteOrExistingUser allows a returning user with no pending invite", async ({
+  expect,
+}) => {
+  const orgId = await seedOrg();
+  const now = new Date();
+  await db.insert(schema.user).values({
+    id: "user_1",
+    name: "Returning Researcher",
+    email: "returning@example.com",
+    emailVerified: true,
+    orgId,
+    createdAt: now,
+    updatedAt: now,
+  });
+
+  await expect(
+    requireInviteOrExistingUser(db, "returning@example.com"),
+  ).resolves.toBeUndefined();
+});
+
+it("requireInviteOrExistingUser rejects a stranger", async ({ expect }) => {
+  await expect(
+    requireInviteOrExistingUser(db, "stranger@example.com"),
+  ).rejects.toThrow();
+});
+
+it("markInviteAccepted flips exactly that invite", async ({ expect }) => {
+  const orgId = await seedOrg();
+  await seedInvite({ id: "invite_1", orgId, email: "a@example.com" });
+  await seedInvite({ id: "invite_2", orgId, email: "b@example.com" });
+
+  await markInviteAccepted(db, "invite_1");
+
+  const [first] = await db
+    .select()
+    .from(schema.invites)
+    .where(eq(schema.invites.id, "invite_1"));
+  const [second] = await db
+    .select()
+    .from(schema.invites)
+    .where(eq(schema.invites.id, "invite_2"));
+  expect(first?.status).toBe("accepted");
+  expect(second?.status).toBe("pending");
+});
+```
+
+- [ ] **Step 2: Run the tests to verify they fail**
+
+```bash
+cd apps/api && pnpm test && cd ../..
+```
+
+Expected: every test in `invite-gate.test.ts` fails with "Cannot find module '../src/invite-gate'".
+
+- [ ] **Step 3: Implement the gate module**
+
+Create `apps/api/src/invite-gate.ts`:
+
+```ts
+import { APIError } from "better-auth/api";
+import { and, desc, eq } from "drizzle-orm";
+import type { DrizzleD1Database } from "drizzle-orm/d1";
+import { schema } from "@benchy/db";
+
+type Db = DrizzleD1Database<typeof schema>;
+
+const NO_INVITE_MESSAGE =
+  "This email has no pending invite. Ask your university admin for one.";
+
+export async function findPendingInvite(db: Db, email: string) {
+  const [invite] = await db
+    .select()
+    .from(schema.invites)
+    .where(
+      and(
+        eq(schema.invites.email, email.toLowerCase()),
+        eq(schema.invites.status, "pending"),
+      ),
+    )
+    .orderBy(desc(schema.invites.createdAt))
+    .limit(1);
+
+  if (!invite) return null;
+  if (invite.expiresAt.getTime() < Date.now()) return null;
+  return invite;
+}
+
+async function userExists(db: Db, email: string): Promise<boolean> {
+  const [row] = await db
+    .select({ id: schema.user.id })
+    .from(schema.user)
+    .where(eq(schema.user.email, email.toLowerCase()))
+    .limit(1);
+  return Boolean(row);
+}
+
+/** Authoritative gate: a user row may only be created for an invited email. */
+export async function requireInviteForSignup(db: Db, email: string) {
+  const invite = await findPendingInvite(db, email);
+  if (!invite) {
+    throw new APIError("FORBIDDEN", { message: NO_INVITE_MESSAGE });
+  }
+  return invite;
+}
+
+/**
+ * Request-time gate. A returning user has no pending invite any more — theirs
+ * was accepted at signup — so their existing user row is what lets them back in.
+ */
+export async function requireInviteOrExistingUser(db: Db, email: string) {
+  if (await userExists(db, email)) return;
+  if (await findPendingInvite(db, email)) return;
+  throw new APIError("FORBIDDEN", { message: NO_INVITE_MESSAGE });
+}
+
+export async function markInviteAccepted(db: Db, inviteId: string) {
+  await db
+    .update(schema.invites)
+    .set({ status: "accepted" })
+    .where(eq(schema.invites.id, inviteId));
+}
+```
+
+- [ ] **Step 4: Run the tests to verify they pass**
+
+```bash
+cd apps/api && pnpm test && cd ../..
+```
+
+Expected: all `invite-gate.test.ts` tests pass.
+
+- [ ] **Step 5: Wire the gate into better-auth**
+
+In `apps/api/src/auth.ts`, add the import:
+
+```ts
+import {
+  findPendingInvite,
+  markInviteAccepted,
+  requireInviteForSignup,
+  requireInviteOrExistingUser,
+} from "./invite-gate";
+```
+
+Add a `databaseHooks` key to the `betterAuth({...})` call:
+
+```ts
+  databaseHooks: {
+    user: {
+      create: {
+        before: async (user) => {
+          const invite = await requireInviteForSignup(db, user.email);
+          return {
+            data: {
+              ...user,
+              email: user.email.toLowerCase(),
+              orgId: invite.orgId,
+            },
+          };
+        },
+        after: async (createdUser) => {
+          const invite = await findPendingInvite(db, createdUser.email);
+          if (invite) await markInviteAccepted(db, invite.id);
+        },
+      },
+    },
+  },
+```
+
+Then add the request-time check as the first line of the `sendMagicLink` callback written in Task 5, so no email is ever sent to an uninvited address:
+
+```ts
+      sendMagicLink: async ({ email, url }) => {
+        await requireInviteOrExistingUser(db, email);
+        await env.EMAIL.send({
+```
+
+- [ ] **Step 6: Write the wiring test**
+
+Create `apps/api/test/magic-link-gate.test.ts`:
+
+```ts
+import { env } from "cloudflare:workers";
+import { beforeEach, it } from "vitest";
+import { drizzle } from "drizzle-orm/d1";
 import { schema } from "@benchy/db";
 import { auth } from "../src/auth";
 
@@ -797,202 +1115,34 @@ beforeEach(async () => {
   await db.delete(schema.orgs);
 });
 
-it("rejects account creation with no matching pending invite", async ({
+it("refuses to send a magic link to an uninvited address", async ({
   expect,
 }) => {
   await expect(
-    auth.api.signUpEmail({
-      body: {
-        email: "uninvited@example.com",
-        name: "No Invite",
-        password: "throwaway-not-used-by-magic-link",
-      },
-    }),
-  ).rejects.toThrow();
-
-  const rows = await db
-    .select()
-    .from(schema.user)
-    .where(eq(schema.user.email, "uninvited@example.com"));
-  expect(rows).toHaveLength(0);
-});
-
-it("accepts account creation, sets orgId, and marks the invite accepted", async ({
-  expect,
-}) => {
-  const now = new Date();
-  await db.insert(schema.orgs).values({
-    id: "org_stanford",
-    name: "Stanford",
-    slug: "stanford",
-    createdAt: now,
-  });
-  await db.insert(schema.invites).values({
-    id: "invite_1",
-    orgId: "org_stanford",
-    email: "invited@example.com",
-    token: "test-token",
-    status: "pending",
-    createdAt: now,
-    expiresAt: new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000),
-  });
-
-  await auth.api.signUpEmail({
-    body: {
-      email: "invited@example.com",
-      name: "Invited Researcher",
-      password: "throwaway-not-used-by-magic-link",
-    },
-  });
-
-  const [createdUser] = await db
-    .select()
-    .from(schema.user)
-    .where(eq(schema.user.email, "invited@example.com"));
-  expect(createdUser?.orgId).toBe("org_stanford");
-
-  const [acceptedInvite] = await db
-    .select()
-    .from(schema.invites)
-    .where(eq(schema.invites.id, "invite_1"));
-  expect(acceptedInvite?.status).toBe("accepted");
-});
-
-it("rejects a second signup attempt against an already-accepted invite", async ({
-  expect,
-}) => {
-  const now = new Date();
-  await db.insert(schema.orgs).values({
-    id: "org_stanford",
-    name: "Stanford",
-    slug: "stanford",
-    createdAt: now,
-  });
-  await db.insert(schema.invites).values({
-    id: "invite_1",
-    orgId: "org_stanford",
-    email: "invited@example.com",
-    token: "test-token",
-    status: "accepted",
-    createdAt: now,
-    expiresAt: new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000),
-  });
-
-  await expect(
-    auth.api.signUpEmail({
-      body: {
-        email: "invited@example.com",
-        name: "Invited Researcher",
-        password: "throwaway-not-used-by-magic-link",
-      },
-    }),
-  ).rejects.toThrow();
-});
-
-it("rejects an expired invite", async ({ expect }) => {
-  const now = new Date();
-  await db.insert(schema.orgs).values({
-    id: "org_stanford",
-    name: "Stanford",
-    slug: "stanford",
-    createdAt: now,
-  });
-  await db.insert(schema.invites).values({
-    id: "invite_1",
-    orgId: "org_stanford",
-    email: "invited@example.com",
-    token: "test-token",
-    status: "pending",
-    createdAt: now,
-    expiresAt: new Date(now.getTime() - 1000),
-  });
-
-  await expect(
-    auth.api.signUpEmail({
-      body: {
-        email: "invited@example.com",
-        name: "Invited Researcher",
-        password: "throwaway-not-used-by-magic-link",
-      },
-    }),
+    auth.api.signInMagicLink({ body: { email: "stranger@example.com" } }),
   ).rejects.toThrow();
 });
 ```
 
-- [ ] **Step 2: Run the tests to verify they fail**
+This covers only the rejection path on purpose: the happy path would call `env.EMAIL.send`, whose behaviour under Miniflare is not something worth hanging a test on. The happy path is covered by the final manual end-to-end check.
+
+- [ ] **Step 7: Run the tests**
 
 ```bash
 cd apps/api && pnpm test && cd ../..
 ```
 
-Expected: the invite-gate tests fail (no hook exists yet, so every signup either succeeds unconditionally or errors for unrelated reasons).
+Expected: all tests pass.
 
-- [ ] **Step 3: Implement the hook**
+Two things that can legitimately differ here, both with a defined fallback:
+- If `auth.api.signInMagicLink` doesn't exist under that name, run `pnpm --filter @benchy/api dev` and open `http://localhost:8787/api/auth/reference` to find the generated method name (better-auth mirrors each REST route as a camelCase method on `auth.api`), then update the test.
+- If it resolves instead of rejecting, better-auth is swallowing errors thrown from `sendMagicLink`. In that case delete this test file and rely on the `user.create.before` gate, which is still authoritative (no user is ever created) — and tell the Task 9 implementer, because the login form will then show "check your email" to uninvited people rather than an inline error.
 
-In `apps/api/src/auth.ts`, add these imports:
-
-```ts
-import { APIError } from "better-auth/api";
-import { eq, and } from "drizzle-orm";
-```
-
-Add a `databaseHooks` key to the `betterAuth({...})` call:
-
-```ts
-  databaseHooks: {
-    user: {
-      create: {
-        before: async (user) => {
-          const now = new Date();
-          const [invite] = await db
-            .select()
-            .from(schema.invites)
-            .where(
-              and(
-                eq(schema.invites.email, user.email.toLowerCase()),
-                eq(schema.invites.status, "pending"),
-              ),
-            );
-
-          if (!invite || invite.expiresAt.getTime() < now.getTime()) {
-            throw new APIError("FORBIDDEN", {
-              message:
-                "This email has no pending invite. Ask your university admin for one.",
-            });
-          }
-
-          return {
-            data: {
-              ...user,
-              email: user.email.toLowerCase(),
-              orgId: invite.orgId,
-            },
-          };
-        },
-        after: async (createdUser) => {
-          await db
-            .update(schema.invites)
-            .set({ status: "accepted" })
-            .where(eq(schema.invites.email, createdUser.email));
-        },
-      },
-    },
-  },
-```
-
-- [ ] **Step 4: Run the tests to verify they pass**
-
-```bash
-cd apps/api && pnpm test && cd ../..
-```
-
-Expected: all tests pass (this task's 4 plus the earlier ones).
-
-- [ ] **Step 5: Commit**
+- [ ] **Step 8: Commit**
 
 ```bash
 git add apps/api
-git commit -m "Gate account creation on a pending invite, assign orgId on signup"
+git commit -m "Gate signup and magic-link requests on a pending invite"
 ```
 
 ---
@@ -1185,7 +1335,9 @@ function d1Execute(sql: string): unknown {
   const output = execFileSync(
     "npx",
     ["wrangler", "d1", "execute", DB_NAME, "--remote", "--json", "--command", sql],
-    { encoding: "utf-8" },
+    // stdin/stderr inherited so that a wrangler confirmation prompt is visible
+    // and answerable instead of hanging on a captured pipe.
+    { encoding: "utf-8", stdio: ["inherit", "pipe", "inherit"] },
   );
   return JSON.parse(output);
 }
@@ -1350,12 +1502,15 @@ Create `apps/web/src/pages/login.tsx`:
 
 ```tsx
 import { useState } from "react";
-import { useSearch } from "wouter";
 import { signIn } from "@/lib/auth-client";
 
 export default function Login() {
-  const search = new URLSearchParams(useSearch());
-  const [email, setEmail] = useState(search.get("email") ?? "");
+  // Read straight from the URL rather than a router hook: this component is
+  // rendered by AuthGate outside any <Route>, so there are no route params
+  // to read, and the invite link can land on any path.
+  const [email, setEmail] = useState(
+    () => new URLSearchParams(window.location.search).get("email") ?? "",
+  );
   const [status, setStatus] = useState<
     "idle" | "sending" | "sent" | "error"
   >("idle");
@@ -1431,13 +1586,13 @@ export default function Login() {
 }
 ```
 
-- [ ] **Step 5: Verify it renders**
+- [ ] **Step 5: Verify it typechecks**
 
 ```bash
-pnpm --filter @benchy/web dev
+pnpm --filter @benchy/web exec tsc -p tsconfig.json --noEmit
 ```
 
-Open `http://localhost:5173/login` (or whatever port Vite prints) in a browser and confirm the form renders with no console errors. Submitting it will fail against a real API until Task 10 wires routing and the API is deployed — that's expected at this point; just confirm the page itself mounts cleanly.
+Expected: no errors. There is nothing to look at in a browser yet — nothing renders `Login` until Task 10 mounts `AuthGate`, and this component is deliberately not wired to a `/login` route (see Task 10).
 
 - [ ] **Step 6: Commit**
 
@@ -1478,7 +1633,11 @@ export function AuthGate({ children }: { children: ReactNode }) {
     return <Login />;
   }
 
-  if (!session.user.orgId) {
+  // orgId is a better-auth additionalField; the client's inferred user type
+  // doesn't know about it without wiring the server type across packages.
+  const { orgId } = session.user as { orgId?: string | null };
+
+  if (!orgId) {
     return (
       <div className="mx-auto mt-24 max-w-sm text-center">
         <h1 className="text-lg font-semibold">Almost there</h1>
@@ -1512,13 +1671,16 @@ Wrap the existing `<Router />` (leave everything else in `App` unchanged):
         </WouterRouter>
 ```
 
-- [ ] **Step 3: Verify the golden path in a browser**
+- [ ] **Step 3: Verify in a browser**
 
 ```bash
+pnpm --filter @benchy/web exec tsc -p tsconfig.json --noEmit
 pnpm --filter @benchy/web dev
 ```
 
-Open the app's root URL. Confirm you see the login page (since no session cookie exists yet). This is the full extent of what's verifiable without a deployed API and a real invite — end-to-end sign-in verification happens once Tasks 3–8 are deployed for real (`wrangler deploy` from `apps/api`, and your existing frontend deploy to Cloudflare Pages) and you run the invite script from Task 8 against your own email address.
+Open `http://localhost:21707/`. Confirm you see the login page rather than the benchy UI, since no session cookie exists yet. Then open `http://localhost:21707/accept-invite?email=someone@example.edu` and confirm the email field is prefilled — that path has no route of its own on purpose: `AuthGate` renders `Login` for *any* path while signed out, and `Login` reads the query string directly, so the invite link works without adding a route.
+
+Note the session lookup will fail in the console against a not-yet-deployed API (`VITE_API_URL`); the signed-out rendering is still correct and is what this step verifies. End-to-end sign-in is the final manual check below, after `wrangler deploy`.
 
 - [ ] **Step 4: Commit**
 
