@@ -137,46 +137,112 @@ export const benchmarkRuns = sqliteTable("benchmarkRuns", {
 });
 ```
 
-### The decision you have to make first
+### Visibility rule: org-wide (decided)
 
-**Is a benchmark (or run, or dataset) private to the researcher who made it,
-or visible to everyone in their university?** Nothing in the current design
-answers this, and it determines every query you write. Store both `userId`
-and `orgId` from day one regardless — that keeps either policy available —
-but decide the read rule explicitly and write it down before building
-queries, because retrofitting org-wide visibility onto per-user rows is a
-migration, and retrofitting privacy onto org-wide rows is a leak.
+**Benchmarks, runs, and datasets are visible to the whole organization**, not
+just their author. An org is a university or any other institution.
 
-Whatever you choose, **every query must be scoped**. There is no row-level
-security here; a missing `where userId = ?` is a cross-tenant data leak.
+So the read scope is the org, and the author is attribution:
 
-## Two different things are called "session"
+```ts
+// Reads: scope by org.
+.where(eq(benchmarks.orgId, session.user.orgId))
 
-Be careful with this, since you mentioned the agent is session-specific:
+// Writes: stamp both.
+{ userId: session.user.id, orgId: session.user.orgId, ... }
+```
 
-- A **better-auth session** is a login session: a row in the `session` table,
-  represented by a cookie, expiring on its own schedule, shared across tabs.
-  It answers "who is this request from".
-- An **agent session** is a conversation or working context. That is yours to
-  define; nothing for it exists today.
+Store `userId` on every row anyway — you need it for "who made this", for
+audit, and for any future per-user view. But no read path should filter on
+`userId` alone.
 
-Do not key agent state on the better-auth session id. Sessions rotate and
-expire, and a user with two browsers has two of them — keying on it would
-scatter or silently lose a researcher's work. Key on `user.id`, and give your
-agent sessions their own id and lifecycle.
+**Every query must be scoped by `orgId`.** There is no row-level security
+here; a missing `where orgId = ?` is a cross-tenant leak, and with org-wide
+reads that is the only barrier between two universities' data.
 
-For where agent session state lives, on Cloudflare the two sane options are:
+One consequence worth deciding on early: org-wide visibility means there is no
+private or draft state — a half-finished benchmark is visible to colleagues the
+moment it exists. If researchers should be able to work before publishing to
+their org, add a `status` (`draft` / `published`) column now and filter on it,
+rather than bolting privacy on later.
 
-- **D1 table** — simplest, queryable, fine for conversation history and
-  artifacts. Start here unless you need the other one.
-- **Durable Objects** — one instance per agent session, for genuinely stateful
-  or concurrent/streaming interaction. More machinery; adopt only if the D1
-  shape is actually inadequate.
+## The agent is user-specific and conversation-specific
 
-Long benchmark runs are a third case and do not belong in a request handler at
-all: a Worker request has a wall-clock budget far below a real benchmark. Look
-at Queues, Workflows, or Containers for the engine, and treat that as its own
-design decision.
+Avoid the word "session" for anything the agent owns — it already means the
+login cookie here, and conflating the two causes real bugs. Use
+**conversation**.
+
+- A **session** is authentication state: a row in better-auth's `session`
+  table, carried by a cookie, rotating and expiring on its own schedule, one
+  per browser. It answers only "who is this request from".
+- A **conversation** is one chat thread with the agent. A user can have many,
+  and starts a new one whenever they want a fresh thread. It outlives any
+  login session.
+
+So: **never key conversation state on the session id.** Sessions rotate,
+expire, and multiply across devices; a researcher's chat history would scatter
+or silently vanish. Key on `user.id`, and give conversations their own ids.
+
+The model the product wants:
+
+- The agent always knows *which user* is asking — from `session.user.id`.
+- The agent always knows *which conversation* it is in — from the conversation
+  id on the request.
+- A new chat is a new conversation row, same user.
+- The agent may read that user's other conversations when it needs broader
+  context — that is allowed, because it is the same person. It is a
+  deliberate product choice, not an accident of the schema.
+
+Shape to follow:
+
+```ts
+export const conversations = sqliteTable("conversations", {
+  id: text("id").primaryKey(),
+  userId: text("userId").notNull().references(() => user.id),
+  orgId: text("orgId").notNull().references(() => orgs.id),
+  // Set when the chat is about a specific benchmark; null for a general chat.
+  benchmarkId: text("benchmarkId"),
+  title: text("title"),
+  createdAt: integer("createdAt", { mode: "timestamp" }).notNull(),
+  updatedAt: integer("updatedAt", { mode: "timestamp" }).notNull(),
+});
+
+export const conversationMessages = sqliteTable("conversationMessages", {
+  id: text("id").primaryKey(),
+  conversationId: text("conversationId")
+    .notNull()
+    .references(() => conversations.id, { onDelete: "cascade" }),
+  role: text("role", {
+    enum: ["user", "assistant", "system", "tool"],
+  }).notNull(),
+  content: text("content").notNull(),
+  createdAt: integer("createdAt", { mode: "timestamp" }).notNull(),
+});
+```
+
+Two scoping rules, and they are different on purpose:
+
+- **Conversations are per-user.** Load them with
+  `where(eq(conversations.userId, session.user.id))`. One researcher does not
+  read a colleague's chats, even inside the same org.
+- **The benchmarks the agent reasons over are per-org** (see the visibility
+  rule above). The agent acting for user X may read any benchmark belonging to
+  X's org — and must never read another org's.
+
+`orgId` is still stamped on `conversations` so that a chat can be traced to an
+institution and cleaned up if a user moves or an org is removed. It is not the
+read filter for conversations.
+
+Where the state lives: a D1 table is the right starting point — queryable,
+simple, and conversation history is a natural fit. Reach for **Durable
+Objects** only if you need genuinely concurrent or streaming per-conversation
+state, one instance per conversation; it is more machinery than most chat
+history needs.
+
+Long benchmark runs are a separate problem and do not belong in a request
+handler at all: a Worker request's wall-clock budget is far below a real
+benchmark. Look at Queues, Workflows, or Containers for the engine, and treat
+it as its own design decision.
 
 ## Gotchas that will cost you an afternoon
 
