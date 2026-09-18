@@ -1,4 +1,5 @@
 import { betterAuth } from "better-auth";
+import { magicLink } from "better-auth/plugins";
 import { drizzleAdapter } from "@better-auth/drizzle-adapter";
 import { drizzle } from "drizzle-orm/d1";
 import { env } from "cloudflare:workers";
@@ -40,4 +41,23 @@ export const auth = betterAuth({
       },
     },
   },
+  socialProviders: {
+    google: {
+      clientId: env.GOOGLE_CLIENT_ID,
+      clientSecret: env.GOOGLE_CLIENT_SECRET,
+    },
+  },
+  plugins: [
+    magicLink({
+      sendMagicLink: async ({ email, url }) => {
+        await env.EMAIL.send({
+          to: email,
+          from: { email: "auth@benchy.example", name: "Benchy" },
+          subject: "Sign in to Benchy",
+          text: `Click to sign in: ${url}\n\nThis link expires in 5 minutes.`,
+          html: `<p>Click to sign in: <a href="${url}">${url}</a></p><p>This link expires in 5 minutes.</p>`,
+        });
+      },
+    }),
+  ],
 });
