@@ -4,6 +4,12 @@ import { drizzleAdapter } from "@better-auth/drizzle-adapter";
 import { drizzle } from "drizzle-orm/d1";
 import { env } from "cloudflare:workers";
 import { schema } from "@benchy/db";
+import {
+  findPendingInvite,
+  markInviteAccepted,
+  requireInviteForSignup,
+  requireInviteOrExistingUser,
+} from "./invite-gate";
 
 const db = drizzle(env.DB, { schema });
 
@@ -47,9 +53,30 @@ export const auth = betterAuth({
       clientSecret: env.GOOGLE_CLIENT_SECRET,
     },
   },
+  databaseHooks: {
+    user: {
+      create: {
+        before: async (user) => {
+          const invite = await requireInviteForSignup(db, user.email);
+          return {
+            data: {
+              ...user,
+              email: user.email.toLowerCase(),
+              orgId: invite.orgId,
+            },
+          };
+        },
+        after: async (createdUser) => {
+          const invite = await findPendingInvite(db, createdUser.email);
+          if (invite) await markInviteAccepted(db, invite.id);
+        },
+      },
+    },
+  },
   plugins: [
     magicLink({
       sendMagicLink: async ({ email, url }) => {
+        await requireInviteOrExistingUser(db, email);
         await env.EMAIL.send({
           to: email,
           from: { email: "auth@benchy.example", name: "Benchy" },
