@@ -455,12 +455,36 @@ with no SLA. So the agent tier lives off Cloudflare; the web tier stays on it.
 
 Hermes has **no dedicated Together plugin**. It does have a `custom` provider
 (`plugins/model-providers/custom/`) for any OpenAI-compatible endpoint, and
-Together's API is OpenAI-compatible. So this is configuration, not code:
+Together's API is OpenAI-compatible. So this is configuration, not code. The
+keys are the ones Hermes's own Docker guide uses for OpenAI-compatible
+endpoints (`website/docs/user-guide/docker.md:677-680`, `model.base_url` also
+read at `hermes_cli/runtime_provider.py:47-74`):
+
+```yaml
+# in the image's config.yaml
+model:
+  provider: custom
+  default: "<exact Together model id — resolve at build time, see below>"
+  base_url: https://api.together.xyz/v1
+  api_key: "__TOGETHER_API_KEY__"   # placeholder, templated at boot — read on
+```
+
+**The API key has no environment variable of its own.** The `custom`
+provider declares `env_vars=()` — "No fixed key — custom endpoint"
+(`plugins/model-providers/custom/__init__.py:65`) — so unlike the named
+providers it will not pick the key up from the environment; it has to be in
+`model.api_key`. Do not bake it into the image. Set `TOGETHER_API_KEY` as a
+Railway service variable and have the entrypoint pre-step substitute it into
+the profile's `config.yaml` at boot (a one-line `sed` on the placeholder,
+into the copy under `$HERMES_HOME`, never into the image layer). Whether
+Hermes expands `${VAR}` syntax inside `model.api_key` is **not** verified —
+Hermes's docs only show literal values there — so do not rely on it.
 
 - provider: `custom`
 - base URL: `https://api.together.xyz/v1`
-- API key: `TOGETHER_API_KEY`, set as a Railway environment variable
-- model: see the parity rule immediately below
+- API key: `TOGETHER_API_KEY` (Railway variable) → templated into
+  `model.api_key` at boot
+- model: `model.default`; see the note immediately below
 
 **Model choice (decided): Qwen 3.8, or Kimi K3.** Pick on quality now.
 Those are family names, not API strings — resolve the exact Together model id
@@ -849,9 +873,11 @@ platform_toolsets:
 actually exposing (`api_server.py:1237-1268`) — use it to confirm the pin took
 effect before the first org goes live, rather than trusting the file.
 
-**Model provider.** As decided above: provider `custom`, base URL
-`https://api.together.xyz/v1`, `TOGETHER_API_KEY` from the environment, model
-Qwen 3.8 or Kimi K3. Identical across all org containers.
+**Model provider.** As decided above: the `model:` block under "Together AI
+configuration in Hermes" — provider `custom`, base URL
+`https://api.together.xyz/v1`, key templated into `model.api_key` at boot
+from the `TOGETHER_API_KEY` variable, `model.default` set to the resolved
+Together id for Qwen 3.8 or Kimi K3. Identical across all org containers.
 
 ### The Worker side: routing a request to the right org's Hermes
 
