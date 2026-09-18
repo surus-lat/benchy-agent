@@ -202,6 +202,9 @@ export const conversations = sqliteTable("conversations", {
   orgId: text("orgId").notNull().references(() => orgs.id),
   // Set when the chat is about a specific benchmark; null for a general chat.
   benchmarkId: text("benchmarkId"),
+  // The session id inside the org's Hermes instance that this conversation
+  // maps to. Created via Hermes's sessions API when the conversation starts.
+  hermesSessionId: text("hermesSessionId"),
   title: text("title"),
   createdAt: integer("createdAt", { mode: "timestamp" }).notNull(),
   updatedAt: integer("updatedAt", { mode: "timestamp" }).notNull(),
@@ -289,12 +292,12 @@ Cloudflare Worker                    https://api.<domain> — apps/api, Hono
   • THE ONLY authorization boundary
   │
   │  server-to-server HTTPS, shared secret, never from the browser
-  │  body carries { userId, orgId, conversationId, message }
+  │  routed to THAT ORG's instance; body carries message + speaker attribution
   ▼
-Agent service (Railway)              a Python container you build
-  • thin HTTP layer you write
-  • embeds Hermes AIAgent + SessionDB as a library
-  • holds NO authorization logic
+Hermes, one container PER ORGANIZATION (Railway)
+  • unmodified Hermes in API-server mode (`hermes gateway`)
+  • full skills / memory / learning loop, scoped to the org
+  • holds NO authorization logic; Worker picks the org's instance
   │
   │  HTTPS, OpenAI-compatible, Bearer TOGETHER_API_KEY
   ▼
@@ -308,7 +311,7 @@ Four components, four owners:
 |---|---|---|---|
 | `apps/web` | Cloudflare Pages | UI, session cookie | Call the agent service directly |
 | `apps/api` | Cloudflare Workers | Auth, authorization, D1, conversation records | Run agent logic |
-| Agent service | Railway | The agent loop, model calls | Decide who may see what |
+| Hermes (one per org) | Railway | The agent loop, org-scoped memory & skills, model calls | Decide who may see what; be reachable by anything but the Worker |
 | Together AI | Together | Inference | — |
 
 #### Why Railway and not AWS
@@ -375,14 +378,17 @@ done the work.
 
 - **Transport:** HTTPS, server-to-server only. The browser never calls the
   agent service. Do not expose its URL to the frontend.
-- **Authentication between them:** a shared secret. Generate a long random
-  value, set it as a Worker secret (`wrangler secret put AGENT_SERVICE_TOKEN`)
-  and as a Railway environment variable, and have the agent service reject any
-  request whose `Authorization: Bearer` header does not match, in constant
-  time. This is the only thing standing between the public internet and an
-  unauthenticated agent, since Railway services get a public URL by default.
-- **Payload:** the Worker sends `userId`, `orgId`, `conversationId` and the
-  user's message. Those values come from the verified session, never from the
+- **Authentication between them:** a per-org bearer key. Each org's Hermes
+  is started with its own `API_SERVER_KEY`; the Worker holds each key as a
+  Worker secret and looks up which one to use from the `orgAgentEndpoints`
+  table (below). Hermes rejects mismatches in constant time
+  (`api_server.py:897-919`). This is the only thing standing between the
+  public internet and an org's agent, since Railway services get a public URL
+  by default.
+- **Payload:** the Worker sends the user's message plus a per-turn
+  `system_message` carrying speaker attribution, to the Hermes session that
+  the D1 `conversations` row maps to. The org (and therefore the instance) and
+  the researcher's identity come from the verified session, never from the
   client's request body.
 - **What the agent service must not do:** no session-cookie parsing, no D1
   access, no authorization decisions, no deciding which org a user belongs to.
@@ -411,18 +417,20 @@ out of the frontend bundle, and rotate it if a Railway collaborator leaves.
 
 #### Railway service shape
 
-- One **shared** service handling all researchers and all conversations. Not
-  one per user — that is the cost model to avoid, and it is only achievable
-  after the multi-tenancy work listed above.
-- Deployed from a Dockerfile. Hermes ships one; you will likely write your own
-  thinner image around the embedded library.
-- Environment variables: `TOGETHER_API_KEY`, `AGENT_SERVICE_TOKEN`, plus
-  whatever `HERMES_HOME` strategy the multi-tenancy work settles on.
-- A Railway volume only if the embedded Hermes still needs a writable
-  `HERMES_HOME`. Prefer keeping durable state in D1 and treating the container
-  disk as scratch, so the service can be redeployed or moved freely.
+- **One service per organization**, all from one shared image. Not one per
+  researcher (the cost model to avoid) and not one for everyone (Hermes is
+  single-tenant per instance — see the section below). Cost scales with the
+  number of universities, not researchers.
+- Deployed from a Dockerfile built on Hermes's own, with benchy's curated
+  skills added under `/opt/benchy/skills` and a pinned `config.yaml`.
+- A Railway **volume per service**, mounted at the profile home: it holds the
+  org's memory, self-written skills, and Hermes's SQLite state. D1 remains the
+  record of which conversations exist and who owns them; the volume is what
+  makes the org's agent get better over time.
+- Environment variables per service: `API_SERVER_ENABLED`, `API_SERVER_KEY`
+  (fresh per org), `API_SERVER_HOST`, `API_SERVER_PORT`, `TOGETHER_API_KEY`,
+  and the sandbox backend's key if one is used.
 - Plan: Pro ($20/month minimum usage) for the 99.99% availability target.
-  Cost scales with load, not with researcher count.
 
 #### Swapping Together → Bedrock later
 
@@ -442,79 +450,200 @@ When the AWS requirement becomes concrete:
 5. Note that AWS credits typically expire. "In a few months" should not drift
    past the expiry date, or the sponsorship is wasted.
 
-### Hermes is not multi-tenant as shipped — read this before building on it
+### Hermes is single-tenant per instance — deploy one per organization
 
 An audit of the Hermes checkout (`/Users/dobleefe/hermes-agent`,
-NousResearch/hermes-agent) found that **one Hermes process cannot safely serve
-multiple users.** This is not a tuning problem; it is the shape of the tool.
-Upstream's own answer to multi-user is one gateway *process per user profile*,
-each with "a fully independent HERMES_HOME directory"
-(`hermes_cli/profiles.py`, `website/docs/user-guide/features/api-server.md`).
+NousResearch/hermes-agent) found that **one Hermes instance cannot safely
+serve multiple isolated principals.** Conversations are keyed by session id in
+SQLite, but memory, skills, cron, config and the terminal sandbox all root at
+a single filesystem home, resolved as ContextVar → `HERMES_HOME` →
+`~/.hermes` (`hermes_constants.py:53-108`). Upstream's own answer to multiple
+users is one profile per user, each running its own gateway with its own
+`API_SERVER_KEY` (`website/docs/user-guide/features/api-server.md`, "Multi-User
+Setup with Profiles"; `hermes_cli/profiles.py`).
 
-Conversations *are* keyed by session id in SQLite, so transcripts stay
-separate. Everything else roots at a single filesystem home, resolved as
-ContextVar → `HERMES_HOME` → `~/.hermes` (`hermes_constants.py:53-108`):
+**Decision: the isolation unit is the organization.** One Hermes container per
+university, never one per researcher, never one shared by all. This is a
+product decision the team has made explicitly — benchmarks are already
+org-visible, so an org-scoped agent memory is consistent with everything else.
+It also means **no fork and no stripped-down embedding**: each container runs
+the full, unmodified Hermes — skills, memory, learning loop — configured
+through its own `.env` and `config.yaml`.
 
-- **Memory is shared and goes into every prompt.** One `memories/MEMORY.md`
-  and `USER.md` per home, snapshotted into the system prompt on every turn
-  (`tools/memory_tool.py:55-57, 150-170`). Run two researchers through one
-  process and one's memory lands in the other's context.
-- **Session search ignores tenancy** — FTS5 spans all messages with no tenant
-  filter (`hermes_state.py:601-624`; `search_messages` filters only by
-  source/role, `:3273-3283`). Worse, the tool can read *other profiles'*
-  databases via a `profile=` argument (`tools/session_search_tool.py:36-40,
-  134-175`), so even one-process-per-tenant leaks unless that tool is off.
-- **Skills are a shared writable directory** the agent can create, edit, and
-  delete in (`tools/skills_tool.py:93-94`, `skill_manager_tool.py:559-834`),
-  and `skill_manager` enumerates other profiles' skills (`:372-435`).
-- **The terminal sandbox collapses to one container** shared by all top-level
-  agents (`tools/terminal_tool.py:1002-1034`), and cron is one global
-  `jobs.json` (`cron/jobs.py:51-53`).
-- **Hermes has no per-user authorization.** Its HTTP surface uses a single
-  shared bearer key, and `GET /api/sessions` lists every session
-  (`gateway/platforms/api_server.py:750, 1362-1389`). Session continuation
-  checks only that the session exists (`:1343-1350`).
+Read the audit findings with that grain in mind. Each was a *per-user* leak
+inside one shared home; at org grain most stop being leaks:
 
-There is a real HTTP server (`/v1/chat/completions`, `/api/sessions/{id}/chat`)
-that builds a fresh `AIAgent` per request and loads history by session id, so
-concurrency itself works. Tenancy is what does not.
+- **Memory is shared and goes into every prompt** (`memories/MEMORY.md`,
+  `USER.md`, snapshotted per turn — `tools/memory_tool.py:55-57, 150-170`).
+  Per org, this is the org's memory. Acceptable. The cost is that Hermes
+  models "the user" as a composite of the org's researchers; see "speaker
+  attribution" below for the mitigation.
+- **Session search spans all messages** (`hermes_state.py:601-624`;
+  `search_messages` filters only by source/role, `:3273-3283`). Per org, it
+  spans the org's conversations, which matches the visibility rule.
+- **Session search can read *other profiles'* databases** via a `profile=`
+  argument (`tools/session_search_tool.py:36-40, 134-175`). **Closed by
+  topology:** each container holds exactly one profile, so there is nothing
+  else on that filesystem to read. Do not co-locate two orgs' homes on one
+  disk, or this reopens.
+- **Skills are a shared writable directory** (`tools/skills_tool.py:93-94`,
+  `skill_manager_tool.py:559-834`). Per org, they are the org's skills and the
+  self-improvement loop is the point. See "skills" below for how benchy's
+  curated skills coexist with them.
+- **The terminal sandbox is one container** for all top-level agents
+  (`tools/terminal_tool.py:1002-1034`). Per org this is arbitrary code
+  execution shared by an org's researchers — stronger than "can read a
+  colleague's benchmark." **This one needs a decision; see below.**
+- **No per-user authorization; single bearer key; `GET /api/sessions` lists
+  every session** (`gateway/platforms/api_server.py:750, 1362-1389`). Per
+  org: one key per org, held only by the Worker, which is the sole caller and
+  already knows which researcher it is acting for. The Worker presents each
+  researcher only their own conversations from D1 (conversations are
+  per-user; see above). Hermes never sees a browser.
 
-**What this costs.** Process-per-researcher is the natural unit of isolation
-as shipped, which is exactly the cost model we cannot afford — and it still
-leaks through cross-profile session search.
+What remains true regardless of grain: Hermes must never be reachable from
+anything but the Worker, and the Worker must never let one org's request
+reach another org's instance. Both are routing rules, stated concretely below.
 
-### The recommended shape: embed, don't run the gateway
+### How the per-org Hermes is configured (all configuration, no code)
 
-Rather than running Hermes's gateway multi-tenant or one-per-user, **embed
-`AIAgent` + `SessionDB(db_path=…)` as a library behind our own thin HTTP
-layer**, with the global-state features turned off. That keeps what we
-actually need from Hermes — its tool loop and its ~28-provider model
-abstraction, Bedrock included — and drops the subsystems that are both the
-leak surface and the thing forcing process-per-user.
+**HTTP surface.** The API server is a first-class Hermes feature. In the
+org's profile `.env`:
 
-Concretely, to make one process safely serve everyone:
+```
+API_SERVER_ENABLED=true
+API_SERVER_KEY=<a long random per-org secret>
+API_SERVER_HOST=0.0.0.0
+API_SERVER_PORT=8642
+```
 
-1. Set a per-request home override (`set_hermes_home_override(tenantHome)`) and
-   make `DEFAULT_DB_PATH`, `SKILLS_DIR` (both modules), and `JOBS_FILE` resolve
-   lazily instead of binding at import.
-2. Thread `userId` through agent creation and add `userId` filters to
-   `search_messages` / `list_sessions_rich`; the HTTP path currently never
-   passes it.
-3. Disable `session_search`'s cross-profile paths, `skill_manager`, and
-   `cronjob`; give `terminal` a per-session sandbox or disable it.
-4. Remove the three per-turn `os.environ` writes
-   (`gateway/session_context.py:97`, `agent/agent_init.py:1035`,
-   `gateway/run.py:14583`) — they are process-global state in a concurrent path.
-5. Keep our Worker as the only authorization boundary, and add a per-session
-   turn lock: two concurrent POSTs to one session currently race.
+Start with `hermes gateway`. It refuses to start without a key, and checks
+`Authorization: Bearer` in constant time (`api_server.py:897-919`). Leave
+`API_SERVER_CORS_ORIGINS` unset — no browser ever talks to it.
 
-**Worth saying plainly:** the features Hermes adds over a plain tool loop —
-memory, skills, terminal, cron, session search — are precisely the ones this
-list disables. If the embedded surface ends up being `AIAgent` plus
-`SessionDB`, that is a legitimate use of Hermes as a provider-agnostic agent
-loop, but it is not the self-improving agent the README sells, and the team
-should decide with open eyes whether that is still the right dependency or
-whether building the loop directly is simpler.
+**The endpoint to use:** `POST /api/sessions/{session_id}/chat` — one
+synchronous agent turn, returns
+`{"session_id", "message": {"role": "assistant", "content"}, "usage"}`
+(`api_server.py:1544-1599`). Create the session first via the sessions API,
+and store the returned Hermes `session_id` on the D1 `conversations` row. This
+is the non-streaming contract decided above. `POST
+/api/sessions/{id}/chat/stream` (SSE) exists for later.
+
+**Speaker attribution within an org.** The chat body has no user field; it
+accepts `message` plus an optional ephemeral `system_message` (a.k.a.
+`instructions`) applied to that turn only (`api_server.py:1561-1563`). The
+Worker passes the researcher's identity there on every turn, e.g.
+`"The researcher speaking is Ana Pérez (user_01H…). Address them by name."`
+This is how Hermes tells org members apart in the moment; long-term memory
+remains org-scoped by design.
+
+**Custom skills (benchy's, plus the org's own).** `config.yaml`:
+
+```yaml
+skills:
+  external_dirs:
+    - /opt/benchy/skills      # baked into the image; read-only
+```
+
+Per the config reference: external dirs are read-only, skill creation always
+writes to the profile's `~/.hermes/skills/`, and local skills take precedence
+on a name collision (`agent/skill_utils.py:416`, `cli-config.yaml.example:578`).
+So benchy ships its curated skills (edit benchmark YAML, generate synthetic
+datasets, run an eval, …) in the image, updates them by rebuilding the image,
+and each org's Hermes still grows its own on top. Do not write benchy's skills
+into `~/.hermes/skills/` — that directory is the org's, and an image update
+must not clobber it.
+
+**Terminal tool — decide before launch.** The backend is configuration
+(`cli-config.yaml.example:169-290`): `local`, `ssh`, `docker`, `singularity`,
+`modal`, `daytona`. On Railway, `local` means researchers' commands run inside
+the org's own container, and `docker` needs docker-in-docker, which Railway
+does not offer. The two sane choices:
+
+- **Sandbox it:** `terminal: { backend: modal }` or `daytona` — Hermes's
+  native cloud-sandbox backends, each an optional extra (`modal`, `daytona` in
+  `pyproject.toml`). Adds a vendor and a key, buys a real per-command sandbox.
+- **Disable it:** omit `terminal` from the toolset via `platform_toolsets`.
+  Fine if the agent's job is YAML editing and dataset generation through its
+  own tools rather than shelling out.
+
+Whichever is chosen, it must be the same for every org container — this is a
+security posture, not a per-customer preference.
+
+**Toolsets.** `platform_toolsets` in `config.yaml` composes exactly which
+tools are on. The example keys are `cli`, `telegram`, `discord`, … — **the
+key the API server honours is not shown in the example config.** The agent
+builder must verify with `hermes tools` which preset the API server uses by
+default and how to override it, and pin the result in the image's
+`config.yaml`. Do not ship on the assumption.
+
+**Model provider.** As decided above: provider `custom`, base URL
+`https://api.together.xyz/v1`, `TOGETHER_API_KEY` from the environment, model
+Qwen 3.8 or Kimi K3. Identical across all org containers.
+
+### The Worker side: routing a request to the right org's Hermes
+
+Add a table in `packages/db/src/schema.ts`:
+
+```ts
+export const orgAgentEndpoints = sqliteTable("orgAgentEndpoints", {
+  orgId: text("orgId").primaryKey().references(() => orgs.id),
+  baseUrl: text("baseUrl").notNull(),     // e.g. https://stanford-agent.up.railway.app
+  apiKeyRef: text("apiKeyRef").notNull(), // name of the Worker secret holding this org's API_SERVER_KEY
+  createdAt: integer("createdAt", { mode: "timestamp" }).notNull(),
+});
+```
+
+Do not store the org's `API_SERVER_KEY` in D1. Store the *name* of a Worker
+secret and resolve it at request time, so a D1 read never yields a credential.
+
+The request path, in order, every time:
+
+1. `sessionMiddleware` resolves the researcher; 401 if none.
+2. Read `orgId` from the session — never from the request body.
+3. Load the `conversations` row by id **and** assert `conversation.userId ===
+   session.user.id`; 404 otherwise. (Conversations are per-user.)
+4. Look up `orgAgentEndpoints` by that `orgId`; resolve its key from the
+   Worker secret it names. A missing row means the org has not been
+   provisioned — return a clear error, do not fall back to any default
+   instance.
+5. `POST {baseUrl}/api/sessions/{conversation.hermesSessionId}/chat` with
+   `Authorization: Bearer <key>`, body `{ message, system_message:
+   "<speaker attribution>" }`.
+6. Persist the user message and the assistant reply to
+   `conversationMessages`; return the reply.
+
+Serialize turns per conversation — two concurrent POSTs to one Hermes session
+race (`api_server.py` holds no per-session lock). Either reject a second turn
+while one is in flight (return 409 to the client) or queue it; do not let two
+through.
+
+### Provisioning a new organization
+
+Creating an org now has a second step beyond the invite CLI. Add to the
+runbook:
+
+1. `pnpm invite --org "Stanford" --email …` creates the org row (existing).
+2. Create the org's Hermes service on Railway from the shared image, with its
+   own volume mounted at the profile home, and env vars: `API_SERVER_*` (fresh
+   random key), `TOGETHER_API_KEY`, and the sandbox backend's key if used.
+3. `wrangler secret put AGENT_KEY_<ORG_SLUG>` with that key.
+4. Insert the `orgAgentEndpoints` row (`baseUrl`, `apiKeyRef =
+   "AGENT_KEY_<ORG_SLUG>"`).
+
+Do this by hand for the first universities; automate through Railway's CLI /
+GraphQL API once the shape is stable. The image is shared across orgs; the
+volume and the secrets are what differ.
+
+### What this costs, honestly
+
+- One always-on Python container per university. At five to twenty
+  organizations this is a modest, load-independent floor on Railway; it does
+  not scale with researcher count. Revisit around thirty orgs — options then
+  include a scale-to-zero host for dormant orgs.
+- Composite within-org user model (accepted).
+- A per-org provisioning step (above).
+- Terminal-tool decision (above).
 
 ### Which system owns conversation state
 
