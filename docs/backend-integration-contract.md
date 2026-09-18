@@ -350,12 +350,18 @@ Together's API is OpenAI-compatible. So this is configuration, not code:
 - API key: `TOGETHER_API_KEY`, set as a Railway environment variable
 - model: see the parity rule immediately below
 
-**Model parity rule — this is the one that will bite you.** Together and
-Bedrock do not host the same models. Bedrock carries Anthropic, Meta, Mistral
-and Amazon models. If the agent's prompts are tuned against a Qwen or DeepSeek
-variant on Together, moving to Bedrock later means re-tuning prompts, not
-flipping a config value. **Choose a Together model with a genuine Bedrock
-counterpart — a Llama or Mistral — so the later swap stays mechanical.**
+**Model choice (decided): Qwen 3.8, or Kimi K3.** Pick on quality now.
+
+Be aware of what that defers. Bedrock carries Anthropic, Meta, Mistral and
+Amazon models — not Qwen or Kimi. So prompts tuned against these will need
+re-tuning when the provider swaps, rather than the swap being a config change.
+The team has accepted that knowingly; it is a real future cost, not an
+oversight, and whoever does the Bedrock migration should budget prompt work
+rather than assuming an afternoon.
+
+If that cost later looks unattractive, the escape hatch is to move to a Llama
+or Mistral model on Together first, verify the prompts still behave, and only
+then switch provider — turning one risky migration into two safe ones.
 
 Keep model ids in configuration. Never hardcode a model id, a provider name,
 or a base URL in agent logic. The whole swap should be reachable by changing
@@ -382,6 +388,21 @@ done the work.
   access, no authorization decisions, no deciding which org a user belongs to.
   It is a compute service, not a second security boundary. If it ever needs to
   know something about the user beyond those fields, the Worker passes it.
+
+- **Response shape (decided): one response, not a stream.** For v1 the Worker
+  POSTs, waits for the agent to finish its turn, and returns JSON. No SSE, no
+  WebSocket, no chunked proxying. This is the simplest contract that works and
+  it is what to build against.
+
+  The cost is latency the UI has to absorb: an agent turn doing tool calls can
+  take 10-60 seconds, during which the researcher sees nothing but a pending
+  state. Make that pending state good — it is the whole perceived
+  responsiveness of the feature.
+
+  If streaming is added later it should be a *separate* endpoint rather than a
+  change to this one. Workers proxy streaming responses fine, so the ceiling is
+  not a platform limit; keeping the non-streaming path intact just means the
+  simple case stays simple.
 
 A consequence worth internalising: because the agent service trusts
 `userId`/`orgId` blindly, anyone holding the shared secret can impersonate any
