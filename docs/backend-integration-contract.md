@@ -4,7 +4,7 @@ Written for an engineer or agent building a new backend subsystem (the benchy
 engine, or the benchy agent) on top of the identity foundation that already
 exists in this repo. It assumes no prior context on this codebase.
 
-Status as of 2026-09-17: the identity/multi-tenancy foundation is built and
+Status as of 2026-09-18: the identity/multi-tenancy foundation is built and
 tested. The engine and the agent are **not** built, and have no spec yet. This
 document is the contract between them and what exists.
 
@@ -274,41 +274,152 @@ already established who the caller is and which org they belong to; it passes
 that down as trusted input. Hermes is a compute service, not a second security
 boundary.
 
-### Where the credits go: Bedrock for inference, Cloudflare for everything else
+### Runtime topology: Cloudflare + Railway + Together AI
 
-AWS sponsored this project with credits, and **Bedrock usage counts against
-those credit terms** (confirmed with the sponsor). That decides the split:
+This is decided. Build against it.
 
-- **Model inference runs on AWS Bedrock**, paid with credits.
-- **Everything else stays on Cloudflare** — the Worker, D1, Pages.
-- **Hermes runs wherever is cheapest to operate**, which is now a small,
-  reversible decision rather than a strategic one.
+```
+Browser (researcher)
+  │  https://app.<domain>            Cloudflare Pages — apps/web, the React SPA
+  │  session cookie, Domain=<domain>
+  ▼
+Cloudflare Worker                    https://api.<domain> — apps/api, Hono
+  • better-auth: magic link + Google, invite-only
+  • D1: users, orgs, invites, conversations, benchmarks
+  • THE ONLY authorization boundary
+  │
+  │  server-to-server HTTPS, shared secret, never from the browser
+  │  body carries { userId, orgId, conversationId, message }
+  ▼
+Agent service (Railway)              a Python container you build
+  • thin HTTP layer you write
+  • embeds Hermes AIAgent + SessionDB as a library
+  • holds NO authorization logic
+  │
+  │  HTTPS, OpenAI-compatible, Bearer TOGETHER_API_KEY
+  ▼
+Together AI                          https://api.together.xyz/v1
+  (later: AWS Bedrock — see the swap procedure below)
+```
 
-The reasoning, because it is easy to get backwards: in an agent product,
-inference dwarfs every other line item. Hermes doing tool calls and synthetic
-dataset generation for a cohort of researchers burns real money in tokens; the
-container running it costs tens of dollars a month. Spending sponsor credits
-on the container while paying cash for tokens would be optimising the small
-number.
+Four components, four owners:
 
-Hermes supports this directly — `plugins/model-providers/bedrock/` is a
-first-class provider (one of ~28), authenticating through the AWS SDK
-credential chain rather than env vars, so it is standard IAM. Pointing the
-agent at Bedrock is configuration, not an integration project, and no
-LiteLLM-style proxy is needed in between.
+| Component | Runs on | Owns | Must never |
+|---|---|---|---|
+| `apps/web` | Cloudflare Pages | UI, session cookie | Call the agent service directly |
+| `apps/api` | Cloudflare Workers | Auth, authorization, D1, conversation records | Run agent logic |
+| Agent service | Railway | The agent loop, model calls | Decide who may see what |
+| Together AI | Together | Inference | — |
 
-There is a standing requirement that the system run on AWS within a few
-months. Note that routing inference through Bedrock may already satisfy it,
-since that is where nearly all the spend is. If compute itself must relocate,
-**AWS App Runner** is the service closest to a Railway-style experience —
-point it at a container image, get HTTPS and autoscaling, skip the
-ECS/ALB/VPC ceremony. Because the Worker talks to Hermes over plain
-authenticated HTTP and conversation state lives in D1, that relocation is a
-deployment change.
+#### Why Railway and not AWS
 
-The Cloudflare Agents SDK and Cloudflare Containers are both ruled out: the
-first for the language mismatch described above, the second because it is in
-beta with no SLA and is not where an agent runtime belongs during a launch.
+The decision criterion was **simplicity**, explicitly not cost.
+
+AWS App Runner is the least-complex AWS container option, and it still costs
+you: an ECR repository plus the docker login/tag/push cycle to get an image
+into it, an IAM instance role, secrets via plain env vars or Secrets Manager
+with another IAM grant, logs in CloudWatch as a separate console with its own
+log-group model, and ACM certificate validation for a custom domain. Three or
+four AWS subsystems before the first deploy. Railway is: point it at the repo
+or Dockerfile, get HTTPS, set env vars in a UI, read logs in the same place,
+roll back in one click.
+
+Starting on Together rather than Bedrock removes the one complication Railway
+carried — AWS credentials would otherwise have to live in Railway as
+long-lived static IAM keys. With Together it is a single API key.
+
+The complexity budget for this project belongs to the Hermes multi-tenancy
+work described above, not to the host. Pick the host that disappears.
+
+Cloudflare compute was evaluated and cannot host this at all: Workers have no
+process model (Hermes has ~1,391 subprocess call sites), Python Workers are
+Pyodide/WebAssembly and cannot load Hermes's Rust-backed wheels
+(`pydantic==2.13.4`, `numpy==2.4.3`), and there is no persistent filesystem
+for `HERMES_HOME`. Durable Objects, Pages Functions and Workers for Platforms
+are all the same runtime. Cloudflare Containers could run it but is in beta
+with no SLA. So the agent tier lives off Cloudflare; the web tier stays on it.
+
+#### Together AI configuration in Hermes
+
+Hermes has **no dedicated Together plugin**. It does have a `custom` provider
+(`plugins/model-providers/custom/`) for any OpenAI-compatible endpoint, and
+Together's API is OpenAI-compatible. So this is configuration, not code:
+
+- provider: `custom`
+- base URL: `https://api.together.xyz/v1`
+- API key: `TOGETHER_API_KEY`, set as a Railway environment variable
+- model: see the parity rule immediately below
+
+**Model parity rule — this is the one that will bite you.** Together and
+Bedrock do not host the same models. Bedrock carries Anthropic, Meta, Mistral
+and Amazon models. If the agent's prompts are tuned against a Qwen or DeepSeek
+variant on Together, moving to Bedrock later means re-tuning prompts, not
+flipping a config value. **Choose a Together model with a genuine Bedrock
+counterpart — a Llama or Mistral — so the later swap stays mechanical.**
+
+Keep model ids in configuration. Never hardcode a model id, a provider name,
+or a base URL in agent logic. The whole swap should be reachable by changing
+environment variables.
+
+#### The Worker → agent service call
+
+The Worker authenticates the researcher, then calls the agent service. The
+agent service trusts what the Worker tells it, because the Worker has already
+done the work.
+
+- **Transport:** HTTPS, server-to-server only. The browser never calls the
+  agent service. Do not expose its URL to the frontend.
+- **Authentication between them:** a shared secret. Generate a long random
+  value, set it as a Worker secret (`wrangler secret put AGENT_SERVICE_TOKEN`)
+  and as a Railway environment variable, and have the agent service reject any
+  request whose `Authorization: Bearer` header does not match, in constant
+  time. This is the only thing standing between the public internet and an
+  unauthenticated agent, since Railway services get a public URL by default.
+- **Payload:** the Worker sends `userId`, `orgId`, `conversationId` and the
+  user's message. Those values come from the verified session, never from the
+  client's request body.
+- **What the agent service must not do:** no session-cookie parsing, no D1
+  access, no authorization decisions, no deciding which org a user belongs to.
+  It is a compute service, not a second security boundary. If it ever needs to
+  know something about the user beyond those fields, the Worker passes it.
+
+A consequence worth internalising: because the agent service trusts
+`userId`/`orgId` blindly, anyone holding the shared secret can impersonate any
+researcher. Treat that secret with the same care as the auth secret, keep it
+out of the frontend bundle, and rotate it if a Railway collaborator leaves.
+
+#### Railway service shape
+
+- One **shared** service handling all researchers and all conversations. Not
+  one per user — that is the cost model to avoid, and it is only achievable
+  after the multi-tenancy work listed above.
+- Deployed from a Dockerfile. Hermes ships one; you will likely write your own
+  thinner image around the embedded library.
+- Environment variables: `TOGETHER_API_KEY`, `AGENT_SERVICE_TOKEN`, plus
+  whatever `HERMES_HOME` strategy the multi-tenancy work settles on.
+- A Railway volume only if the embedded Hermes still needs a writable
+  `HERMES_HOME`. Prefer keeping durable state in D1 and treating the container
+  disk as scratch, so the service can be redeployed or moved freely.
+- Plan: Pro ($20/month minimum usage) for the 99.99% availability target.
+  Cost scales with load, not with researcher count.
+
+#### Swapping Together → Bedrock later
+
+When the AWS requirement becomes concrete:
+
+1. Confirm the target Bedrock model is the counterpart of the Together model
+   the prompts were tuned against. If it is not, budget prompt work.
+2. Create an IAM principal with `bedrock:InvokeModel` scoped to the specific
+   model ARNs — nothing broader.
+3. If the service is still on Railway, that means an IAM user and a static
+   access key pair in Railway's environment. Rotate on a schedule. If the
+   service has moved to AWS App Runner by then, use an instance role instead
+   and skip static keys entirely.
+4. Switch Hermes's provider from `custom` to `bedrock`
+   (`plugins/model-providers/bedrock/`, a first-class provider that
+   authenticates through the AWS SDK credential chain).
+5. Note that AWS credits typically expire. "In a few months" should not drift
+   past the expiry date, or the sponsorship is wasted.
 
 ### Hermes is not multi-tenant as shipped — read this before building on it
 
