@@ -6,6 +6,13 @@ import { schema } from "@benchy/db";
 
 const db = drizzle(env.DB, { schema });
 
+if (!env.BETTER_AUTH_SECRET) {
+  throw new Error(
+    "BETTER_AUTH_SECRET is not set. Set it locally in apps/api/.dev.vars, " +
+      "or in production via `wrangler secret put BETTER_AUTH_SECRET`.",
+  );
+}
+
 export const auth = betterAuth({
   database: drizzleAdapter(db, {
     provider: "sqlite",
