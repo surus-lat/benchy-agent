@@ -18,7 +18,8 @@
 - Within an org there is exactly one role: member. No org-admin.
 - Sign-in methods: magic link and Google OAuth only, both auto-creating an account on first use, both gated by the same invite check.
 - Repo root domain shares cookies across `app.<domain>` and `api.<domain>` via `crossSubDomainCookies`.
-- Replace `<your-domain>` in every file below with the real domain once you have it wired into Cloudflare. Do this as a single find-and-replace pass after Task 3; every occurrence is marked.
+- `benchy.example` is a stand-in for the real domain, which isn't chosen yet. It is deliberately a structurally valid hostname (RFC 2606 reserved TLD) because better-auth parses `baseURL` at startup — an angle-bracket placeholder throws `Invalid URL` and takes the whole Worker down. When the real domain exists, swap it in with a single find-and-replace across the repo.
+- **Everything in this plan runs locally.** Tests use Miniflare's simulated D1; `wrangler d1 migrations apply --local` needs no Cloudflare account. The `database_id` in `wrangler.jsonc` is a placeholder zero-UUID and only matters for `--remote`. Do not create cloud resources, deploy, or put secrets while executing these tasks — every step needing a real Cloudflare account or the real domain is collected in "Deferred: needs your Cloudflare account" at the end of this plan.
 
 ---
 
@@ -320,14 +321,16 @@ git commit -m "Add shared Drizzle schema for identity, orgs, and invites"
 **Interfaces:**
 - Produces: the Hono `app` default export from `apps/api/src/index.ts`, which Task 4 extends with the auth route. The D1 binding is `env.DB` everywhere from here on.
 
-- [ ] **Step 1: Create a D1 database**
+- [ ] **Step 1: (Deferred) Create the real D1 database**
+
+Skip this step for now — it is listed here so the sequence reads correctly, but it needs a Cloudflare account and belongs to the deferred handoff at the end of the plan. Step 3 uses a placeholder `database_id`; local development and the entire test suite run against Miniflare's simulated D1, which ignores it.
+
+When the account exists, this is the command, and its output UUID replaces the placeholder in `wrangler.jsonc`:
 
 ```bash
-npx wrangler login   # if not already logged in
+npx wrangler login
 npx wrangler d1 create benchy-db
 ```
-
-Copy the `database_id` (a UUID) from the output — you'll need it in Step 3.
 
 - [ ] **Step 2: Install dependencies**
 
@@ -355,7 +358,7 @@ Then set `apps/api/package.json`'s `"name"` field to `"@benchy/api"` and `"priva
 
 - [ ] **Step 3: Create the wrangler config**
 
-Create `apps/api/wrangler.jsonc` (replace `<D1_DATABASE_ID>` with the UUID from Step 1, and `<your-domain>` with your real domain):
+Create `apps/api/wrangler.jsonc` (replace `00000000-0000-0000-0000-000000000000` with the UUID from Step 1, and `benchy.example` with your real domain):
 
 ```jsonc
 {
@@ -368,13 +371,13 @@ Create `apps/api/wrangler.jsonc` (replace `<D1_DATABASE_ID>` with the UUID from 
     {
       "binding": "DB",
       "database_name": "benchy-db",
-      "database_id": "<D1_DATABASE_ID>",
+      "database_id": "00000000-0000-0000-0000-000000000000",
       "migrations_dir": "../../packages/db/migrations"
     }
   ],
   "send_email": [{ "name": "EMAIL" }],
   "vars": {
-    "BETTER_AUTH_URL": "https://api.<your-domain>"
+    "BETTER_AUTH_URL": "https://api.benchy.example"
   }
 }
 ```
@@ -559,7 +562,7 @@ cd apps/api && npx wrangler secret put BETTER_AUTH_SECRET && cd ../..
 
 - [ ] **Step 2: Write the auth config**
 
-Create `apps/api/src/auth.ts` (replace `<your-domain>` with your real domain in both places):
+Create `apps/api/src/auth.ts` (replace `benchy.example` with your real domain in both places):
 
 ```ts
 import { betterAuth } from "better-auth";
@@ -578,14 +581,14 @@ export const auth = betterAuth({
   baseURL: env.BETTER_AUTH_URL,
   secret: env.BETTER_AUTH_SECRET,
   trustedOrigins: [
-    "https://app.<your-domain>",
-    "https://api.<your-domain>",
+    "https://app.benchy.example",
+    "https://api.benchy.example",
     "http://localhost:21707",
   ],
   advanced: {
     crossSubDomainCookies: {
       enabled: true,
-      domain: "<your-domain>",
+      domain: "benchy.example",
     },
   },
   user: {
@@ -616,7 +619,7 @@ const app = new Hono<{ Bindings: Env }>();
 app.use(
   "/api/auth/*",
   cors({
-    origin: ["https://app.<your-domain>", "http://localhost:21707"],
+    origin: ["https://app.benchy.example", "http://localhost:21707"],
     credentials: true,
   }),
 );
@@ -673,31 +676,32 @@ git commit -m "Mount better-auth with Drizzle/D1 adapter and cross-subdomain coo
 - Consumes: `env.EMAIL` (the `send_email` binding from Task 3's `wrangler.jsonc`).
 - Produces: `auth` now signs in via `signIn.magicLink` and `signIn.social({provider: "google"})`. Task 6 adds the invite gate on top of the account-creation path both of these share.
 
-- [ ] **Step 1: Onboard your domain for sending, and create a Google OAuth app**
+- [ ] **Step 1: (Deferred) Onboard the sending domain and create the Google OAuth app**
+
+Skip both for now — they need a Cloudflare account and a Google Cloud project, and are collected in the deferred handoff at the end of the plan. Recorded here so the sequence reads correctly:
 
 ```bash
-npx wrangler email sending enable <your-domain>
-npx wrangler email sending dns get <your-domain>   # add the printed SPF/DKIM records at your DNS provider
+npx wrangler email sending enable benchy.example
+npx wrangler email sending dns get benchy.example   # add the printed SPF/DKIM records at your DNS provider
 ```
 
-In the [Google Cloud Console](https://console.cloud.google.com/apis/credentials), create an OAuth 2.0 Client ID (type: Web application) with authorized redirect URI `https://api.<your-domain>/api/auth/callback/google`. Copy the client ID and secret.
+In the [Google Cloud Console](https://console.cloud.google.com/apis/credentials), an OAuth 2.0 Client ID (type: Web application) with authorized redirect URI `https://api.benchy.example/api/auth/callback/google`.
 
-- [ ] **Step 2: Add the Google credentials locally**
+- [ ] **Step 2: Add placeholder Google credentials locally**
 
-Append to `apps/api/.dev.vars`:
+better-auth validates that a configured social provider has non-empty credentials, so local dev and the test suite need *some* value. Append to `apps/api/.dev.vars` (git-ignored):
 
 ```
-GOOGLE_CLIENT_ID=<paste client id>
-GOOGLE_CLIENT_SECRET=<paste client secret>
+GOOGLE_CLIENT_ID=local-dev-placeholder
+GOOGLE_CLIENT_SECRET=local-dev-placeholder
 ```
 
-For production:
+These are deliberately fake. Google sign-in will not work locally — that is expected and is covered by the deferred handoff. Nothing in the automated tests exercises a real OAuth round trip.
+
+Then regenerate types so `Env` includes them:
 
 ```bash
-cd apps/api
-npx wrangler secret put GOOGLE_CLIENT_ID
-npx wrangler secret put GOOGLE_CLIENT_SECRET
-cd ../..
+pnpm --filter @benchy/api types
 ```
 
 - [ ] **Step 3: Add the plugins and social provider**
@@ -722,7 +726,7 @@ Add these two top-level keys to the `betterAuth({...})` call, alongside `databas
       sendMagicLink: async ({ email, url }) => {
         await env.EMAIL.send({
           to: email,
-          from: { email: "auth@<your-domain>", name: "Benchy" },
+          from: { email: "auth@benchy.example", name: "Benchy" },
           subject: "Sign in to Benchy",
           text: `Click to sign in: ${url}\n\nThis link expires in 5 minutes.`,
           html: `<p>Click to sign in: <a href="${url}">${url}</a></p><p>This link expires in 5 minutes.</p>`,
@@ -1312,8 +1316,8 @@ import {
 
 const DB_NAME = "benchy-db";
 const INVITE_TTL_DAYS = 7;
-const FROM_ADDRESS = "invites@<your-domain>";
-const APP_BASE_URL = "https://app.<your-domain>";
+const FROM_ADDRESS = "invites@benchy.example";
+const APP_BASE_URL = "https://app.benchy.example";
 
 function parseArgs(argv: string[]): { org: string; email: string } {
   const args: Record<string, string> = {};
@@ -1422,12 +1426,14 @@ Add to `apps/api/package.json` scripts (this replaces the `tsx`-based placeholde
     "invite": "tsx scripts/invite.ts"
 ```
 
-- [ ] **Step 3: Manual verification**
+- [ ] **Step 3: (Deferred) Manual verification**
 
-Run once against your real, deployed D1 database and onboarded email domain (both set up in Tasks 3 and 5):
+This script writes to the *remote* D1 database and sends a real email, so it cannot be exercised now — it is item 8 of the deferred handoff at the end of this plan. For this task, verification is limited to: `pnpm --filter @benchy/api exec tsc --noEmit` passes, and `pnpm --filter @benchy/api invite` with no arguments prints the usage error rather than crashing.
+
+When the account exists, run:
 
 ```bash
-pnpm invite --org "Test University" --email you+test1@<your-domain>
+pnpm invite --org "Test University" --email you+test1@benchy.example
 ```
 
 Confirm: the command prints "Created org", then "Invite sent", and you receive the email at the address you used. Then inspect the row directly:
@@ -1468,10 +1474,10 @@ pnpm --filter @benchy/web add better-auth@^1.7.5
 
 - [ ] **Step 2: Add the API base URL env var**
 
-Create `apps/web/.env` (replace `<your-domain>`; this is a local-dev value — production sets the same var through your Cloudflare Pages project settings):
+Create `apps/web/.env` (replace `benchy.example`; this is a local-dev value — production sets the same var through your Cloudflare Pages project settings):
 
 ```
-VITE_API_URL=https://api.<your-domain>
+VITE_API_URL=https://api.benchy.example
 ```
 
 Confirm it's git-ignored: `.gitignore` at the repo root doesn't currently list `.env`, so add this line to it:
@@ -1691,11 +1697,39 @@ git commit -m "Add auth route guard to the frontend"
 
 ---
 
-## Final manual end-to-end check (not automated)
+## Deferred: needs your Cloudflare account
 
-Once Tasks 1–10 are all committed and both `apps/api` (via `wrangler deploy`) and `apps/web` (via your Cloudflare Pages deploy) are live on your real domain:
+Nothing below runs during Tasks 1–10. Each item needs either a real Cloudflare account, the real domain, or a Google Cloud project. Work through them in order when you have all three.
 
-1. `pnpm invite --org "Your Test Org" --email <your own email>`
-2. Open the link from the invite email.
-3. Confirm you land signed in, on the real app (not the "almost there" holding page).
-4. Try signing in with a second, uninvited email address and confirm you see the invite-required error instead of getting in.
+1. **Pick the domain** and find-and-replace `benchy.example` across the repo with it (17 occurrences at plan-writing time; `grep -rn "benchy.example" apps packages` finds the current set).
+2. **Create the database** and paste its UUID over the placeholder `database_id` in `apps/api/wrangler.jsonc`:
+   ```bash
+   npx wrangler login
+   npx wrangler d1 create benchy-db
+   ```
+3. **Apply migrations remotely:** `pnpm --filter @benchy/api db:migrate:remote`
+4. **Onboard the sending domain** and add the printed SPF/DKIM records at your DNS provider:
+   ```bash
+   npx wrangler email sending enable <your-domain>
+   npx wrangler email sending dns get <your-domain>
+   ```
+5. **Create the Google OAuth client** (Web application) with redirect URI `https://api.<your-domain>/api/auth/callback/google`.
+6. **Set the real production secrets** (the `.dev.vars` values are local placeholders and must not be reused):
+   ```bash
+   cd apps/api
+   npx wrangler secret put BETTER_AUTH_SECRET     # a fresh 32-byte hex string
+   npx wrangler secret put GOOGLE_CLIENT_ID
+   npx wrangler secret put GOOGLE_CLIENT_SECRET
+   ```
+7. **Deploy:** `pnpm --filter @benchy/api deploy`, and deploy `apps/web` to Cloudflare Pages with `VITE_API_URL=https://api.<your-domain>`.
+8. **Run the invite script for real** (this is also the first genuine exercise of Task 8's `--remote` D1 writes and email send — check its `--json` parsing against real wrangler output here):
+   ```bash
+   pnpm invite --org "Your Test Org" --email <your own email>
+   ```
+
+Then the end-to-end check:
+
+1. Open the link from the invite email.
+2. Confirm you land signed in, on the real app — not the "almost there" holding page.
+3. Try signing in with a second, uninvited email address and confirm you get the invite-required error instead of getting in.
+4. Sign out and sign in again with the first address, confirming a returning user (whose invite is now `accepted`) can still get back in.
