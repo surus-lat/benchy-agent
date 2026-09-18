@@ -69,6 +69,38 @@ Authoritative documents:
   implementation plan, including a "Deferred: needs your Cloudflare account"
   section listing everything not yet provisioned.
 
+## Running it
+
+```bash
+pnpm install                                  # repo root
+pnpm --filter @benchy/api db:migrate:local    # apply migrations to local D1
+pnpm --filter @benchy/api dev                 # Worker on :8787
+pnpm --filter @benchy/web dev                 # frontend on :21707
+pnpm --filter @benchy/api test                # Workers suite
+pnpm --filter @benchy/api test:scripts        # Node-side suite
+```
+
+And one local Hermes instance, so the agent path can be exercised end to end
+without Railway (the image is the one you build under `apps/agent/`; see the
+per-org configuration section for what it must contain):
+
+```bash
+docker build -t benchy-agent apps/agent
+docker run --rm -p 8642:8642 \
+  -v benchy-dev-org:/opt/data \
+  -e API_SERVER_ENABLED=true -e API_SERVER_HOST=0.0.0.0 -e API_SERVER_PORT=8642 \
+  -e API_SERVER_KEY=dev-key-change-me \
+  -e TOGETHER_API_KEY=... \
+  benchy-agent
+curl -s -H "Authorization: Bearer dev-key-change-me" http://localhost:8642/v1/toolsets
+```
+
+Then point the local Worker at it: `wrangler secret put AGENT_KEY_DEV`
+(value `dev-key-change-me`, or add it to `.dev.vars`) and insert an
+`orgAgentEndpoints` row for your dev org with `baseUrl =
+"http://localhost:8642"` and `apiKeyRef = "AGENT_KEY_DEV"`.
+
+
 ## Where your code goes
 
 Add backend routes to the existing Worker at `apps/api`. Do not stand up a
@@ -164,17 +196,28 @@ Everything you persist should hang off `user.id`, and usually `orgs.id` too.
    under `packages/db/migrations/`. Commit it.
 3. `pnpm --filter @benchy/api db:migrate:local` to apply locally.
 
-Sketch of the shape to follow:
+The full benchmark and run model belongs to the engine spec, which does not
+exist yet. The agent needs only this minimum to exist now — a benchmark a
+conversation can be *about*:
 
 ```ts
-export const benchmarkRuns = sqliteTable("benchmarkRuns", {
+export const benchmarks = sqliteTable("benchmarks", {
   id: text("id").primaryKey(),
-  userId: text("userId").notNull().references(() => user.id),
-  orgId: text("orgId").notNull().references(() => orgs.id),
+  userId: text("userId").notNull().references(() => user.id),   // author
+  orgId: text("orgId").notNull().references(() => orgs.id),     // read scope
+  title: text("title").notNull(),
+  // Recommended from day one (see the visibility rule below); not yet a
+  // product decision. Filter reads on it if you include it.
+  status: text("status", { enum: ["draft", "published"] })
+    .notNull()
+    .default("draft"),
   createdAt: integer("createdAt", { mode: "timestamp" }).notNull(),
-  // ...
+  updatedAt: integer("updatedAt", { mode: "timestamp" }).notNull(),
 });
 ```
+
+Follow the same shape — text id, `userId` for attribution, `orgId` for
+scope, unix-second timestamps — for every table you add.
 
 ### Visibility rule: org-wide (decided)
 
@@ -184,11 +227,14 @@ just their author. An org is a university or any other institution.
 So the read scope is the org, and the author is attribution:
 
 ```ts
+// `orgId` is the value resolved by the guard in "Authenticating a request"
+// (cast + null check) — `session.user.orgId` alone does not typecheck.
+
 // Reads: scope by org.
-.where(eq(benchmarks.orgId, session.user.orgId))
+.where(eq(benchmarks.orgId, orgId))
 
 // Writes: stamp both.
-{ userId: session.user.id, orgId: session.user.orgId, ... }
+{ userId: session.user.id, orgId, ... }
 ```
 
 Store `userId` on every row anyway — you need it for "who made this", for
@@ -240,7 +286,7 @@ export const conversations = sqliteTable("conversations", {
   userId: text("userId").notNull().references(() => user.id),
   orgId: text("orgId").notNull().references(() => orgs.id),
   // Set when the chat is about a specific benchmark; null for a general chat.
-  benchmarkId: text("benchmarkId"),
+  benchmarkId: text("benchmarkId").references(() => benchmarks.id),
   // The session id inside the org's Hermes instance that this conversation
   // maps to. Created via Hermes's sessions API when the conversation starts.
   hermesSessionId: text("hermesSessionId"),
@@ -371,7 +417,7 @@ Four components, four owners:
 
 | Component | Runs on | Owns | Must never |
 |---|---|---|---|
-| `apps/web` | Cloudflare Pages | UI, session cookie | Call the agent service directly |
+| `apps/web` | Cloudflare Pages | UI, session cookie | Call Hermes directly |
 | `apps/api` | Cloudflare Workers | Auth, authorization, D1, conversation records | Run agent logic |
 | Hermes (one per org) | Railway | The agent loop, org-scoped memory & skills, model calls | Decide who may see what; be reachable by anything but the Worker |
 | Together AI | Together | Inference | — |
@@ -417,6 +463,9 @@ Together's API is OpenAI-compatible. So this is configuration, not code:
 - model: see the parity rule immediately below
 
 **Model choice (decided): Qwen 3.8, or Kimi K3.** Pick on quality now.
+Those are family names, not API strings — resolve the exact Together model id
+from Together's model list when you build the image, and put it in the
+`model.default` config value / its environment override, never in code.
 
 Be aware of what that defers. Bedrock carries Anthropic, Meta, Mistral and
 Amazon models — not Qwen or Kimi. So prompts tuned against these will need
@@ -439,8 +488,8 @@ The Worker authenticates the researcher, then calls that researcher's org's
 Hermes. Hermes trusts what the Worker tells it, because the Worker has already
 done the work.
 
-- **Transport:** HTTPS, server-to-server only. The browser never calls the
-  agent service. Do not expose its URL to the frontend.
+- **Transport:** HTTPS, server-to-server only. The browser never calls
+  Hermes. Do not expose any instance URL to the frontend.
 - **Authentication between them:** a per-org bearer key. Each org's Hermes
   is started with its own `API_SERVER_KEY`; the Worker holds each key as a
   Worker secret and looks up which one to use from the `orgAgentEndpoints`
@@ -453,7 +502,7 @@ done the work.
   the D1 `conversations` row maps to. The org (and therefore the instance) and
   the researcher's identity come from the verified session, never from the
   client's request body.
-- **What the agent service must not do:** no session-cookie parsing, no D1
+- **What Hermes must not do:** no session-cookie parsing, no D1
   access, no authorization decisions, no deciding which org a user belongs to.
   It is a compute service, not a second security boundary. If it ever needs to
   know something about the user beyond those fields, the Worker passes it.
@@ -520,8 +569,9 @@ When the AWS requirement becomes concrete:
 
 ### Hermes is single-tenant per instance — deploy one per organization
 
-An audit of the Hermes checkout (`/Users/dobleefe/hermes-agent`,
-NousResearch/hermes-agent) found that **one Hermes instance cannot safely
+An audit of Hermes (https://github.com/NousResearch/hermes-agent — every
+`file:line` citation in this document is against commit `2c6e266e8`,
+2026-06-19; re-check line numbers if you are on a newer checkout) found that **one Hermes instance cannot safely
 serve multiple isolated principals.** Conversations are keyed by session id in
 SQLite, but memory, skills, cron, config and the terminal sandbox all root at
 a single filesystem home, resolved as ContextVar → `HERMES_HOME` →
@@ -547,8 +597,13 @@ inside one shared home; at org grain most stop being leaks:
   models "the user" as a composite of the org's researchers; see "speaker
   attribution" below for the mitigation.
 - **Session search spans all messages** (`hermes_state.py:601-624`;
-  `search_messages` filters only by source/role, `:3273-3283`). Per org, it
-  spans the org's conversations, which matches the visibility rule.
+  `search_messages` filters only by source/role, `:3273-3283`). At org grain
+  it would let one researcher's agent read a colleague's chats — which
+  **conflicts with the per-user conversation rule** above. Resolution: the
+  `session_search` toolset is **not** in the API server's pinned toolset, so
+  the agent has no tool that crosses conversations. Do not add it back; if
+  cross-conversation recall is ever wanted, it must be built on the Worker
+  side, filtered by `userId`.
 - **Session search can read *other profiles'* databases** via a `profile=`
   argument (`tools/session_search_tool.py:36-40, 134-175`). **Closed by
   topology:** each container holds exactly one profile, so there is nothing
@@ -604,8 +659,19 @@ accepts `message` plus an optional ephemeral `system_message` (a.k.a.
 `instructions`) applied to that turn only (`api_server.py:1561-1563`). The
 Worker passes the researcher's identity there on every turn, e.g.
 `"The researcher speaking is Ana Pérez (user_01H…). Address them by name."`
-This is how Hermes tells org members apart in the moment; long-term memory
-remains org-scoped by design.
+This is how Hermes tells org members apart in the moment.
+
+**Also send `X-Hermes-Session-Key: user:<userId>` on every call.** Hermes
+defines this header as "a stable per-channel identifier that scopes long-term
+memory," independent of the transcript session id
+(`api_server.py:936-960`; `api-server.md`, "Long-term memory scoping"). With
+the default file-based memory (`MEMORY.md` / `USER.md`) it changes nothing —
+that memory stays org-scoped. But with the Honcho memory provider it derives
+a **per-researcher** memory scope inside the org's instance, which is exactly
+the "composite user" cost accepted elsewhere in this document — so pass it
+from day one, and the fix becomes enabling a provider rather than a
+migration. Hermes requires API-key auth for the header, so no caller can
+guess into another user's scope. Max 256 chars, no control characters.
 
 **Custom skills (benchy's, plus the org's own).** `config.yaml`:
 
@@ -682,7 +748,9 @@ tool logic evolves.
 - Core skills are source in this monorepo (default: `apps/agent/skills/`,
   next to the agent image's Dockerfile), so "only the owner" is enforced by
   the repo — branch protection on `main` and a `CODEOWNERS` entry for that
-  path — and every change is a reviewed commit. Rebuilding the image is the
+  path (neither exists yet: the builder adds `.github/CODEOWNERS` when
+  creating `apps/agent/`; the owner enables branch protection) — and every
+  change is a reviewed commit. Rebuilding the image is the
   only path from source to the containers.
 - Rebuild-and-redeploy replaces the core tree wholesale and leaves each org's
   volume untouched, so an image update never clobbers what an org has learned.
@@ -770,7 +838,11 @@ per-customer preference.
 
 ```yaml
 platform_toolsets:
-  api_server: [file, skills, todo, web]   # no terminal. 'file' REQUIRES the boot guards in "Core skills"; drop it if benchmarks are edited via a skill that calls the Worker instead
+  api_server: [file, skills, todo, web]
+  # no terminal (disabled, see above). no session_search (would read across
+  # researchers' conversations; conversations are per-user). 'file' REQUIRES
+  # the boot guards in "Core skills"; drop it if benchmarks are edited via a
+  # core skill that calls the Worker instead of local files.
 ```
 
 `GET /v1/toolsets` on a running instance returns the toolset surface it is
@@ -797,13 +869,27 @@ export const orgAgentEndpoints = sqliteTable("orgAgentEndpoints", {
 Do not store the org's `API_SERVER_KEY` in D1. Store the *name* of a Worker
 secret and resolve it at request time, so a D1 read never yields a credential.
 
+**Routes and payloads (browser ↔ Worker).** All under the existing Hono app,
+all behind `sessionMiddleware`, all JSON. The frontend never sees a Hermes
+URL, session id, or key.
+
+| Method & path | Request body | Response |
+|---|---|---|
+| `POST /api/conversations` | `{ "benchmarkId"?: string, "title"?: string }` | `201 { "id", "title", "benchmarkId", "createdAt" }` |
+| `GET /api/conversations` | — | `200 { "conversations": [{ "id", "title", "benchmarkId", "updatedAt" }] }` (caller's own only) |
+| `GET /api/conversations/:id/messages` | — | `200 { "messages": [{ "id", "role", "content", "createdAt" }] }` |
+| `POST /api/conversations/:id/turns` | `{ "message": string }` | `200 { "reply": string, "usage": {...} }` · `409` if a turn is already in flight · `503` if the org has no provisioned instance |
+
+`benchmarkId`, when given, must belong to the caller's org — check it, or a
+researcher can attach a chat to another university's benchmark id.
+
 **Creating a conversation** (`POST /api/conversations`, authenticated):
 
 1. Resolve the researcher and `orgId` from the session; 401/403 as above.
 2. Look up `orgAgentEndpoints` for the org (see step 4 below for the
    not-provisioned case).
-3. `POST {baseUrl}/api/sessions` with the org's bearer key; take `session_id`
-   from the response.
+3. `POST {baseUrl}/api/sessions` with `Authorization: Bearer <key>` and
+   `X-Hermes-Session-Key: user:<userId>`; take `session_id` from the response.
 4. Insert the `conversations` row with `userId`, `orgId`, optional
    `benchmarkId`, and `hermesSessionId = session_id`. If the Hermes call
    failed, do not insert — return the error; a conversation without a Hermes
@@ -820,8 +906,8 @@ secret and resolve it at request time, so a D1 read never yields a credential.
    provisioned — return a clear error, do not fall back to any default
    instance.
 5. `POST {baseUrl}/api/sessions/{conversation.hermesSessionId}/chat` with
-   `Authorization: Bearer <key>`, body `{ message, system_message:
-   "<speaker attribution>" }`.
+   `Authorization: Bearer <key>` and `X-Hermes-Session-Key: user:<userId>`,
+   body `{ message, system_message: "<speaker attribution>" }`.
 6. Persist the user message and the assistant reply to
    `conversationMessages`; return the reply.
 
@@ -853,9 +939,11 @@ volume and the secrets are what differ.
   organizations this is a modest, load-independent floor on Railway; it does
   not scale with researcher count. Revisit around thirty orgs — options then
   include a scale-to-zero host for dormant orgs.
-- Composite within-org user model (accepted).
+- Composite within-org user model with the default memory backend
+  (accepted; removable later by enabling the Honcho provider, since the
+  Worker already sends a per-user `X-Hermes-Session-Key`).
 - A per-org provisioning step (above).
-- Terminal-tool decision (above).
+- No shell for the agent (terminal disabled).
 
 ## Gotchas that will cost you an afternoon
 
@@ -899,13 +987,3 @@ needs your Cloudflare account" section at the end of
 and test locally: the Worker against Miniflare, one Hermes instance in local
 Docker against Together.
 
-## Running it
-
-```bash
-pnpm install                                  # repo root
-pnpm --filter @benchy/api db:migrate:local    # apply migrations to local D1
-pnpm --filter @benchy/api dev                 # Worker on :8787
-pnpm --filter @benchy/web dev                 # frontend on :21707
-pnpm --filter @benchy/api test                # Workers suite
-pnpm --filter @benchy/api test:scripts        # Node-side suite
-```

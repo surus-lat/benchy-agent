@@ -13,6 +13,12 @@ Everything runs inside Cloudflare: Workers for the API, D1 for the database,
 Cloudflare Pages for the frontend, Cloudflare Email Service for transactional
 email. No third-party auth or email vendor.
 
+> **Scope note (2026-09-18):** the sentence above is true of the identity
+> foundation this spec covers. The *agent tier* decided afterwards runs
+> outside Cloudflare — one Hermes container per organization on Railway, with
+> Together AI for inference. See `docs/backend-integration-contract.md`,
+> which is the authority for anything agent-related.
+
 ## Decisions this spec locks in
 
 - **Multi-tenancy model**: one org per user (a plain nullable `orgId` column
@@ -50,8 +56,8 @@ benchy-agent/                     (pnpm workspace root)
 - **apps/web**: this Vite/React app, deployed to Cloudflare Pages at
   `app.<domain>`. Unchanged except for the auth additions below.
 - **packages/db**: Drizzle ORM schema (SQLite/D1 dialect) and migrations,
-  imported by `apps/api`. Kept separate from `apps/api` so the engine/agent
-  Workers (future specs) can share the same schema package.
+  imported by `apps/api`. Kept separate from `apps/api` so the engine and the
+  agent (future specs) can share the same schema package.
 - **Cookies**: better-auth's default cookie session, configured with
   `crossSubDomainCookies: { enabled: true, domain: ".<domain>" }` so one
   session cookie is valid for both `app.` and `api.` subdomains.
@@ -173,7 +179,8 @@ per-org visibility) is a decision for those specs, not this one.
 
 ## Testing
 
-- `apps/api`: `@cloudflare/vitest-pool-workers`, with real Miniflare-backed
+- `apps/api`: `@cloudflare/vitest-plugin` (the current package; the older
+  `@cloudflare/vitest-pool-workers` name is superseded), with real Miniflare-backed
   D1 (not mocked) for the invite-gate hook, invite acceptance, and
   cross-subdomain cookie config. Exact test list is sized at the
   implementation-plan stage.
