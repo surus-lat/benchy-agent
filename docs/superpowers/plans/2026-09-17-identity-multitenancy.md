@@ -670,7 +670,8 @@ git commit -m "Mount better-auth with Drizzle/D1 adapter and cross-subdomain coo
 **Files:**
 - Modify: `apps/api/src/auth.ts`
 - Modify: `apps/api/.dev.vars`
-- Create: `apps/api/test/magic-link.test.ts`
+
+(No test file: both sign-in paths reach outward — email send, OAuth redirect — and the invite gate that makes them meaningful lands in Task 6, which is where their tests live. Verification here is typecheck + boot + the existing suite staying green.)
 
 **Interfaces:**
 - Consumes: `env.EMAIL` (the `send_email` binding from Task 3's `wrangler.jsonc`).
