@@ -6,7 +6,7 @@
 
 **Architecture:** A Hono Worker (`apps/api`) mounts better-auth against a D1 database, using a shared Drizzle schema package (`packages/db`) that both defines better-auth's own tables and two app-owned tables (`orgs`, `invites`). Sign-up is gated by a `databaseHooks.user.create.before` hook that only allows account creation when a pending invite exists for that email. An admin-only local CLI script writes invites directly to D1 (via `wrangler d1 execute`) and sends the invite email (via `wrangler email sending send`) — neither goes through the Worker. The frontend (`apps/web`, moved from the repo root) gets a better-auth client, a login page, and a route guard.
 
-**Tech Stack:** pnpm workspaces, Hono ^4.13.8, better-auth ^1.7.5 (+ `@better-auth/drizzle-adapter` ^1.7.5), Drizzle ORM ^0.45.2 / drizzle-kit ^0.31.10, Cloudflare D1, Cloudflare Email Service (`send_email` binding + Email Sending REST/CLI), Cloudflare Pages (frontend), `@cloudflare/vitest-plugin` ^1.1.12 for Worker tests, wrangler ^4.134.0.
+**Tech Stack:** pnpm workspaces, Hono ^4.13.8, better-auth ^1.7.5 (+ `@better-auth/drizzle-adapter` ^1.7.5), Drizzle ORM ^0.45.2 / drizzle-kit ^0.31.10, Cloudflare D1, Cloudflare Email Service (`send_email` binding + Email Sending REST/CLI), Cloudflare Pages (frontend), `@cloudflare/vitest-plugin` ^1.1.12 with vitest ^4.1.11 (the plugin peer-requires vitest ^4.1.0 — vitest 5 breaks it) for Worker tests, wrangler ^4.134.0.
 
 **Spec:** `docs/superpowers/specs/2026-09-17-identity-multitenancy-design.md`
 
@@ -339,7 +339,7 @@ mkdir -p apps/api/src apps/api/test
 cd apps/api
 pnpm init
 pnpm add hono@^4.13.8 better-auth@^1.7.5 @better-auth/drizzle-adapter@^1.7.5 drizzle-orm@^0.45.2 @benchy/db@workspace:*
-pnpm add -D wrangler@^4.134.0 @cloudflare/vitest-plugin@^1.1.12 @cloudflare/workers-types@^5.20260917.1 vitest@^5.0.1 typescript@~5.9.2 tsx@^4.23.13
+pnpm add -D wrangler@^4.134.0 @cloudflare/vitest-plugin@^1.1.12 @cloudflare/workers-types@^5.20260917.1 vitest@^4.1.11 typescript@~5.9.2 tsx@^4.23.13
 cd ../..
 ```
 
