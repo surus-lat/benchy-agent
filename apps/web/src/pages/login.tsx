@@ -109,11 +109,17 @@ export default function Login() {
       {status === "error" && (
         <p className="mt-3 text-sm text-destructive">{errorMessage}</p>
       )}
-      <div className="mt-4 border-t pt-4">
-        <Button variant="outline" className="w-full" onClick={handleGoogle}>
-          Sign in with Google
-        </Button>
-      </div>
+      {/* Google stays off until a real OAuth client exists; the API still has
+          the provider configured with placeholder credentials, so showing
+          the button would only produce an error. Flip VITE_ENABLE_GOOGLE
+          to "true" once GOOGLE_CLIENT_ID/SECRET are real. */}
+      {import.meta.env.VITE_ENABLE_GOOGLE === "true" && (
+        <div className="mt-4 border-t pt-4">
+          <Button variant="outline" className="w-full" onClick={handleGoogle}>
+            Sign in with Google
+          </Button>
+        </div>
+      )}
     </div>
   );
 }
