@@ -1,5 +1,5 @@
 import { env } from "cloudflare:workers";
-import { beforeEach, it } from "vitest";
+import { beforeEach, it, vi } from "vitest";
 import { drizzle } from "drizzle-orm/d1";
 import { eq } from "drizzle-orm";
 import { schema } from "@benchy/db";
@@ -73,6 +73,34 @@ it("ignores expired invites", async ({ expect }) => {
   });
 
   expect(await findPendingInvite(db, "invited@example.com")).toBeNull();
+});
+
+it("treats an invite whose expiry is exactly now as not yet expired", async ({
+  expect,
+}) => {
+  const orgId = await seedOrg();
+  // `expiresAt` is stored via Drizzle's sqlite `mode: "timestamp"`, which
+  // truncates to whole seconds on write (Math.floor(ms / 1000)). Align the
+  // boundary to a whole second so the stored value round-trips exactly and
+  // the equality this test pins isn't just an artifact of that truncation.
+  const boundary = new Date(Math.floor((Date.now() + 60_000) / 1000) * 1000);
+  await seedInvite({
+    id: "invite_1",
+    orgId,
+    email: "invited@example.com",
+    expiresAt: boundary,
+  });
+
+  // The gate's comparison is a strict `<`, so an invite is only expired once
+  // the clock reads *past* expiresAt, not at the exact instant it equals it.
+  // Pin that boundary deterministically instead of racing the real clock.
+  const nowSpy = vi.spyOn(Date, "now").mockReturnValue(boundary.getTime());
+  try {
+    const invite = await findPendingInvite(db, "invited@example.com");
+    expect(invite?.id).toBe("invite_1");
+  } finally {
+    nowSpy.mockRestore();
+  }
 });
 
 it("ignores already-accepted invites", async ({ expect }) => {

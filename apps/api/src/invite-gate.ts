@@ -8,6 +8,12 @@ type Db = DrizzleD1Database<typeof schema>;
 const NO_INVITE_MESSAGE =
   "This email has no pending invite. Ask your university admin for one.";
 
+/**
+ * Invariant: `invites.email` is required to already be stored lowercased.
+ * Nothing here normalizes it on write — the invite-creation CLI (a later
+ * task) is what enforces that. This lookup lowercases only the incoming
+ * `email` argument to match against it.
+ */
 export async function findPendingInvite(db: Db, email: string) {
   const [invite] = await db
     .select()
@@ -18,7 +24,13 @@ export async function findPendingInvite(db: Db, email: string) {
         eq(schema.invites.status, "pending"),
       ),
     )
-    .orderBy(desc(schema.invites.createdAt))
+    // Secondary tiebreaker: two invites created in the same millisecond
+    // (e.g. a bulk-invite) would otherwise have undefined relative order in
+    // SQLite, and this function must deterministically pick the same row
+    // every time it's called for the same state — `markInviteAccepted` in
+    // `databaseHooks.user.create.after` relies on that to flip the same
+    // invite that `requireInviteForSignup` in `before` just consumed.
+    .orderBy(desc(schema.invites.createdAt), desc(schema.invites.id))
     .limit(1);
 
   if (!invite) return null;
@@ -58,5 +70,10 @@ export async function markInviteAccepted(db: Db, inviteId: string) {
   await db
     .update(schema.invites)
     .set({ status: "accepted" })
-    .where(eq(schema.invites.id, inviteId));
+    .where(
+      and(
+        eq(schema.invites.id, inviteId),
+        eq(schema.invites.status, "pending"),
+      ),
+    );
 }

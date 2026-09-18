@@ -16,6 +16,12 @@ it("refuses to send a magic link to an uninvited address", async ({
   expect,
 }) => {
   await expect(
-    auth.api.signInMagicLink({ body: { email: "stranger@example.com" } }),
-  ).rejects.toThrow();
+    auth.api.signInMagicLink({
+      body: { email: "stranger@example.com" },
+      // The endpoint is declared `requireHeaders: true`; without this the
+      // call rejects with "Headers is required" before ever reaching our
+      // gate, which would make this test pass for the wrong reason.
+      headers: new Headers(),
+    }),
+  ).rejects.toThrow(/no pending invite/i);
 });
