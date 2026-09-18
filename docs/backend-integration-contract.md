@@ -10,7 +10,7 @@ document is the contract between them and what exists.
 
 ## What exists, and what doesn't
 
-Built, tested, on branch `feat/identity-multitenancy`:
+Built, tested, merged to `main`:
 
 - A pnpm monorepo: `apps/web` (Vite/React frontend), `apps/api` (Cloudflare
   Worker, Hono), `packages/db` (Drizzle schema + D1 migrations).
@@ -554,7 +554,13 @@ and each org's Hermes still grows its own on top. Do not write benchy's skills
 into `~/.hermes/skills/` — that directory is the org's, and an image update
 must not clobber it.
 
-**Terminal tool — decide before launch.** The backend is configuration
+**Terminal tool — DECIDED: disabled.** Omit `terminal` from the API server's
+toolset in the image's `config.yaml`. The agent edits YAML and generates
+datasets through its own file and skill tools; it does not get a shell. This
+is the same for every org container. If a shell is ever needed, the way back
+is the sandbox path below — not `backend: local`.
+
+For the record, the backend is configuration
 (`cli-config.yaml.example:169-290`): `local`, `ssh`, `docker`, `singularity`,
 `modal`, `daytona`. On Railway, `local` means researchers' commands run inside
 the org's own container, and `docker` needs docker-in-docker, which Railway
