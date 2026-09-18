@@ -1,0 +1,35 @@
+{
+  "name": "@benchy/api",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "test": "vitest run",
+    "types": "wrangler types",
+    "db:migrate:local": "wrangler d1 migrations apply benchy-db --local",
+    "db:migrate:remote": "wrangler d1 migrations apply benchy-db --remote"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "packageManager": "pnpm@10.16.0",
+  "dependencies": {
+    "@benchy/db": "workspace:*",
+    "@better-auth/drizzle-adapter": "^1.7.5",
+    "better-auth": "^1.7.5",
+    "drizzle-orm": "^0.45.2",
+    "hono": "^4.13.8"
+  },
+  "devDependencies": {
+    "@cloudflare/vitest-plugin": "^1.1.12",
+    "@cloudflare/workers-types": "^5.20260918.1",
+    "tsx": "^4.23.13",
+    "typescript": "~5.9.3",
+    "vitest": "^4.1.11",
+    "wrangler": "^4.134.0"
+  }
+}
