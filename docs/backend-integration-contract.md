@@ -553,7 +553,80 @@ So benchy ships its curated skills (edit benchmark YAML, generate synthetic
 datasets, run an eval, …) in the image, updates them by rebuilding the image,
 and each org's Hermes still grows its own on top. Do not write benchy's skills
 into `~/.hermes/skills/` — that directory is the org's, and an image update
-must not clobber it.
+must not clobber it. **Who may change which tier, and how that is enforced,
+is the next item — read it; the config-level "read-only" is not sufficient.**
+
+**Core skills: benchy-wide, owner-only (decided).** Two tiers of skills, with
+different owners and different enforcement:
+
+| Tier | Lives in | Who can change it | How |
+|---|---|---|---|
+| **Core benchy skills** — manage a benchmark, edit its YAML, generate synthetic data, run an eval | `/opt/benchy/skills` in the image | **Only the system owner** | Edit the source in this repo, rebuild the image, redeploy every org service |
+| **Org skills** — whatever an org's Hermes learns or a researcher asks it to save | `$HERMES_HOME/skills` on the org's volume | That org's Hermes, at its users' direction | Hermes's normal skill creation / self-improvement |
+
+Core skills are identical across every org, and no researcher can alter them
+through chat. The org tier is untouched — the learning loop stays fully on.
+
+*Why filesystem permissions, not Hermes config.* The config reference calls
+`external_dirs` "read-only", but in source that only means **creation goes
+local**. `skill_manager`'s `edit`, `patch`, `delete` and `write_file` resolve a
+skill's root across local *and* external dirs (`tools/skill_manager_tool.py:
+115-134`, `_containing_skills_root`) and carry no external-dir refusal — if
+the process can write the file, the agent can edit a core skill. Hermes's
+`pinned` flag is not the answer either: it guards **deletion only** and
+explicitly permits edits and patches (`skill_manager_tool.py:211-234`). And
+the `file` tool has no path denylist beyond device files
+(`tools/file_tools.py:69, 286`). So enforcement has to be at the OS:
+
+1. **In the image:** `COPY --chown=root:root skills/ /opt/benchy/skills/`
+   then `chmod -R a-w /opt/benchy/skills && chmod -R a+rX /opt/benchy/skills`
+   (directories `0555`, files `0444`).
+2. **Run as non-root.** Hermes's own Dockerfile already does this: it creates
+   `hermes` (uid 10000) and the entrypoint wrapper drops to it via
+   `s6-setuidgid` for every subcommand, `gateway` included
+   (`docker/main-wrapper.sh:22`). **Never override the entrypoint or start
+   command on Railway** — that is the one way to end up root and void this.
+3. **Fail fast at boot** with a tiny pre-start check in the image: exit
+   non-zero if `id -u` is `0`, or if `test -w /opt/benchy/skills` succeeds.
+   A misconfigured container should refuse to serve, not serve unprotected.
+4. `terminal` is already disabled (above). Even if it weren't, uid 10000 has
+   no `sudo_password` configured and cannot `chmod` root-owned files.
+
+With that, every write into the core tree — from `skill_manager`, from the
+`file` tool, from anything — fails with `EACCES` regardless of how Hermes's
+tool logic evolves.
+
+*Protections Hermes gives you for free, verified in source:*
+
+- **Name squatting is refused.** `_create_skill` looks the name up across local
+  and external dirs and refuses with "A skill named 'X' already exists at …"
+  (`skill_manager_tool.py:559-626`, via `_find_skill`). A researcher cannot
+  create a local `benchy-eval` to shadow the core one.
+- **Ambiguity is refused, not guessed.** If two skills ever share a bare name
+  across tiers, loading by that name errors out with the candidate paths
+  (`tools/skills_tool.py:1000-1105`) rather than silently picking one.
+
+*Conventions to adopt:*
+
+- Prefix every core skill `benchy-` and reserve the prefix; it makes the tier
+  obvious in listings and in the collision error text.
+- Core skills are source in this monorepo (default: `apps/agent/skills/`,
+  next to the agent image's Dockerfile), so "only the owner" is enforced by
+  the repo — branch protection on `main` and a `CODEOWNERS` entry for that
+  path — and every change is a reviewed commit. Rebuilding the image is the
+  only path from source to the containers.
+- Rebuild-and-redeploy replaces the core tree wholesale and leaves each org's
+  volume untouched, so an image update never clobbers what an org has learned.
+
+*What this does not protect, so nobody assumes it does:*
+
+- **The model's compliance.** Permissions protect the file, not whether the
+  agent follows it. A researcher can still talk the agent into ignoring a
+  core skill's instructions in a given turn. That is a prompt-injection
+  surface, not a filesystem one, and it is the same for every agent product.
+- **Runtime-loaded copies.** Hermes reads core skills into context; a
+  researcher can ask the agent to *show* them. They are instructions, not
+  secrets — do not put credentials or anything confidential in a skill.
 
 **Terminal tool — DECIDED: disabled.** Omit `terminal` from the API server's
 toolset in the image's `config.yaml`. The agent edits YAML and generates
