@@ -233,16 +233,67 @@ Two scoping rules, and they are different on purpose:
 institution and cleaned up if a user moves or an org is removed. It is not the
 read filter for conversations.
 
-Where the state lives: a D1 table is the right starting point — queryable,
-simple, and conversation history is a natural fit. Reach for **Durable
-Objects** only if you need genuinely concurrent or streaming per-conversation
-state, one instance per conversation; it is more machinery than most chat
-history needs.
-
 Long benchmark runs are a separate problem and do not belong in a request
 handler at all: a Worker request's wall-clock budget is far below a real
-benchmark. Look at Queues, Workflows, or Containers for the engine, and treat
-it as its own design decision.
+benchmark. Treat the engine's execution model as its own design decision.
+
+## Where the agent runs, and why not the Cloudflare Agents SDK
+
+Cloudflare publishes an Agents SDK (`agents`) — persistent, stateful agents on
+Durable Objects. It is a good product and it is **not** the right choice here,
+for a reason that is not about quality:
+
+- The Agents SDK is **TypeScript**, running inside Workers on Durable Objects.
+- Hermes is **Python** (`requires-python >=3.11,<3.14`, Rust-backed
+  transitives like pydantic-core, a Dockerfile and docker-compose).
+
+They are alternatives, not complements. Nothing runs Hermes "inside" the
+Agents SDK. Workers' Python support is Pyodide-based and will not run Hermes
+either — it needs real wheels, a filesystem, and subprocesses. Choosing the
+Agents SDK therefore means rewriting the agent in TypeScript and giving up the
+reason Hermes was chosen: its skills system, learning loop, and
+provider-agnostic model switching.
+
+The Agents SDK would be the right answer for an agent written from scratch in
+TypeScript. That is not this project.
+
+**So: the Worker is the front door; Hermes runs as a container behind it.**
+The Worker already owns authentication, D1, and CORS. It authenticates the
+request, then calls Hermes over plain HTTP.
+
+### The rule that keeps this reversible
+
+Make the boundary **plain authenticated HTTP from the Worker to Hermes,
+passing `userId` and `conversationId`**. Nothing else crosses it. Keep that
+boundary clean and *where* Hermes runs stays a deployment decision you can
+revisit — not an architecture you are married to.
+
+Concretely, that means: Hermes does not talk to D1 directly, does not read the
+session cookie, and does not make authorization decisions. The Worker has
+already established who the caller is and which org they belong to; it passes
+that down as trusted input. Hermes is a compute service, not a second security
+boundary.
+
+### Which system owns conversation state
+
+This matters more than the hosting question, and it is easy to get wrong,
+because Hermes ships its own memory system — sessions, FTS5 session search,
+skills, user modeling. Our D1 schema also wants to own conversations. Two
+systems both believing they are the source of truth for "what did this user
+say" will hurt.
+
+The split:
+
+- **D1 owns the conversation record** — id, owner, org, title, which benchmark
+  it is about. This is what the UI lists, and what has to be multi-tenant-safe.
+- **Hermes owns its internal working memory** for a conversation, keyed by the
+  `conversationId` we hand it.
+- **Do not try to reconcile the two memory models before launch.**
+
+If that split turns out wrong, you have duplicated a little storage, which is
+cheap. The reverse — letting Hermes own the multi-tenant data — puts org
+isolation inside a system that was not designed around our org model, which is
+not cheap.
 
 ## Gotchas that will cost you an afternoon
 
