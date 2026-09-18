@@ -16,4 +16,7 @@
   "vars": {
     "BETTER_AUTH_URL": "https://api.benchy.example"
   }
+  // BETTER_AUTH_SECRET is a secret, not a var: it does not belong here.
+  // Locally it comes from apps/api/.dev.vars (gitignored, not committed).
+  // In production, set it once via: npx wrangler secret put BETTER_AUTH_SECRET
 }
