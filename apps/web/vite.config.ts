@@ -47,7 +47,7 @@ export default defineConfig({
       deny: ["**/.*"],
     },
     proxy: {
-      "/api": "http://localhost:8080",
+      "/api": "http://localhost:8787",   // wrangler dev
     },
   },
   preview: {

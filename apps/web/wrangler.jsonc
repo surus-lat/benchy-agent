@@ -1,0 +1,9 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "benchy-agent",
+  "pages_build_output_dir": "dist/public",
+  "compatibility_date": "2026-09-17",
+  "services": [
+    { "binding": "API", "service": "benchy-api" }
+  ]
+}

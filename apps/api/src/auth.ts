@@ -27,17 +27,10 @@ export const auth = betterAuth({
   }),
   baseURL: env.BETTER_AUTH_URL,
   secret: env.BETTER_AUTH_SECRET,
-  trustedOrigins: [
-    "https://app.benchy.example",
-    "https://api.benchy.example",
-    "http://localhost:21707",
-  ],
-  advanced: {
-    crossSubDomainCookies: {
-      enabled: true,
-      domain: "benchy.example",
-    },
-  },
+  // Single-origin deployment: Pages serves the SPA and proxies /api/* to this
+  // Worker, so the browser only ever sees one origin (BETTER_AUTH_URL) and
+  // no cross-subdomain cookie configuration is needed -- or safe -- to set.
+  trustedOrigins: [env.BETTER_AUTH_URL, "http://localhost:21707"],
   user: {
     additionalFields: {
       orgId: {
@@ -79,7 +72,7 @@ export const auth = betterAuth({
         await requireInviteOrExistingUser(db, email);
         await env.EMAIL.send({
           to: email,
-          from: { email: "auth@benchy.example", name: "Benchy" },
+          from: { email: env.EMAIL_FROM, name: "Benchy" },
           subject: "Sign in to Benchy",
           text: `Click to sign in: ${url}\n\nThis link expires in 5 minutes.`,
           html: `<p>Click to sign in: <a href="${url}">${url}</a></p><p>This link expires in 5 minutes.</p>`,

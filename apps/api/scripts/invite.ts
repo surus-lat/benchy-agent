@@ -11,7 +11,7 @@ import {
 const DB_NAME = "benchy-db";
 const INVITE_TTL_DAYS = 7;
 const FROM_ADDRESS = "invites@benchy.example";
-const APP_BASE_URL = "https://app.benchy.example";
+const APP_BASE_URL = "https://benchy-agent.pages.dev";
 
 function parseArgs(argv: string[]): { org: string; email: string } {
   const args: Record<string, string> = {};
