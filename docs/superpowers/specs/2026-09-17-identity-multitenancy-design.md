@@ -88,11 +88,18 @@ per-org visibility) is a decision for those specs, not this one.
      `wrangler d1 execute` — a direct SQL write, no Worker/API call.
    - Inserts an `invites` row: random token, `status = "pending"`,
      `expiresAt = now + 7 days`.
-   - Sends the invite email via the **Email Sending REST API** (not the
-     Workers binding — this script runs on the admin's machine, outside the
-     Workers runtime, so it authenticates with a scoped Cloudflare API
-     token instead). Email contains a link:
+   - Sends the invite email via `wrangler email sending send`. It cannot use
+     the Workers `EMAIL` binding, because the script runs on the admin's
+     machine rather than inside the Workers runtime. An earlier draft of this
+     spec called for the Email Sending REST API with a separately-created,
+     scoped Cloudflare API token; going through wrangler instead means the
+     admin needs no second credential — both the D1 write and the email ride
+     on the same `wrangler login` session they already need in order to
+     deploy. Email contains a link:
      `https://app.<domain>/accept-invite?email=<email>&token=<token>`.
+   - Refuses, with a clear error and a non-zero exit, if a user already
+     exists for that email. Re-inviting an existing member would otherwise
+     leave a `pending` invite that nobody ever consumes (see edge cases).
 
 2. **Sign-in is gated on a pending invite, not just org-joining after the
    fact.** A better-auth hook runs before a user is created (magic-link
@@ -115,10 +122,18 @@ per-org visibility) is a decision for those specs, not this one.
    to the plain login page and use their invited email directly.
 
 5. **Edge cases**: expired invite → same as no invite (rejected, with a
-   message telling them to ask the admin to re-invite). User attempting to
-   accept a second invite while already having an `orgId` → rejected in the
-   hook with a clear error (one org per user is a hard rule for v1; changing
-   orgs is an out-of-scope admin operation for now).
+   message telling them to ask the admin to re-invite).
+
+   Re-inviting someone who already has an account → **rejected by the CLI at
+   invite-creation time**, not at redemption. This spec originally placed the
+   check "in the hook with a clear error", which on implementation turned out
+   to be the wrong place twice over: `user.create.before` only fires when a
+   user is created, so it never runs for someone who already exists, and even
+   if it did, the error would surface to the invitee rather than to the admin
+   who made the mistake. Checking in the CLI puts the message in front of the
+   person who can act on it, and stops the stray `pending` row from being
+   written at all. One org per user remains a hard rule for v1; moving a user
+   between orgs is still an out-of-scope admin operation.
 
 ## Runtime auth (`apps/api`)
 
