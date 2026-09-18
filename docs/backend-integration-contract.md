@@ -310,6 +310,80 @@ The Cloudflare Agents SDK and Cloudflare Containers are both ruled out: the
 first for the language mismatch described above, the second because it is in
 beta with no SLA and is not where an agent runtime belongs during a launch.
 
+### Hermes is not multi-tenant as shipped — read this before building on it
+
+An audit of the Hermes checkout (`/Users/dobleefe/hermes-agent`,
+NousResearch/hermes-agent) found that **one Hermes process cannot safely serve
+multiple users.** This is not a tuning problem; it is the shape of the tool.
+Upstream's own answer to multi-user is one gateway *process per user profile*,
+each with "a fully independent HERMES_HOME directory"
+(`hermes_cli/profiles.py`, `website/docs/user-guide/features/api-server.md`).
+
+Conversations *are* keyed by session id in SQLite, so transcripts stay
+separate. Everything else roots at a single filesystem home, resolved as
+ContextVar → `HERMES_HOME` → `~/.hermes` (`hermes_constants.py:53-108`):
+
+- **Memory is shared and goes into every prompt.** One `memories/MEMORY.md`
+  and `USER.md` per home, snapshotted into the system prompt on every turn
+  (`tools/memory_tool.py:55-57, 150-170`). Run two researchers through one
+  process and one's memory lands in the other's context.
+- **Session search ignores tenancy** — FTS5 spans all messages with no tenant
+  filter (`hermes_state.py:601-624`; `search_messages` filters only by
+  source/role, `:3273-3283`). Worse, the tool can read *other profiles'*
+  databases via a `profile=` argument (`tools/session_search_tool.py:36-40,
+  134-175`), so even one-process-per-tenant leaks unless that tool is off.
+- **Skills are a shared writable directory** the agent can create, edit, and
+  delete in (`tools/skills_tool.py:93-94`, `skill_manager_tool.py:559-834`),
+  and `skill_manager` enumerates other profiles' skills (`:372-435`).
+- **The terminal sandbox collapses to one container** shared by all top-level
+  agents (`tools/terminal_tool.py:1002-1034`), and cron is one global
+  `jobs.json` (`cron/jobs.py:51-53`).
+- **Hermes has no per-user authorization.** Its HTTP surface uses a single
+  shared bearer key, and `GET /api/sessions` lists every session
+  (`gateway/platforms/api_server.py:750, 1362-1389`). Session continuation
+  checks only that the session exists (`:1343-1350`).
+
+There is a real HTTP server (`/v1/chat/completions`, `/api/sessions/{id}/chat`)
+that builds a fresh `AIAgent` per request and loads history by session id, so
+concurrency itself works. Tenancy is what does not.
+
+**What this costs.** Process-per-researcher is the natural unit of isolation
+as shipped, which is exactly the cost model we cannot afford — and it still
+leaks through cross-profile session search.
+
+### The recommended shape: embed, don't run the gateway
+
+Rather than running Hermes's gateway multi-tenant or one-per-user, **embed
+`AIAgent` + `SessionDB(db_path=…)` as a library behind our own thin HTTP
+layer**, with the global-state features turned off. That keeps what we
+actually need from Hermes — its tool loop and its ~28-provider model
+abstraction, Bedrock included — and drops the subsystems that are both the
+leak surface and the thing forcing process-per-user.
+
+Concretely, to make one process safely serve everyone:
+
+1. Set a per-request home override (`set_hermes_home_override(tenantHome)`) and
+   make `DEFAULT_DB_PATH`, `SKILLS_DIR` (both modules), and `JOBS_FILE` resolve
+   lazily instead of binding at import.
+2. Thread `userId` through agent creation and add `userId` filters to
+   `search_messages` / `list_sessions_rich`; the HTTP path currently never
+   passes it.
+3. Disable `session_search`'s cross-profile paths, `skill_manager`, and
+   `cronjob`; give `terminal` a per-session sandbox or disable it.
+4. Remove the three per-turn `os.environ` writes
+   (`gateway/session_context.py:97`, `agent/agent_init.py:1035`,
+   `gateway/run.py:14583`) — they are process-global state in a concurrent path.
+5. Keep our Worker as the only authorization boundary, and add a per-session
+   turn lock: two concurrent POSTs to one session currently race.
+
+**Worth saying plainly:** the features Hermes adds over a plain tool loop —
+memory, skills, terminal, cron, session search — are precisely the ones this
+list disables. If the embedded surface ends up being `AIAgent` plus
+`SessionDB`, that is a legitimate use of Hermes as a provider-agnostic agent
+loop, but it is not the self-improving agent the README sells, and the team
+should decide with open eyes whether that is still the right dependency or
+whether building the loop directly is simpler.
+
 ### Which system owns conversation state
 
 This matters more than the hosting question, and it is easy to get wrong,
