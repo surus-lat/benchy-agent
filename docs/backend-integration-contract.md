@@ -274,6 +274,42 @@ already established who the caller is and which org they belong to; it passes
 that down as trusted input. Hermes is a compute service, not a second security
 boundary.
 
+### Where the credits go: Bedrock for inference, Cloudflare for everything else
+
+AWS sponsored this project with credits, and **Bedrock usage counts against
+those credit terms** (confirmed with the sponsor). That decides the split:
+
+- **Model inference runs on AWS Bedrock**, paid with credits.
+- **Everything else stays on Cloudflare** — the Worker, D1, Pages.
+- **Hermes runs wherever is cheapest to operate**, which is now a small,
+  reversible decision rather than a strategic one.
+
+The reasoning, because it is easy to get backwards: in an agent product,
+inference dwarfs every other line item. Hermes doing tool calls and synthetic
+dataset generation for a cohort of researchers burns real money in tokens; the
+container running it costs tens of dollars a month. Spending sponsor credits
+on the container while paying cash for tokens would be optimising the small
+number.
+
+Hermes supports this directly — `plugins/model-providers/bedrock/` is a
+first-class provider (one of ~28), authenticating through the AWS SDK
+credential chain rather than env vars, so it is standard IAM. Pointing the
+agent at Bedrock is configuration, not an integration project, and no
+LiteLLM-style proxy is needed in between.
+
+There is a standing requirement that the system run on AWS within a few
+months. Note that routing inference through Bedrock may already satisfy it,
+since that is where nearly all the spend is. If compute itself must relocate,
+**AWS App Runner** is the service closest to a Railway-style experience —
+point it at a container image, get HTTPS and autoscaling, skip the
+ECS/ALB/VPC ceremony. Because the Worker talks to Hermes over plain
+authenticated HTTP and conversation state lives in D1, that relocation is a
+deployment change.
+
+The Cloudflare Agents SDK and Cloudflare Containers are both ruled out: the
+first for the language mismatch described above, the second because it is in
+beta with no SLA and is not where an agent runtime belongs during a launch.
+
 ### Which system owns conversation state
 
 This matters more than the hosting question, and it is easy to get wrong,
