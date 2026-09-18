@@ -1,0 +1,212 @@
+@import url('https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700;1,9..40,400&display=swap');
+@import "tailwindcss";
+@import "tw-animate-css";
+
+@custom-variant dark (&:is(.dark *));
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --font-sans: var(--app-font-sans);
+  --font-mono: var(--app-font-mono);
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+}
+
+:root {
+  --neutral-0: #fff;
+  --neutral-50: #f7f7f7;
+  --neutral-100: #f8f8f8;
+  --neutral-200: #eee;
+  --neutral-250: #e4e4e4;
+  --neutral-300: #bebebe;
+  --neutral-400: #9b9b9b;
+  --neutral-500: #585858;
+  --neutral-600: #555;
+  --neutral-700: #3a3a3a;
+  --neutral-800: #2e2e2e;
+  --neutral-850: #282828;
+  --neutral-900: #222;
+  --neutral-950: #1b1b1b;
+  --neutral-1000: #121212;
+
+  --accent-p-300: #f9b96c;
+  --accent-p-500: #fba62a;
+  --accent-p-700: #bb7400;
+  --accent-muted: var(--accent-p-300);
+
+  --background: var(--neutral-0);
+  --foreground: var(--neutral-950);
+  --card: var(--neutral-0);
+  --card-foreground: var(--neutral-950);
+  --popover: var(--neutral-0);
+  --popover-foreground: var(--neutral-950);
+  --primary: var(--accent-p-500);
+  --primary-foreground: var(--neutral-50);
+  --secondary: var(--neutral-100);
+  --secondary-foreground: var(--neutral-950);
+  --muted: var(--neutral-100);
+  --muted-foreground: var(--neutral-500);
+  --accent: var(--neutral-100);
+  --accent-foreground: var(--neutral-950);
+  --destructive: #cc272e;
+  --destructive-foreground: var(--neutral-50);
+  --border: var(--neutral-50);
+  --input: var(--neutral-50);
+  --ring: var(--neutral-400);
+
+  --app-font-sans: 'DM Sans', system-ui, -apple-system, sans-serif;
+  --app-font-mono: 'Menlo', 'Monaco', monospace;
+  --radius: 0.625rem;
+}
+
+.dark {
+  --background: var(--neutral-1000);
+  --foreground: var(--neutral-50);
+  --card: var(--neutral-900);
+  --card-foreground: var(--neutral-50);
+  --popover: var(--neutral-900);
+  --popover-foreground: var(--neutral-50);
+  --primary: var(--accent-p-500);
+  --primary-foreground: var(--neutral-950);
+  --secondary: var(--neutral-950);
+  --secondary-foreground: var(--neutral-50);
+  --muted: var(--neutral-950);
+  --muted-foreground: var(--neutral-400);
+  --accent: var(--neutral-950);
+  --accent-foreground: var(--neutral-50);
+  --destructive: #e85854;
+  --destructive-foreground: var(--neutral-950);
+  --border: var(--neutral-950);
+  --input: var(--neutral-800);
+  --ring: var(--neutral-600);
+}
+
+@layer base {
+  * {
+    border-color: var(--border);
+    box-sizing: border-box;
+  }
+  body {
+    background-color: var(--background);
+    color: var(--foreground);
+    font-family: var(--app-font-sans);
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+}
+
+@keyframes blink {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0; }
+}
+
+@keyframes shake {
+  0%, 100% { transform: translateX(0); }
+  20% { transform: translateX(-4px); }
+  40% { transform: translateX(4px); }
+  60% { transform: translateX(-4px); }
+  80% { transform: translateX(3px); }
+}
+
+@keyframes fadeBlurIn {
+  from { opacity: 0; filter: blur(6px); transform: translateY(8px); }
+  to { opacity: 1; filter: blur(0px); transform: translateY(0); }
+}
+
+.animate-blink {
+  animation: blink 1s step-end infinite;
+}
+
+.animate-shake {
+  animation: shake 0.4s ease-in-out;
+}
+
+.animate-fade-blur-in {
+  animation: fadeBlurIn 0.5s cubic-bezier(0.25, 0.1, 0.25, 1) forwards;
+}
+
+.no-scrollbar::-webkit-scrollbar { display: none; }
+.no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+
+@keyframes etherealPulse {
+  0%, 100% {
+    box-shadow:
+      0 0 0 1px rgba(251, 174, 50, 0.38),
+      0 0 10px 4px rgba(251, 185, 70, 0.20),
+      0 0 36px 12px rgba(252, 205, 110, 0.12),
+      0 0 90px 30px rgba(253, 220, 145, 0.07),
+      0 0 190px 60px rgba(254, 235, 185, 0.04),
+      0 0 340px 100px rgba(255, 245, 215, 0.018);
+  }
+  50% {
+    box-shadow:
+      0 0 0 1px rgba(251, 180, 55, 0.60),
+      0 0 16px 6px rgba(251, 192, 80, 0.33),
+      0 0 55px 18px rgba(252, 210, 115, 0.20),
+      0 0 130px 45px rgba(253, 225, 155, 0.12),
+      0 0 260px 85px rgba(254, 238, 190, 0.07),
+      0 0 440px 130px rgba(255, 247, 220, 0.03);
+  }
+}
+
+.notepad-glow {
+  animation: etherealPulse 4.8s ease-in-out infinite;
+}
+
+.brightness-slider {
+  -webkit-appearance: none;
+  appearance: none;
+  height: 3px;
+  border-radius: 99px;
+  background: rgba(0, 0, 0, 0.12);
+  outline: none;
+  cursor: pointer;
+}
+
+.brightness-slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: #fff;
+  border: 1.5px solid rgba(0, 0, 0, 0.15);
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.18);
+  cursor: grab;
+  transition: box-shadow 0.15s ease;
+}
+
+.brightness-slider::-webkit-slider-thumb:active {
+  cursor: grabbing;
+  box-shadow: 0 1px 8px rgba(0, 0, 0, 0.22);
+}
+
+.brightness-slider::-moz-range-thumb {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: #fff;
+  border: 1.5px solid rgba(0, 0, 0, 0.15);
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.18);
+  cursor: grab;
+}
