@@ -4,3 +4,5 @@ dist/
 .gstack/
 *.log
 .DS_Store
+.wrangler/
+.dev.vars
