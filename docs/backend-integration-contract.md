@@ -524,8 +524,9 @@ Start with `hermes gateway`. It refuses to start without a key, and checks
 **The endpoint to use:** `POST /api/sessions/{session_id}/chat` — one
 synchronous agent turn, returns
 `{"session_id", "message": {"role": "assistant", "content"}, "usage"}`
-(`api_server.py:1544-1599`). Create the session first via the sessions API,
-and store the returned Hermes `session_id` on the D1 `conversations` row. This
+(`api_server.py:1544-1599`). Create the session first with
+`POST /api/sessions` (`api_server.py:4178`), and store the returned Hermes
+`session_id` on the D1 `conversations` row as `hermesSessionId`. This
 is the non-streaming contract decided above. `POST
 /api/sessions/{id}/chat/stream` (SSE) exists for later.
 
@@ -576,12 +577,20 @@ does not offer. The two sane choices:
 Whichever is chosen, it must be the same for every org container — this is a
 security posture, not a per-customer preference.
 
-**Toolsets.** `platform_toolsets` in `config.yaml` composes exactly which
-tools are on. The example keys are `cli`, `telegram`, `discord`, … — **the
-key the API server honours is not shown in the example config.** The agent
-builder must verify with `hermes tools` which preset the API server uses by
-default and how to override it, and pin the result in the image's
-`config.yaml`. Do not ship on the assumption.
+**Toolsets (verified in source).** The API server resolves its tools from
+`platform_toolsets.api_server` in `config.yaml`
+(`gateway/platforms/api_server.py:1025, 1044` —
+`_get_platform_tools(user_config, "api_server")`). So the image's
+`config.yaml` pins:
+
+```yaml
+platform_toolsets:
+  api_server: [file, skills, todo, web]   # no terminal — see above; adjust to need
+```
+
+`GET /v1/toolsets` on a running instance returns the toolset surface it is
+actually exposing (`api_server.py:1237-1268`) — use it to confirm the pin took
+effect before the first org goes live, rather than trusting the file.
 
 **Model provider.** As decided above: provider `custom`, base URL
 `https://api.together.xyz/v1`, `TOGETHER_API_KEY` from the environment, model
