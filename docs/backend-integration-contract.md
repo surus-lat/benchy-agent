@@ -10,6 +10,12 @@ document is the contract between them and what exists.
 
 ## Start here: what to build, in what order
 
+**The stack, to begin with: Cloudflare (Pages + Workers + D1) for the web tier
+and all authorization; Railway for one Hermes container per organization;
+Together AI for inference.** Everything else in this document elaborates that.
+AWS and Bedrock appear only under "Swapping Together → Bedrock later" and are
+not part of what you build now.
+
 Everything below is reference. This is the path through it.
 
 1. **Read** "Authenticating a request", "The identity model", "Adding tables",
