@@ -391,12 +391,15 @@ This is decided. Build against it.
 
 ```
 Browser (researcher)
-  │  https://app.<domain>            Cloudflare Pages — apps/web, the React SPA
-  │  session cookie, Domain=<domain>
+  │  ONE origin: https://benchy-agent.pages.dev today,
+  │  https://getbenchy.lat once its nameservers point at Cloudflare
   ▼
-Cloudflare Worker                    https://api.<domain> — apps/api, Hono
-  • better-auth: magic link + Google, invite-only
-  • D1: users, orgs, invites, conversations, benchmarks
+Cloudflare Pages (apps/web)          serves the SPA; a Pages Function proxies
+  │  /api/* → the Worker over a Service Binding (apps/web/functions/api/[[path]].ts)
+  ▼
+Cloudflare Worker `benchy-api` (apps/api, Hono)   no public URL of its own
+  • better-auth: magic link (Google off until real OAuth creds), invite-only
+  • D1 `benchy-db`: users, orgs, invites, conversations, benchmarks
   • THE ONLY authorization boundary
   │
   │  server-to-server HTTPS, per-org bearer key, never from the browser
@@ -417,8 +420,8 @@ Four components, four owners:
 
 | Component | Runs on | Owns | Must never |
 |---|---|---|---|
-| `apps/web` | Cloudflare Pages | UI, session cookie | Call Hermes directly |
-| `apps/api` | Cloudflare Workers | Auth, authorization, D1, conversation records | Run agent logic |
+| `apps/web` | Cloudflare Pages (project `benchy-agent`) | UI, `/api/*` proxy function | Call Hermes directly |
+| `apps/api` | Cloudflare Worker `benchy-api` (reachable only via that proxy) | Auth, authorization, D1, conversation records | Run agent logic |
 | Hermes (one per org) | Railway | The agent loop, org-scoped memory & skills, model calls | Decide who may see what; be reachable by anything but the Worker |
 | Together AI | Together | Inference | — |
 
@@ -998,18 +1001,45 @@ volume and the secrets are what differ.
   not been chosen. It is a valid hostname on purpose — better-auth parses
   `baseURL` at startup and an angle-bracket placeholder crashes the Worker.
 
-## Deferred: nothing is provisioned
+## Deployment status (2026-09-18)
 
-No Cloudflare resources exist yet — no D1 database, no deployment, no email
-domain, no Google OAuth client. The `database_id` in `wrangler.jsonc` is a
-placeholder zero-UUID, and `.dev.vars` holds local placeholder credentials.
-Everything runs and tests fine offline against Miniflare's simulated D1.
+Live, single origin **https://benchy-agent.pages.dev** — verified end to end
+through the public URL: SPA served, `/api/*` proxied to the Worker, and an
+uninvited magic-link request refused with `403 NO_PENDING_INVITE`.
 
-The ordered checklist to make the Cloudflare side real is the "Deferred:
-needs your Cloudflare account" section at the end of
-`docs/superpowers/plans/2026-09-17-identity-multitenancy.md`. The agent side
-— a Together AI key, a Railway project, and the first org's service — is the
-"Provisioning a new organization" runbook above. Until both are done, build
-and test locally: the Worker against Miniflare, one Hermes instance in local
-Docker against Together.
+Done:
+- Cloudflare account **Gradiente Sur** (`625b40d3…`). D1 `benchy-db`
+  (`20b0613c-7ce4-4131-9c38-e69c524773e1`, region ENAM) created, bound,
+  migrated — 6 app tables live.
+- Worker `benchy-api` deployed with secrets `BETTER_AUTH_SECRET` (fresh,
+  never recorded), `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` (placeholders;
+  Google sign-in hidden in the UI). `workers_dev` and preview URLs are off:
+  the proxy is the only entry.
+- Pages project `benchy-agent`, production branch `main`, deployed from
+  `apps/web/dist/public` with the proxy function and `_redirects`.
 
+Not yet (in order):
+1. **Nameservers** — `getbenchy.lat` is registered at NameSilo; the zone
+   exists on Cloudflare (`f84e5e15…`) but is `pending` until NameSilo's
+   nameservers are changed to `justin.ns.cloudflare.com` /
+   `rayne.ns.cloudflare.com`. Owner action.
+2. **Email Sending on `getbenchy.lat`** — `wrangler email sending enable`
+   fails with `Active zone required` until step 1 lands; then enable it and
+   add the SPF/DKIM records. Owned by the agent holding DNS write.
+3. **Custom domain** — attach `getbenchy.lat` to the Pages project
+   (dashboard; wrangler has no command for it). Same owner as 2.
+4. **Cutover** — set the Worker var `BETTER_AUTH_URL=https://getbenchy.lat`,
+   redeploy (~20 s), and add a `_redirects` rule
+   `https://benchy-agent.pages.dev/* https://getbenchy.lat/:splat 301` so
+   only one origin is ever in use. Both hosts are already in
+   `trustedOrigins`.
+5. **First real sign-in** — `pnpm invite --org … --email …` for a real
+   inbox, click the link, confirm the session and `orgId`.
+
+Preview deployments (`<hash>.benchy-agent.pages.dev`) serve the app but
+**cannot complete sign-in**: their origin is not in `trustedOrigins`, so
+better-auth rejects the `callbackURL` with `INVALID_CALLBACK_URL`. Test auth
+on the production alias.
+
+Everything under "Provisioning a new organization" (Railway, Together, the
+first org's Hermes) is still to do.

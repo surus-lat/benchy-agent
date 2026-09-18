@@ -1702,37 +1702,15 @@ git commit -m "Add auth route guard to the frontend"
 
 ## Deferred: needs your Cloudflare account
 
-Nothing below runs during Tasks 1–10. Each item needs either a real Cloudflare account, the real domain, or a Google Cloud project. Work through them in order when you have all three.
+**Superseded on 2026-09-18 by the actual deployment** — see "Deployment
+status" in `docs/backend-integration-contract.md` for what is live and the
+exact remaining steps. Summary of what changed from this checklist:
 
-1. **Pick the domain** and find-and-replace `benchy.example` across the repo with it (17 occurrences at plan-writing time; `grep -rn "benchy.example" apps packages` finds the current set).
-2. **Create the database** and paste its UUID over the placeholder `database_id` in `apps/api/wrangler.jsonc`:
-   ```bash
-   npx wrangler login
-   npx wrangler d1 create benchy-db
-   ```
-3. **Apply migrations remotely:** `pnpm --filter @benchy/api db:migrate:remote`
-4. **Onboard the sending domain** and add the printed SPF/DKIM records at your DNS provider:
-   ```bash
-   npx wrangler email sending enable <your-domain>
-   npx wrangler email sending dns get <your-domain>
-   ```
-5. **Create the Google OAuth client** (Web application) with redirect URI `https://api.<your-domain>/api/auth/callback/google`.
-6. **Set the real production secrets** (the `.dev.vars` values are local placeholders and must not be reused):
-   ```bash
-   cd apps/api
-   npx wrangler secret put BETTER_AUTH_SECRET     # a fresh 32-byte hex string
-   npx wrangler secret put GOOGLE_CLIENT_ID
-   npx wrangler secret put GOOGLE_CLIENT_SECRET
-   ```
-7. **Deploy:** `pnpm --filter @benchy/api deploy`, and deploy `apps/web` to Cloudflare Pages with `VITE_API_URL=https://api.<your-domain>`.
-8. **Run the invite script for real** (this is also the first genuine exercise of Task 8's `--remote` D1 writes and email send — check its `--json` parsing against real wrangler output here):
-   ```bash
-   pnpm invite --org "Your Test Org" --email <your own email>
-   ```
-
-Then the end-to-end check:
-
-1. Open the link from the invite email.
-2. Confirm you land signed in, on the real app — not the "almost there" holding page.
-3. Try signing in with a second, uninvited email address and confirm you get the invite-required error instead of getting in.
-4. Sign out and sign in again with the first address, confirming a returning user (whose invite is now `accepted`) can still get back in.
+- The site runs on a single origin (`benchy-agent.pages.dev`, then
+  `getbenchy.lat`) with a Pages Function proxying `/api/*` to the Worker,
+  instead of `app.` / `api.` subdomains; `crossSubDomainCookies` was removed.
+- D1 created and migrated; Worker and Pages deployed; secrets set; Google
+  sign-in deferred behind `VITE_ENABLE_GOOGLE`.
+- Remaining: nameserver change at NameSilo, Email Sending on `getbenchy.lat`
+  plus SPF/DKIM, custom-domain attach, the `BETTER_AUTH_URL` cutover, and the
+  first real invite.
