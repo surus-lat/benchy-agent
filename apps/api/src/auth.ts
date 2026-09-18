@@ -30,7 +30,15 @@ export const auth = betterAuth({
   // Single-origin deployment: Pages serves the SPA and proxies /api/* to this
   // Worker, so the browser only ever sees one origin (BETTER_AUTH_URL) and
   // no cross-subdomain cookie configuration is needed -- or safe -- to set.
-  trustedOrigins: [env.BETTER_AUTH_URL, "http://localhost:21707"],
+  // Both public hostnames are trusted so a callbackURL from either is
+  // accepted during the pages.dev -> getbenchy.lat cutover. The magic link
+  // itself is always built from BETTER_AUTH_URL, the canonical origin.
+  trustedOrigins: [
+    env.BETTER_AUTH_URL,
+    "https://getbenchy.lat",
+    "https://benchy-agent.pages.dev",
+    "http://localhost:21707",
+  ],
   user: {
     additionalFields: {
       orgId: {

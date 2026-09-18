@@ -15,7 +15,7 @@
   "send_email": [{ "name": "EMAIL" }],
   "vars": {
     "BETTER_AUTH_URL": "https://benchy-agent.pages.dev",
-    "EMAIL_FROM": "auth@benchy.example"
+    "EMAIL_FROM": "auth@getbenchy.lat"
   }
   // BETTER_AUTH_SECRET is a secret, not a var: it does not belong here.
   // Locally it comes from apps/api/.dev.vars (gitignored, not committed).
