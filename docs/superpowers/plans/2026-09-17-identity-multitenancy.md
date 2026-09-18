@@ -1492,7 +1492,9 @@ Confirm it's git-ignored: `.gitignore` at the repo root doesn't currently list `
 Create `apps/web/src/lib/auth-client.ts`:
 
 ```ts
-import { createAuthClient } from "better-auth/client";
+// better-auth/react, not better-auth/client: the vanilla client exposes
+// useSession as a nanostore atom, not a callable React hook.
+import { createAuthClient } from "better-auth/react";
 import { magicLinkClient } from "better-auth/client/plugins";
 
 export const authClient = createAuthClient({
