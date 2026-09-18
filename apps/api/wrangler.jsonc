@@ -8,7 +8,7 @@
     {
       "binding": "DB",
       "database_name": "benchy-db",
-      "database_id": "00000000-0000-0000-0000-000000000000",
+      "database_id": "20b0613c-7ce4-4131-9c38-e69c524773e1",
       "migrations_dir": "../../packages/db/migrations"
     }
   ],
