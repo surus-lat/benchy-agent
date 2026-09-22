@@ -945,6 +945,44 @@ race (`api_server.py` holds no per-session lock). Either reject a second turn
 while one is in flight (return 409 to the client) or queue it; do not let two
 through.
 
+### Request Access: the public intake (live)
+
+The only unauthenticated route in the API. A university asks to be onboarded
+here; the owner approves by minting an invite. It never creates an org or an
+invite itself.
+
+- **Table** `accessRequests` — `id, orgName, email (lowercased, unique), name,
+  message, status (pending | invited | declined), createdAt`.
+- **`POST /api/access-requests`** — body `{ orgName, email, name?, message?,
+  turnstileToken }`, zod-validated. Turnstile is verified **server-side in the
+  Worker** (`apps/api/src/turnstile.ts`) against
+  `challenges.cloudflare.com/turnstile/v0/siteverify`; secret is the Worker
+  secret `TURNSTILE_SECRET_KEY`. Responses: `400 INVALID_JSON | INVALID_BODY`,
+  `403 TURNSTILE_FAILED`, otherwise **`200 {ok:true}` — always**, including on
+  a repeat email (silent no-op), so the endpoint cannot be used to learn who
+  has applied.
+- **Owner notification** to `OWNER_NOTIFY_EMAIL` (Worker var) on each *new*
+  request, best-effort: a failed send never fails the request. It comes from a
+  days-old domain and will land in spam for a while, which is why:
+- **`pnpm access-requests`** lists pending requests straight from production
+  D1 (`--all` for every status). **Approve with `pnpm invite --org "<Org>"
+  --email <email>`**, which now also flips the request to `invited`.
+- **Turnstile widget** `benchy-agent (getbenchy.lat)`, managed mode, hostnames
+  `getbenchy.lat` + `www.getbenchy.lat`. Public site key in
+  `apps/web/.env.production`; the form renders the widget explicitly
+  (`apps/web/src/pages/landing.tsx`, `useTurnstile`). Locally and in tests,
+  Cloudflare's documented test pair is used (`.env` / `.dev.vars`), so no real
+  widget is needed and the tests hit the real siteverify endpoint.
+- **Routes:** `/` public landing (placeholder — the designed page replaces the
+  markup; keep the form wiring), `/login`, `/accept-invite` (sign-in
+  prefilled), `/app` and below behind `AuthGate`. Magic links land on `/app`;
+  failures on `/login`.
+
+Not done, deliberately: Turnstile on the magic-link request itself. The invite
+gate already refuses strangers, but anyone can trigger sign-in emails to an
+*existing* user's address; a Turnstile check on `/api/auth/sign-in/magic-link`
+would close that. Cheap; do it before opening to more orgs.
+
 ### Provisioning a new organization
 
 Creating an org now has a second step beyond the invite CLI. Add to the
@@ -1027,8 +1065,13 @@ Email Sending is enabled on `getbenchy.lat` (sender `auth@getbenchy.lat`,
 invites from `invites@getbenchy.lat`). The first invite — org `SURUS`,
 `francis@surus.lat` — was created and sent on 2026-09-22 via
 `pnpm invite`; that run also verified the CLI's `wrangler d1 execute --json`
-parsing against real output. Completing that sign-in on
-https://getbenchy.lat is the last end-to-end check.
+parsing against real output. That sign-in completed the same day — user row
+with `orgId → surus`, invite `accepted`, live session. **Auth is verified end
+to end in production.**
+
+Also live since 2026-09-22: the public **Request Access** intake (below) at
+`POST /api/access-requests`, Turnstile-gated, with the app moved under `/app`
+and `/` serving a placeholder landing until the designed page replaces it.
 
 Preview deployments (`<hash>.benchy-agent.pages.dev`) serve the app but
 **cannot complete sign-in**: their origin is not in `trustedOrigins`, so
