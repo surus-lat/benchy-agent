@@ -1,3 +1,1 @@
-# Canonical origin is getbenchy.lat; send the pages.dev alias there first.
-https://benchy-agent.pages.dev/*  https://getbenchy.lat/:splat  301
 /*    /index.html   200
