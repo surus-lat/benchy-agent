@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64" fill="none" role="img" aria-label="benchy agent">
+  <rect width="64" height="64" rx="14" fill="#2A2E3A"></rect>
+  <path d="M27 21h-5v22h5" stroke="#FBF9F7" stroke-width="3" stroke-linecap="butt" stroke-linejoin="miter"></path>
+  <path d="M37 21h5v22h-5" stroke="#FBF9F7" stroke-width="3" stroke-linecap="butt" stroke-linejoin="miter"></path>
+  <circle cx="32" cy="32" r="4" fill="#F5A623"></circle>
+</svg>

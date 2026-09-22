@@ -10,9 +10,10 @@ import NotFound from "@/pages/not-found";
 
 const queryClient = new QueryClient();
 
-// Public: the landing (with Request Access) and the sign-in page. The invite
-// email links to /accept-invite, which is the sign-in page with the address
-// prefilled. Everything under /app requires a session and an org.
+// Public: the landing (with Request Access, in English at / and Spanish at
+// /es) and the sign-in page. The invite email links to /accept-invite, which
+// is the sign-in page with the address prefilled. Everything under /app
+// requires a session and an org.
 function GatedApp() {
   return (
     <AuthGate>
@@ -21,10 +22,20 @@ function GatedApp() {
   );
 }
 
+// Wrapped so wouter's route props never reach Landing's own `lang` prop.
+function LandingEn() {
+  return <Landing lang="en" />;
+}
+
+function LandingEs() {
+  return <Landing lang="es" />;
+}
+
 function Router() {
   return (
     <Switch>
-      <Route path="/" component={Landing} />
+      <Route path="/" component={LandingEn} />
+      <Route path="/es" component={LandingEs} />
       <Route path="/login" component={Login} />
       <Route path="/accept-invite" component={Login} />
       <Route path="/app" component={GatedApp} />

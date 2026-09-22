@@ -1,0 +1,356 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Hanken+Grotesk:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link rel="icon" href="assets/favicon.svg">
+<style>
+  html { overflow-y: scroll; }
+  *, *::before, *::after { box-sizing: border-box; }
+  body { margin: 0; background-color: #FBF9F7; background-image: radial-gradient(rgba(42,46,58,.11) 1px, transparent 1px); background-size: 24px 24px; background-position: -1px -1px; color: #2A2E3A; font-family: 'Hanken Grotesk', system-ui, sans-serif; -webkit-font-smoothing: antialiased; }
+  a { color: inherit; text-decoration: none; }
+  a:hover { color: #1B1E27; }
+  @keyframes marquee { from { transform: translateX(0); } to { transform: translateX(-50%); } }
+  @keyframes ba-pip-breathe { 0%,100% { transform: scale(1); opacity: 1; } 50% { transform: scale(.82); opacity: .68; } }
+  @keyframes ba-pip-march { 0%,100% { opacity: .22; } 50% { opacity: 1; } }
+  @media (prefers-reduced-motion: reduce) { [data-pip-dot] { animation: none !important; opacity: 1 !important; } }
+  @media (max-width: 880px) {
+    [data-rail-grid] { grid-template-columns: minmax(0,1fr) !important; }
+    [data-rail-nav-col] { display: none !important; }
+    [data-score-row] { grid-template-columns: minmax(0,1fr) 3.5rem !important; gap: 8px 12px !important; }
+    [data-score-row] > :first-child { grid-column: 1 / -1; }
+  }
+  @media (max-width: 760px) {
+    [data-hero-h1] span { white-space: normal !important; }
+    [data-platform-frame] { overflow-x: auto !important; -webkit-overflow-scrolling: touch; }
+    [data-platform-shot] { min-width: 760px; }
+  }
+  @media (max-width: 560px) {
+    [data-item-row] { grid-template-columns: 2.2rem minmax(0,1fr) !important; }
+    [data-item-row] > :last-child { grid-column: 2; text-align: left !important; }
+  }
+  @media (max-width: 520px) {
+    [data-topnav] { gap: 8px 14px !important; font-size: 15px !important; }
+    [data-topnav] a { font-size: 15px !important; }
+  }
+  @media (prefers-reduced-motion: reduce) { .marquee { animation: none !important; } }
+</style>
+</helmet>
+<div style="min-height:100vh;display:flex;flex-direction:column">
+
+  <header style="position:sticky;top:0;z-index:40;background:rgba(251,249,247,.92);backdrop-filter:saturate(140%) blur(8px);border-bottom:1px solid #EDE7E0">
+    <nav data-topnav style="display:flex;flex-wrap:wrap;width:100%;align-items:center;justify-content:space-between;gap:10px 20px;padding:9px 16px">
+      <a href="#top" style="display:flex;align-items:center;gap:10px;flex:none;font-size:26px">
+        <img src="assets/pip-mark.svg" alt="" style="display:block;height:1.18em;width:auto;flex:none" />
+        <span style="display:flex;align-items:baseline;gap:.22em">
+          <span style="font-weight:700;font-size:1em;line-height:1;letter-spacing:-.025em;color:#2A2E3A">benchy</span>
+          <span style="font:500 .53em/1 'JetBrains Mono',ui-monospace,monospace;color:#C97A10">agent</span>
+        </span>
+      </a>
+      <div style="display:flex;align-items:center;gap:14px;flex:none;min-width:0;padding-left:6px">
+        <a href="https://github.com/surus-lat/benchy-agent" target="_blank" rel="noopener noreferrer" style="display:flex;align-items:center;justify-content:center;flex:none;opacity:.75;transition:opacity .2s" style-hover="opacity:1" aria-label="Benchy Agent en GitHub" title="benchy-agent on GitHub">
+          <svg viewBox="0 0 16 16" width="21" height="21" aria-hidden="true" style="display:block;flex:none;fill:#2A2E3A"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.88.51-1.08-1.78-.2-2.91-.88-2.91-2.77 0-.54.19-1.05.51-1.45-.05-.12-.22-.63.05-1.31 0 0 .61-.19 2 .75a4.9 4.9 0 0 1 2.66 0c1.39-.95 2-.75 2-.75.27.68.1 1.19.05 1.31.32.4.51.9.51 1.45 0 1.9-1.13 2.57-2.92 2.77.29.26.55.75.55 1.52 0 1.09-.01 1.97-.01 2.24 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8Z"></path></svg>
+        </a>
+      </div>
+      <div style="display:flex;justify-content:center;flex:1 1 auto;min-width:0;order:0">
+        <a href="https://benchy.lat" target="_blank" rel="noopener noreferrer" style="font:400 14px 'JetBrains Mono',ui-monospace,monospace;white-space:nowrap;color:rgba(42,46,58,.45);padding:6px 10px;border-radius:999px;transition:color .2s" style-hover="color:rgba(42,46,58,.85)">benchy::engine</a>
+      </div>
+      <div style="display:flex;flex-wrap:wrap;align-items:center;justify-content:flex-end;gap:8px;flex:0 1 auto;min-width:0">
+        <a href="#access" style="border-radius:999px;background:rgba(42,46,58,.06);font-size:17px;padding:6px 16px;white-space:nowrap" style-hover="background:rgba(42,46,58,.12)">Ingresar</a>
+        <a href="#access" style="border-radius:999px;background:#3A3F4D;color:#fff;font-size:17px;padding:6px 16px;white-space:nowrap" style-hover="background:#1B1E27;color:#fff">Solicitar acceso</a>
+      </div>
+    </nav>
+  </header>
+
+  <main id="top" style="width:100%;padding:48px 0 80px">
+
+    <section style="margin:0 auto;width:100%;max-width:1280px;padding:clamp(28px,7vh,80px) clamp(16px,4vw,24px) 0;display:flex;flex-direction:column;align-items:center;text-align:center">
+      <h1 data-hero-h1 style="margin:0;font-size:clamp(29px,5.4vw,50px);font-weight:500;line-height:1.08;letter-spacing:-0.03em"><span style="display:block;white-space:nowrap">Convertí tu conocimiento</span><span style="display:block;white-space:nowrap">académico en benchmarks de IA</span></h1>
+      <p style="margin:22px 0 0;font-size:clamp(20px,2.8vw,36px);font-weight:500;line-height:1.2;letter-spacing:-0.02em;color:#756E66;text-wrap:balance">Dale forma al futuro de la Inteligencia</p>
+      <div role="img" aria-label="benchy agent pensando" style="margin:22px 0 0;display:flex;align-items:center;gap:5px;color:#2A2E3A">
+        <span style="display:block;width:6px;height:26px;flex:none;border:2.5px solid currentColor;border-right:0"></span>
+        <span style="display:flex;align-items:center;justify-content:center;gap:4px;width:30px">
+          <span data-pip-dot style="display:block;width:7px;height:7px;border-radius:999px;background:#F5A623;animation:ba-pip-march 1.1s ease-in-out infinite"></span>
+          <span data-pip-dot style="display:block;width:7px;height:7px;border-radius:999px;background:#F5A623;animation:ba-pip-march 1.1s ease-in-out infinite;animation-delay:.16s"></span>
+          <span data-pip-dot style="display:block;width:7px;height:7px;border-radius:999px;background:#F5A623;animation:ba-pip-march 1.1s ease-in-out infinite;animation-delay:.32s"></span>
+        </span>
+        <span style="display:block;width:6px;height:26px;flex:none;border:2.5px solid currentColor;border-left:0"></span>
+      </div>
+      <p style="margin:22px 0 0;max-width:44rem;font-size:clamp(18px,1.55vw,21px);line-height:1.55;color:#6B6660;text-wrap:pretty">Evaluá qué sabe la IA, identificá sus puntos ciegos y sesgos, y construí los datos que definen lo que viene.</p>
+      <div style="margin-top:38px">
+        <a href="#access" style="display:inline-flex;align-items:center;justify-content:center;border-radius:999px;background:#2A2E3A;color:#fff;padding:14px 32px;font-size:16px;box-shadow:0 8px 20px -8px rgba(42,46,58,.45)" style-hover="background:#1B1E27;color:#fff">Solicitar acceso</a>
+      </div>
+    </section>
+
+    <section style="margin:clamp(40px,7vh,72px) auto 0;width:100%;max-width:1020px;padding:0 clamp(16px,4vw,24px)">
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(min(300px,100%),1fr));align-items:center;gap:28px 48px;background:#fff;border:1px solid #EDE7E0;border-radius:14px;box-shadow:0 1px 2px rgba(42,46,58,.04),0 12px 28px -12px rgba(42,46,58,.16);padding:26px clamp(20px,3vw,32px)">
+        <div style="display:flex;align-items:center;gap:20px;min-width:0">
+          <a href="https://aws.amazon.com/what-is-cloud-computing" target="_blank" rel="noopener noreferrer" style="flex:none;display:block">
+            <img src="https://d0.awsstatic.com/logos/powered-by-aws.png" alt="Powered by AWS Cloud Computing" style="display:block;height:44px;width:auto" />
+          </a>
+          <p style="margin:0;font-size:14px;line-height:1.5;color:#6B6660;text-wrap:pretty">Con el apoyo de <span style="color:#2A2E3A">AWS</span> como proyecto de impacto social.</p>
+        </div>
+        <p style="margin:0;font-size:14px;line-height:1.6;color:#6B6660;text-wrap:pretty">Los créditos de cómputo y la infraestructura son provistos por Amazon Web Services, por lo que el acceso es gratuito para las universidades y los grupos de investigación con los que trabajamos.</p>
+      </div>
+    </section>
+
+    <section style="margin:clamp(56px,11vh,120px) auto 0;width:100%;max-width:1440px;padding:0 clamp(16px,4vw,24px)">
+      <figure style="margin:0">
+        <div data-platform-frame style="width:100%;border-radius:clamp(10px,1.2vw,18px);overflow:hidden;border:1px solid #E5DFD8;background:#fff;box-shadow:0 1px 2px rgba(42,46,58,.05),0 40px 80px -28px rgba(42,46,58,.32)">
+          <img data-platform-shot src="assets/platform-author-research-es.png" alt="Vista de autoría de Benchy Agent: una pregunta de antropología con referato, su respuesta esperada y una rúbrica ponderada" style="display:block;width:100%;height:auto" />
+        </div>
+        <figcaption style="margin:16px auto 0;max-width:46rem;text-align:center;font-size:13px;line-height:1.6;color:#756E66;text-wrap:pretty">Autoría de un benchmark de nivel doctoral: la pregunta, la respuesta experta de referencia y una rúbrica ponderada que el motor puede puntuar.</figcaption>
+      </figure>
+    </section>
+
+    <section id="access" style="margin:112px auto 0;width:100%;max-width:1280px;padding:0 clamp(16px,4vw,24px);scroll-margin-top:96px">
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(min(300px,100%),1fr));gap:32px 64px;align-items:start;background:#fff;border:1px solid #EDE7E0;border-radius:16px;box-shadow:0 1px 2px rgba(42,46,58,.04),0 12px 28px -12px rgba(42,46,58,.16);padding:clamp(24px,3vw,44px)">
+        <div style="min-width:0">
+          <p style="margin:0;font:400 12px 'JetBrains Mono',ui-monospace,monospace;letter-spacing:.1em;color:#C97A10">SOLO POR INVITACIÓN</p>
+          <h2 style="margin:12px 0 0;font-size:clamp(24px,2.6vw,32px);font-weight:500;line-height:1.15;letter-spacing:-0.02em;text-wrap:balance">Pensado para universidades y grupos de investigación</h2>
+          <p style="margin:16px 0 0;max-width:32rem;font-size:16px;line-height:1.65;color:#6B6660;text-wrap:pretty">El acceso se otorga por institución mientras estamos en etapa temprana. Contanos sobre tu universidad y qué querés evaluar, y te enviamos las credenciales para tu grupo.</p>
+        </div>
+        <div style="min-width:0;display:flex;flex-direction:column;gap:12px">
+          <input placeholder="Correo institucional" style="width:100%;box-sizing:border-box;border:1px solid #E5DFD8;background:#fff;border-radius:10px;box-shadow:inset 0 1px 2px rgba(42,46,58,.05);padding:13px 16px;font:400 15px 'Hanken Grotesk',system-ui,sans-serif;color:#2A2E3A;outline:none" />
+          <input placeholder="Universidad o grupo de investigación" style="width:100%;box-sizing:border-box;border:1px solid #E5DFD8;background:#fff;border-radius:10px;box-shadow:inset 0 1px 2px rgba(42,46,58,.05);padding:13px 16px;font:400 15px 'Hanken Grotesk',system-ui,sans-serif;color:#2A2E3A;outline:none" />
+          <a href="#access" style="display:inline-flex;align-items:center;justify-content:center;border-radius:999px;background:#2A2E3A;color:#fff;padding:13px 28px;font-size:16px;box-shadow:0 8px 20px -8px rgba(42,46,58,.45)" style-hover="background:#1B1E27;color:#fff">Solicitar acceso</a>
+          <p style="margin:2px 0 0;font-size:13px;line-height:1.5;color:#756E66">¿Ya tenés una invitación? <a href="#access" style="color:#2A2E3A;text-decoration:underline;text-underline-offset:3px">Ingresar</a></p>
+        </div>
+      </div>
+    </section>
+
+    <section id="rail" style="margin:112px auto 0;width:100%;max-width:1152px;padding:0 clamp(16px,4vw,24px)">
+      <div data-rail-grid style="display:grid;grid-template-columns:minmax(150px,15rem) minmax(0,1fr);gap:clamp(28px,6vw,96px)">
+        <nav data-rail-nav-col aria-label="Qué hace la plataforma" style="min-width:0">
+          <div data-rail-index style="position:sticky;top:96px">
+            <a href="#rail-1" data-rail-nav="1" style="display:block;padding:14px 0;font-size:16px;color:#756E66;transition:color .2s">Definí tu benchmark<span style="position:relative;display:block;margin-top:8px;height:1px;width:100%;background:#E5DFD8"><span data-rail-fill="1" style="position:absolute;left:0;top:0;display:block;height:2px;width:100%;background:#F5A623;transform:scaleX(0);transform-origin:left"></span></span></a>
+            <a href="#rail-2" data-rail-nav="2" style="display:block;padding:14px 0;font-size:16px;color:#756E66;transition:color .2s">Generá el examen<span style="position:relative;display:block;margin-top:8px;height:1px;width:100%;background:#E5DFD8"><span data-rail-fill="2" style="position:absolute;left:0;top:0;display:block;height:2px;width:100%;background:#F5A623;transform:scaleX(0);transform-origin:left"></span></span></a>
+            <a href="#rail-3" data-rail-nav="3" style="display:block;padding:14px 0;font-size:16px;color:#756E66;transition:color .2s">Sistemas de IA<span style="position:relative;display:block;margin-top:8px;height:1px;width:100%;background:#E5DFD8"><span data-rail-fill="3" style="position:absolute;left:0;top:0;display:block;height:2px;width:100%;background:#F5A623;transform:scaleX(0);transform-origin:left"></span></span></a>
+            <a href="#rail-4" data-rail-nav="4" style="display:block;padding:14px 0;font-size:16px;color:#756E66;transition:color .2s">Ejecutá y puntuá<span style="position:relative;display:block;margin-top:8px;height:1px;width:100%;background:#E5DFD8"><span data-rail-fill="4" style="position:absolute;left:0;top:0;display:block;height:2px;width:100%;background:#F5A623;transform:scaleX(0);transform-origin:left"></span></span></a>
+            <a href="#rail-5" data-rail-nav="5" style="display:block;padding:14px 0;font-size:16px;color:#756E66;transition:color .2s">Explícito y reproducible<span style="position:relative;display:block;margin-top:8px;height:1px;width:100%;background:#E5DFD8"><span data-rail-fill="5" style="position:absolute;left:0;top:0;display:block;height:2px;width:100%;background:#F5A623;transform:scaleX(0);transform-origin:left"></span></span></a>
+          </div>
+        </nav>
+
+        <div style="display:flex;flex-direction:column;gap:clamp(72px,10vw,128px);min-width:0">
+
+          <article id="rail-1" data-rail-panel="1" style="scroll-margin-top:112px;min-width:0">
+            <h2 style="margin:0;font-size:clamp(24px,2.4vw,30px);font-weight:500;letter-spacing:-0.02em">Definí tu benchmark</h2>
+            <p style="margin:16px 0 0;max-width:36rem;font-size:16px;line-height:1.65;color:#6B6660;text-wrap:pretty">Describí qué querés evaluar. Benchy Agent te ayuda a convertirlo en un programa preciso, una función de puntaje, una definición de datos y una configuración de sistema de IA.</p>
+            <div style="margin-top:32px;border:1px solid #E5DFD8;border-radius:10px;background:#F6F2EE;overflow:hidden">
+              <div style="display:flex;align-items:center;gap:10px;border-bottom:1px solid #E5DFD8;padding:12px 16px">
+                <img src="assets/pip-state-running.svg" alt="" style="display:block;width:18px;height:18px;flex:none" />
+                <span style="font-size:13px;color:#6B6660">«Evaluar si el asistente cita la norma correcta a partir del resumen de un caso.»</span>
+              </div>
+              <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(min(220px,100%),1fr));gap:1px;background:#E5DFD8">
+                <div style="background:#F6F2EE;padding:16px">
+                  <p style="margin:0;font:400 13px/1.7 'JetBrains Mono',ui-monospace,monospace;color:#C97A10">programa</p>
+                  <p style="margin:6px 0 0;font:400 13px/1.7 'JetBrains Mono',ui-monospace,monospace;color:#3A3F4D;white-space:pre-wrap">tarea: citar_norma
+entrada: resumen_caso
+salida: id_norma + fundamento</p>
+                </div>
+                <div style="background:#F6F2EE;padding:16px">
+                  <p style="margin:0;font:400 13px/1.7 'JetBrains Mono',ui-monospace,monospace;color:#C97A10">puntaje</p>
+                  <p style="margin:6px 0 0;font:400 13px/1.7 'JetBrains Mono',ui-monospace,monospace;color:#3A3F4D;white-space:pre-wrap">coincidencia_exacta: id_norma
+rúbrica: calidad_fundamento
+pesos: 0.7 / 0.3</p>
+                </div>
+                <div style="background:#F6F2EE;padding:16px">
+                  <p style="margin:0;font:400 13px/1.7 'JetBrains Mono',ui-monospace,monospace;color:#C97A10">datos</p>
+                  <p style="margin:6px 0 0;font:400 13px/1.7 'JetBrains Mono',ui-monospace,monospace;color:#3A3F4D;white-space:pre-wrap">fuente: corpus_cátedra
+n_ítems: 240
+restricciones: 1 norma/ítem</p>
+                </div>
+                <div style="background:#F6F2EE;padding:16px">
+                  <p style="margin:0;font:400 13px/1.7 'JetBrains Mono',ui-monospace,monospace;color:#C97A10">sistema-de-ia</p>
+                  <p style="margin:6px 0 0;font:400 13px/1.7 'JetBrains Mono',ui-monospace,monospace;color:#3A3F4D;white-space:pre-wrap">tipo: agente
+adaptador: http
+parámetros: temperatura 0.2</p>
+                </div>
+              </div>
+            </div>
+            <p style="margin:24px 0 0;max-width:34rem;font-size:13px;line-height:1.6;color:#6B6660;text-wrap:pretty">El agente y la interfaz de autoría escriben los mismos cuatro bloques: nada se infiere a tus espaldas.</p>
+          </article>
+
+          <article id="rail-2" data-rail-panel="2" style="scroll-margin-top:112px;min-width:0">
+            <h2 style="margin:0;font-size:clamp(24px,2.4vw,30px);font-weight:500;letter-spacing:-0.02em">Generá el examen</h2>
+            <p style="margin:16px 0 0;max-width:36rem;font-size:16px;line-height:1.65;color:#6B6660;text-wrap:pretty">Generá datos sintéticos de benchmark a partir de tu contexto, restringidos y validados por el benchmark que definiste.</p>
+            <div style="margin-top:32px;border:1px solid #E5DFD8;border-radius:10px;background:#F6F2EE;overflow:hidden">
+              <div style="display:flex;flex-wrap:wrap;align-items:baseline;justify-content:space-between;gap:4px 16px;border-bottom:1px solid #E5DFD8;padding:12px 16px;font-size:13px;color:#756E66">
+                <span>240 ítems generados a partir de tu corpus</span>
+                <span>236 válidos · 4 rechazados</span>
+              </div>
+              <div style="display:flex;flex-direction:column">
+                <div data-item-row style="display:grid;grid-template-columns:2.5rem minmax(0,1fr) 6rem;align-items:center;gap:12px;padding:12px 16px;border-bottom:1px solid #EDE7E0;font-size:14px">
+                  <span style="font:400 13px/1.7 'JetBrains Mono',ui-monospace,monospace;color:#756E66">001</span>
+                  <span style="color:#3A3F4D;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">Resumen de caso → norma esperada 42-B</span>
+                  <span style="text-align:right;font-size:12px;color:#6B6660">válido</span>
+                </div>
+                <div data-item-row style="display:grid;grid-template-columns:2.5rem minmax(0,1fr) 6rem;align-items:center;gap:12px;padding:12px 16px;border-bottom:1px solid #EDE7E0;font-size:14px">
+                  <span style="font:400 13px/1.7 'JetBrains Mono',ui-monospace,monospace;color:#756E66">002</span>
+                  <span style="color:#3A3F4D;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">Resumen de caso → norma esperada 17-A</span>
+                  <span style="text-align:right;font-size:12px;color:#6B6660">válido</span>
+                </div>
+                <div data-item-row style="display:grid;grid-template-columns:2.5rem minmax(0,1fr) 6rem;align-items:center;gap:12px;padding:12px 16px;border-bottom:1px solid #EDE7E0;font-size:14px">
+                  <span style="font:400 13px/1.7 'JetBrains Mono',ui-monospace,monospace;color:#756E66">003</span>
+                  <span style="color:#756E66;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">Dos normas en un mismo ítem: viola la restricción</span>
+                  <span style="text-align:right;font-size:12px;color:#756E66">rechazado</span>
+                </div>
+                <div data-item-row style="display:grid;grid-template-columns:2.5rem minmax(0,1fr) 6rem;align-items:center;gap:12px;padding:12px 16px;font-size:14px">
+                  <span style="font:400 13px/1.7 'JetBrains Mono',ui-monospace,monospace;color:#756E66">004</span>
+                  <span style="color:#3A3F4D;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">Resumen de caso → norma esperada 9-C</span>
+                  <span style="text-align:right;font-size:12px;color:#6B6660">válido</span>
+                </div>
+              </div>
+            </div>
+            <p style="margin:24px 0 0;max-width:34rem;font-size:13px;line-height:1.6;color:#6B6660;text-wrap:pretty">Cada ítem se verifica contra la definición de datos antes de entrar al examen: así, las fallas de generación aparecen como rechazos y no como ruido silencioso en tus resultados.</p>
+          </article>
+
+          <article id="rail-3" data-rail-panel="3" style="scroll-margin-top:112px;min-width:0">
+            <h2 style="margin:0;font-size:clamp(24px,2.4vw,30px);font-weight:500;letter-spacing:-0.02em">Sistemas de IA</h2>
+            <p style="margin:16px 0 0;max-width:36rem;font-size:16px;line-height:1.65;color:#6B6660;text-wrap:pretty">Evaluá lo que realmente ponés en producción: un modelo, un nodo de IA, un flujo de trabajo, un agente o un sistema de IA compuesto.</p>
+            <div style="margin-top:28px;display:grid;grid-template-columns:repeat(auto-fit,minmax(min(200px,100%),1fr));gap:12px">
+              <div style="display:flex;align-items:center;gap:10px;border:1px solid #E5DFD8;border-radius:8px;background:#fff;padding:12px 14px;font-size:14px;color:#3A3F4D"><span style="width:10px;height:10px;flex:none;border-radius:2px;background:#F5A623"></span>Modelo</div>
+              <div style="display:flex;align-items:center;gap:10px;border:1px solid #E5DFD8;border-radius:8px;background:#fff;padding:12px 14px;font-size:14px;color:#3A3F4D"><span style="width:10px;height:10px;flex:none;border-radius:2px;background:#F5A623"></span>Nodo de IA</div>
+              <div style="display:flex;align-items:center;gap:10px;border:1px solid #E5DFD8;border-radius:8px;background:#fff;padding:12px 14px;font-size:14px;color:#3A3F4D"><span style="width:10px;height:10px;flex:none;border-radius:2px;background:#F5A623"></span>Flujo de trabajo</div>
+              <div style="display:flex;align-items:center;gap:10px;border:1px solid #E5DFD8;border-radius:8px;background:#fff;padding:12px 14px;font-size:14px;color:#3A3F4D"><span style="width:10px;height:10px;flex:none;border-radius:2px;background:#F5A623"></span>Agente</div>
+              <div style="display:flex;align-items:center;gap:10px;border:1px solid #E5DFD8;border-radius:8px;background:#fff;padding:12px 14px;font-size:14px;color:#3A3F4D"><span style="width:10px;height:10px;flex:none;border-radius:2px;background:#F5A623"></span>Sistema de IA compuesto</div>
+            </div>
+            <div style="margin-top:20px;border:1px solid #E5DFD8;border-radius:10px;background:#F6F2EE;padding:16px">
+              <p style="margin:0;font:400 13px/1.7 'JetBrains Mono',ui-monospace,monospace;color:#3A3F4D;white-space:pre-wrap">un contrato de ejecución  ──  adaptadores  ──  tu sistema</p>
+            </div>
+            <p style="margin:24px 0 0;max-width:34rem;font-size:13px;line-height:1.6;color:#6B6660;text-wrap:pretty">El motor expone un único contrato de ejecución y se comunica con los sistemas mediante adaptadores, de modo que las implementaciones externas se integran sin rediseñar el núcleo.</p>
+          </article>
+
+          <article id="rail-4" data-rail-panel="4" style="scroll-margin-top:112px;min-width:0">
+            <h2 style="margin:0;font-size:clamp(24px,2.4vw,30px);font-weight:500;letter-spacing:-0.02em">Ejecutá y puntuá</h2>
+            <p style="margin:16px 0 0;max-width:36rem;font-size:16px;line-height:1.65;color:#6B6660;text-wrap:pretty">Ejecutá el examen. Benchy valida cada salida, puntúa cada dimensión de evaluación y produce el resultado del benchmark.</p>
+            <figure style="margin:32px 0 0">
+              <div style="display:flex;align-items:baseline;justify-content:space-between;gap:16px;font-size:12px;color:#756E66">
+                <span>236 ítems · 3 sistemas</span>
+                <span>puntaje</span>
+              </div>
+              <div style="margin-top:16px;display:flex;flex-direction:column;gap:16px">
+                <div data-score-row style="display:grid;grid-template-columns:9rem minmax(0,1fr) 3.5rem;align-items:center;gap:16px">
+                  <span style="font-size:14px;color:#3A3F4D">coincidencia de norma</span>
+                  <span style="display:block;height:10px;background:#F5A623;width:81%"></span>
+                  <span style="text-align:right;font-size:14px;font-weight:500;font-variant-numeric:tabular-nums">0.81</span>
+                </div>
+                <div data-score-row style="display:grid;grid-template-columns:9rem minmax(0,1fr) 3.5rem;align-items:center;gap:16px">
+                  <span style="font-size:14px;color:#3A3F4D">rúbrica de fundamentación</span>
+                  <span style="display:block;height:10px;background:#F5A623;width:64%"></span>
+                  <span style="text-align:right;font-size:14px;font-weight:500;font-variant-numeric:tabular-nums">0.64</span>
+                </div>
+                <div data-score-row style="display:grid;grid-template-columns:9rem minmax(0,1fr) 3.5rem;align-items:center;gap:16px">
+                  <span style="font-size:14px;color:#6B6660">validez de esquema</span>
+                  <span style="display:block;height:10px;background:#D9D2CA;width:97%"></span>
+                  <span style="text-align:right;font-size:14px;color:#6B6660;font-variant-numeric:tabular-nums">0.97</span>
+                </div>
+                <div data-score-row style="display:grid;grid-template-columns:9rem minmax(0,1fr) 3.5rem;align-items:center;gap:16px">
+                  <span style="font-size:14px;color:#6B6660">rechazos</span>
+                  <span style="display:block;height:10px;background:#D9D2CA;width:6%"></span>
+                  <span style="text-align:right;font-size:14px;color:#6B6660;font-variant-numeric:tabular-nums">0.06</span>
+                </div>
+              </div>
+              <figcaption style="margin-top:24px;font-size:12px;line-height:1.6;color:#756E66">Ejecución ilustrativa. Cada dimensión de la definición recibe su propio puntaje; las salidas inválidas se registran, no se descartan.</figcaption>
+            </figure>
+          </article>
+
+          <article id="rail-5" data-rail-panel="5" style="scroll-margin-top:112px;min-width:0">
+            <h2 style="margin:0;font-size:clamp(24px,2.4vw,30px);font-weight:500;letter-spacing:-0.02em">Explícito y reproducible</h2>
+            <p style="margin:16px 0 0;max-width:36rem;font-size:16px;line-height:1.65;color:#6B6660;text-wrap:pretty">Una sola definición de benchmark, compartida por la persona, el agente y el motor.</p>
+            <p style="margin:12px 0 0;max-width:36rem;font-size:16px;line-height:1.65;color:#6B6660;text-wrap:pretty">Benchy Agent y la interfaz trabajan sobre el mismo YAML explícito. El benchmark se puede inspeccionar, versionar, reproducir y ejecutar sin estado oculto.</p>
+            <div style="margin-top:32px;border:1px solid #E5DFD8;border-radius:10px;background:#F6F2EE;padding:clamp(20px,3vw,32px)">
+              <div style="display:flex;align-items:center;gap:10px 14px;flex-wrap:wrap">
+                <div style="display:flex;flex-direction:column;gap:8px;flex:none">
+                  <span style="font:400 13px/1.7 'JetBrains Mono',ui-monospace,monospace;color:#3A3F4D;border:1px solid #E5DFD8;background:#fff;border-radius:6px;padding:6px 12px;text-align:center">Persona</span>
+                  <span style="font:400 13px/1.7 'JetBrains Mono',ui-monospace,monospace;color:#3A3F4D;border:1px solid #E5DFD8;background:#fff;border-radius:6px;padding:6px 12px;text-align:center">Agente</span>
+                  <span style="font:400 13px/1.7 'JetBrains Mono',ui-monospace,monospace;color:#3A3F4D;border:1px solid #E5DFD8;background:#fff;border-radius:6px;padding:6px 12px;text-align:center">Interfaz</span>
+                </div>
+                <div style="display:flex;align-items:center;gap:10px 14px;flex-wrap:wrap;min-width:0">
+                  <div style="display:flex;align-items:center;gap:14px;flex:none"><span aria-hidden="true" style="font:400 13px/1.7 'JetBrains Mono',ui-monospace,monospace;color:#BDB5AC;flex:none">&#8594;</span><span style="font:400 13px/1.7 'JetBrains Mono',ui-monospace,monospace;color:#2A2E3A;background:#FBEFD9;border:1px solid #F5A623;border-radius:6px;padding:8px 14px">YAML</span></div>
+                  <div style="display:flex;align-items:center;gap:14px;flex:none"><span aria-hidden="true" style="font:400 13px/1.7 'JetBrains Mono',ui-monospace,monospace;color:#BDB5AC;flex:none">&#8594;</span><span style="font:400 13px/1.7 'JetBrains Mono',ui-monospace,monospace;color:#3A3F4D;border:1px solid #E5DFD8;background:#fff;border-radius:6px;padding:8px 14px">compilador</span></div>
+                  <div style="display:flex;align-items:center;gap:14px;flex:none"><span aria-hidden="true" style="font:400 13px/1.7 'JetBrains Mono',ui-monospace,monospace;color:#BDB5AC;flex:none">&#8594;</span><span style="font:400 13px/1.7 'JetBrains Mono',ui-monospace,monospace;color:#3A3F4D;border:1px solid #E5DFD8;background:#fff;border-radius:6px;padding:8px 14px">motor</span></div>
+                </div>
+              </div>
+            </div>
+            <p style="margin:24px 0 0;max-width:34rem;font-size:13px;line-height:1.6;color:#6B6660;text-wrap:pretty">La arquitectura YAML/IR existe para que el significado del benchmark viva en una única fuente semántica, en lugar de que cada componente lo interprete por su cuenta.</p>
+          </article>
+
+        </div>
+      </div>
+    </section>
+
+    <section id="closer" style="margin-top:112px;display:flex;min-height:70svh;width:100%;flex-direction:column;align-items:center;justify-content:center;gap:0;padding:56px clamp(16px,4vw,24px);text-align:center">
+      <div data-closer-mark style="opacity:0;transform:translateY(14px);transition:opacity .7s ease,transform .7s ease">
+        <div role="img" aria-label="benchy agent" style="display:flex;align-items:center;gap:8px;color:#2A2E3A">
+          <span style="display:block;width:10px;height:62px;flex:none;border:4px solid currentColor;border-right:0"></span>
+          <span style="display:flex;align-items:center;justify-content:center;width:56px">
+            <span data-pip-dot style="display:block;width:22px;height:22px;border-radius:999px;background:#F5A623;animation:ba-pip-breathe 3.2s ease-in-out infinite"></span>
+          </span>
+          <span style="display:block;width:10px;height:62px;flex:none;border:4px solid currentColor;border-left:0"></span>
+        </div>
+      </div>
+      <h2 style="margin:32px 0 0;max-width:42rem;font-size:clamp(28px,3.6vw,48px);font-weight:500;line-height:1.1;letter-spacing:-0.025em;text-wrap:balance">Dale forma al futuro de la Inteligencia</h2>
+      <a href="#access" style="margin-top:36px;display:inline-flex;align-items:center;justify-content:center;border-radius:999px;background:#2A2E3A;color:#fff;padding:14px 32px;font-size:16px;box-shadow:0 8px 20px -8px rgba(42,46,58,.45)" style-hover="background:#1B1E27;color:#fff">Solicitar acceso</a>
+    </section>
+  </main>
+
+  <footer style="margin-top:auto;border-top:1px solid #EDE7E0">
+    <div style="display:flex;align-items:center;justify-content:center;padding:18px clamp(16px,4vw,24px);font-size:12px;color:#6B6660">
+      <a href="https://surus.lat" target="_blank" rel="noopener noreferrer" style-hover="text-decoration:underline;text-underline-offset:4px">by SURUS</a>
+    </div>
+  </footer>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script>
+class Component extends DCLogic {
+  componentDidMount() {
+    this.onScroll = () => { this.updateRail(); this.revealCloser(); };
+    this.updateRail();
+    this.revealCloser();
+    window.addEventListener('scroll', this.onScroll, { passive: true });
+    window.addEventListener('resize', this.onScroll);
+  }
+  componentWillUnmount() {
+    window.removeEventListener('scroll', this.onScroll);
+    window.removeEventListener('resize', this.onScroll);
+  }
+  updateRail() {
+    const panels = [].slice.call(document.querySelectorAll('[data-rail-panel]'));
+    if (!panels.length) return;
+    const line = window.innerHeight * 0.35;
+    let i = 0;
+    panels.forEach((p, k) => { if (p.getBoundingClientRect().top <= line) i = k; });
+    const top = panels[i].getBoundingClientRect().top;
+    const next = panels[i + 1];
+    const span = next ? next.getBoundingClientRect().top - top : panels[i].getBoundingClientRect().height;
+    let progress = span > 0 ? (line - top) / span : 0;
+    progress = Math.max(0, Math.min(1, progress));
+    const active = panels[i].dataset.railPanel;
+    document.querySelectorAll('[data-rail-nav]').forEach(a => {
+      const on = a.dataset.railNav === active;
+      a.style.color = on ? '#2A2E3A' : '#756E66';
+      const fill = document.querySelector('[data-rail-fill="' + a.dataset.railNav + '"]');
+      if (fill) fill.style.transform = 'scaleX(' + (on ? progress : 0) + ')';
+    });
+  }
+  revealCloser() {
+    const mark = document.querySelector('[data-closer-mark]');
+    const closer = document.getElementById('closer');
+    if (!mark || !closer) return;
+    if (closer.getBoundingClientRect().top < window.innerHeight * 0.8) {
+      mark.style.opacity = '1';
+      mark.style.transform = 'none';
+    }
+  }
+}
+</script>
+</body>
+</html>
