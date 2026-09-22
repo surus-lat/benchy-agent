@@ -21,6 +21,20 @@ export const invites = sqliteTable("invites", {
   expiresAt: integer("expiresAt", { mode: "timestamp" }).notNull(),
 });
 
+// Public "Request Access" submissions from the landing page. One row per
+// email; the owner reviews them (pnpm access-requests) and mints invites.
+export const accessRequests = sqliteTable("accessRequests", {
+  id: text("id").primaryKey(),
+  orgName: text("orgName").notNull(),
+  email: text("email").notNull().unique(),
+  name: text("name"),
+  message: text("message"),
+  status: text("status", { enum: ["pending", "invited", "declined"] })
+    .notNull()
+    .default("pending"),
+  createdAt: integer("createdAt", { mode: "timestamp" }).notNull(),
+});
+
 export const user = sqliteTable("user", {
   id: text("id").primaryKey(),
   // Defaulted, not just NOT NULL: magic-link signup has no name to supply.
