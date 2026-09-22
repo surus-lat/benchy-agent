@@ -18,7 +18,7 @@
   ],
   "send_email": [{ "name": "EMAIL" }],
   "vars": {
-    "BETTER_AUTH_URL": "https://benchy-agent.pages.dev",
+    "BETTER_AUTH_URL": "https://getbenchy.lat",
     "EMAIL_FROM": "auth@getbenchy.lat"
   }
   // BETTER_AUTH_SECRET is a secret, not a var: it does not belong here.

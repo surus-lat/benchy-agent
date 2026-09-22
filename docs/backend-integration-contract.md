@@ -1003,9 +1003,11 @@ volume and the secrets are what differ.
 
 ## Deployment status (2026-09-18)
 
-Live, single origin **https://benchy-agent.pages.dev** — verified end to end
-through the public URL: SPA served, `/api/*` proxied to the Worker, and an
-uninvited magic-link request refused with `403 NO_PENDING_INVITE`.
+Live, single origin **https://getbenchy.lat** (cut over 2026-09-22;
+`benchy-agent.pages.dev` now 301s there) — verified end to end through the
+public URL: SPA served, `/api/*` proxied to the Worker (`/api/health` is the
+external liveness check), and an uninvited magic-link request refused with
+`403 NO_PENDING_INVITE`.
 
 Done:
 - Cloudflare account **Gradiente Sur** (`625b40d3…`). D1 `benchy-db`
@@ -1018,23 +1020,13 @@ Done:
 - Pages project `benchy-agent`, production branch `main`, deployed from
   `apps/web/dist/public` with the proxy function and `_redirects`.
 
-Not yet (in order):
-1. **Nameservers** — `getbenchy.lat` is registered at NameSilo; the zone
-   exists on Cloudflare (`f84e5e15…`) but is `pending` until NameSilo's
-   nameservers are changed to `justin.ns.cloudflare.com` /
-   `rayne.ns.cloudflare.com`. Owner action.
-2. **Email Sending on `getbenchy.lat`** — `wrangler email sending enable`
-   fails with `Active zone required` until step 1 lands; then enable it and
-   add the SPF/DKIM records. Owned by the agent holding DNS write.
-3. **Custom domain** — attach `getbenchy.lat` to the Pages project
-   (dashboard; wrangler has no command for it). Same owner as 2.
-4. **Cutover** — set the Worker var `BETTER_AUTH_URL=https://getbenchy.lat`,
-   redeploy (~20 s), and add a `_redirects` rule
-   `https://benchy-agent.pages.dev/* https://getbenchy.lat/:splat 301` so
-   only one origin is ever in use. Both hosts are already in
-   `trustedOrigins`.
-5. **First real sign-in** — `pnpm invite --org … --email …` for a real
-   inbox, click the link, confirm the session and `orgId`.
+Done since: nameservers moved to Cloudflare (zone `getbenchy.lat` active),
+custom domain attached to the Pages project, `BETTER_AUTH_URL` flipped to
+`https://getbenchy.lat`, `pages.dev` → `getbenchy.lat` redirect live.
+Still pending: **Email Sending on `getbenchy.lat`** (`wrangler email sending
+enable` + SPF/DKIM, owned by the agent with DNS write) — until then no
+magic link or invite email can be delivered, and the first real sign-in
+(org `SURUS`, `francis@surus.lat`) waits on it.
 
 Preview deployments (`<hash>.benchy-agent.pages.dev`) serve the app but
 **cannot complete sign-in**: their origin is not in `trustedOrigins`, so

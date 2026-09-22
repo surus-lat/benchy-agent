@@ -17,5 +17,7 @@ app.use(
 app.on(["GET", "POST"], "/api/auth/*", (c) => auth.handler(c.req.raw));
 
 app.get("/health", (c) => c.json({ ok: true }));
+// Reachable through the Pages proxy; the Worker has no public URL of its own.
+app.get("/api/health", (c) => c.json({ ok: true }));
 
 export default app;
