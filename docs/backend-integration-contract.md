@@ -1023,10 +1023,12 @@ Done:
 Done since: nameservers moved to Cloudflare (zone `getbenchy.lat` active),
 custom domain attached to the Pages project, `BETTER_AUTH_URL` flipped to
 `https://getbenchy.lat`, `pages.dev` → `getbenchy.lat` redirect live.
-Still pending: **Email Sending on `getbenchy.lat`** (`wrangler email sending
-enable` + SPF/DKIM, owned by the agent with DNS write) — until then no
-magic link or invite email can be delivered, and the first real sign-in
-(org `SURUS`, `francis@surus.lat`) waits on it.
+Email Sending is enabled on `getbenchy.lat` (sender `auth@getbenchy.lat`,
+invites from `invites@getbenchy.lat`). The first invite — org `SURUS`,
+`francis@surus.lat` — was created and sent on 2026-09-22 via
+`pnpm invite`; that run also verified the CLI's `wrangler d1 execute --json`
+parsing against real output. Completing that sign-in on
+https://getbenchy.lat is the last end-to-end check.
 
 Preview deployments (`<hash>.benchy-agent.pages.dev`) serve the app but
 **cannot complete sign-in**: their origin is not in `trustedOrigins`, so
