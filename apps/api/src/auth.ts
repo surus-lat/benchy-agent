@@ -1,17 +1,15 @@
 import { betterAuth } from "better-auth";
 import { magicLink } from "better-auth/plugins";
 import { drizzleAdapter } from "@better-auth/drizzle-adapter";
-import { drizzle } from "drizzle-orm/d1";
 import { env } from "cloudflare:workers";
 import { schema } from "@benchy/db";
+import { db } from "./db";
 import {
   findPendingInvite,
   markInviteAccepted,
   requireInviteForSignup,
   requireInviteOrExistingUser,
 } from "./invite-gate";
-
-const db = drizzle(env.DB, { schema });
 
 if (!env.BETTER_AUTH_SECRET) {
   throw new Error(

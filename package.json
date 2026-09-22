@@ -6,6 +6,7 @@
   "scripts": {
     "dev:web": "pnpm --filter @benchy/web dev",
     "dev:api": "pnpm --filter @benchy/api dev",
-    "invite": "pnpm --filter @benchy/api invite"
+    "invite": "pnpm --filter @benchy/api invite",
+    "access-requests": "pnpm --filter @benchy/api access-requests"
   }
 }

@@ -13,7 +13,8 @@
     "types": "wrangler types",
     "db:migrate:local": "wrangler d1 migrations apply benchy-db --local",
     "db:migrate:remote": "wrangler d1 migrations apply benchy-db --remote",
-    "invite": "tsx scripts/invite.ts"
+    "invite": "tsx scripts/invite.ts",
+    "access-requests": "tsx scripts/access-requests.ts"
   },
   "keywords": [],
   "author": "",

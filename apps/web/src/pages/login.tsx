@@ -9,13 +9,18 @@ const NO_INVITE_FALLBACK =
 /**
  * Where better-auth should send the browser when a flow finishes.
  *
- * It must be absolute. A relative `callbackURL` is resolved against the API's
- * own `baseURL` (`https://api.benchy.example`), a different subdomain from
- * this app, so `"/"` would land a magic-link click or a completed Google
- * sign-in on the API root — a Hono 404 — instead of back here.
+ * Absolute on purpose: better-auth resolves a relative `callbackURL` against
+ * its own `baseURL`, and while that is the same origin as this page today, an
+ * absolute URL keeps that true if the topology ever changes again. Success
+ * lands in the app; failures land back on the sign-in page, whose error slot
+ * reads the query parameters below.
  */
 function appCallbackURL() {
-  return `${window.location.origin}/`;
+  return `${window.location.origin}/app`;
+}
+
+function loginErrorURL() {
+  return `${window.location.origin}/login`;
 }
 
 /**
@@ -37,8 +42,9 @@ function readCallbackError(): string | null {
 
 export default function Login() {
   // Read straight from the URL rather than a router hook: this component is
-  // rendered by AuthGate outside any <Route>, so there are no route params
-  // to read, and the invite link can land on any path.
+  // rendered both by the /login and /accept-invite routes and by AuthGate
+  // (for a signed-out visitor under /app), so the query string is the one
+  // source that is always present.
   const [callbackError] = useState(readCallbackError);
   const [email, setEmail] = useState(
     () => new URLSearchParams(window.location.search).get("email") ?? "",
@@ -54,10 +60,10 @@ export default function Login() {
     setErrorMessage("");
     const { error } = await signIn.magicLink({
       email,
-      // Verification failures reuse this as their error callback (better-auth
-      // falls back to `callbackURL` when no `errorCallbackURL` is given), so
-      // a rejected click also lands back here and is read above.
       callbackURL: appCallbackURL(),
+      // A rejected click comes back to the sign-in page, which reads the
+      // `error` / `error_description` query parameters above.
+      errorCallbackURL: loginErrorURL(),
     });
     if (error) {
       setStatus("error");
@@ -76,7 +82,7 @@ export default function Login() {
     await signIn.social({
       provider: "google",
       callbackURL: appCallbackURL(),
-      errorCallbackURL: appCallbackURL(),
+      errorCallbackURL: loginErrorURL(),
     });
   }
 

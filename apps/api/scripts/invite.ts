@@ -7,8 +7,8 @@ import {
   buildUserExistsSql,
   assertNoExistingUser,
 } from "./invite-lib";
+import { d1Execute, extractResultRows } from "./d1";
 
-const DB_NAME = "benchy-db";
 const INVITE_TTL_DAYS = 7;
 const FROM_ADDRESS = "invites@getbenchy.lat";
 const APP_BASE_URL = "https://getbenchy.lat";
@@ -27,50 +27,6 @@ function parseArgs(argv: string[]): { org: string; email: string } {
     throw new Error('Usage: pnpm invite --org "<name>" --email <email>');
   }
   return { org: args.org, email: args.email.toLowerCase() };
-}
-
-function d1Execute(sql: string): unknown {
-  const output = execFileSync(
-    "npx",
-    ["wrangler", "d1", "execute", DB_NAME, "--remote", "--json", "--command", sql],
-    // stdin/stderr inherited so that a wrangler confirmation prompt is visible
-    // and answerable instead of hanging on a captured pipe.
-    { encoding: "utf-8", stdio: ["inherit", "pipe", "inherit"] },
-  );
-  try {
-    return JSON.parse(output);
-  } catch {
-    throw new Error(
-      `Could not parse "wrangler d1 execute" output as JSON.\n\nRaw output:\n${output}`,
-    );
-  }
-}
-
-/**
- * Pulls the `results` array out of a `wrangler d1 execute --json` response
- * defensively. The shape (`Array<{ results: [...] }>`) is documented but
- * unverified against a real wrangler install for this project (see the
- * deferred handoff) — if it doesn't match, fail loudly with the raw
- * response instead of throwing an opaque "undefined is not an object".
- */
-function extractResultRows(
-  raw: unknown,
-  context: string,
-): Array<Record<string, unknown>> {
-  const fail = (): never => {
-    throw new Error(
-      `Unexpected response shape from "wrangler d1 execute" while ${context}.\n` +
-        `Expected an array with a "results" array in its first element.\n\n` +
-        `Raw parsed output:\n${JSON.stringify(raw, null, 2)}`,
-    );
-  };
-
-  if (!Array.isArray(raw) || raw.length === 0) fail();
-  const first = (raw as unknown[])[0];
-  if (typeof first !== "object" || first === null) fail();
-  const { results } = first as { results?: unknown };
-  if (!Array.isArray(results)) fail();
-  return results as Array<Record<string, unknown>>;
 }
 
 function refuseIfUserExists(email: string): void {
@@ -118,6 +74,14 @@ function createInvite(orgId: string, email: string): string {
   return token;
 }
 
+function markAccessRequestInvited(email: string): void {
+  d1Execute(
+    `UPDATE accessRequests SET status = 'invited' WHERE email = '${escapeSqlString(
+      email,
+    )}' AND status = 'pending'`,
+  );
+}
+
 function sendInviteEmail(email: string, orgName: string, token: string) {
   const link = `${APP_BASE_URL}/accept-invite?email=${encodeURIComponent(
     email,
@@ -156,6 +120,7 @@ function main() {
   }
 
   const token = createInvite(orgId, email);
+  markAccessRequestInvited(email);
   sendInviteEmail(email, org, token);
   console.log(`Invite sent to ${email}. Token (for manual testing): ${token}`);
 }
