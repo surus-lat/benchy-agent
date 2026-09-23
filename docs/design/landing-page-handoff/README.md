@@ -304,7 +304,9 @@ design_handoff_landing_page/
     ├── pip-tile.svg
     ├── favicon.svg
     ├── platform-author-research.png
-    └── platform-author-research-es.png
+    ├── platform-author-research-es.png
+    ├── og-en.png
+    └── og-es.png
 ```
 
 Open the two `design/*.dc.html` files in a browser (they need `support.js` as a sibling — it is) to see intended rendering and behavior. Read markup for structure, but re-express it in your framework's idiom.
@@ -317,3 +319,4 @@ Open the two `design/*.dc.html` files in a browser (they need `support.js` as a 
 4. Replace the illustrative benchmark example data with real content when available (keep the column structures).
 5. Confirm locale routing (`/` + `/es`, or domain-based) and set `lang` accordingly.
 6. Add analytics on both CTAs and the engine link if wanted.
+7. **OG images**: `assets/og-en.png` / `assets/og-es.png` (1200×630) are final. The `og:image` / `twitter:image` tags in both pages use relative paths — rewrite them to absolute `https://` URLs once the domain is set, or link previews won't render. Source artboards are in `design/OG Image.dc.html`.
