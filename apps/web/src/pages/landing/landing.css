@@ -1007,12 +1007,51 @@ html.lp-html body {
     text-align: left;
   }
 }
-@media (max-width: 520px) {
+/* Below ~700px the single header row cannot hold the lockup plus both pills
+   (the Spanish labels alone need ~220px), and letting flex wrap them produces
+   an accidental-looking three-row header. Lay it out as two deliberate rows
+   instead: brand + low-emphasis links, then the two actions. */
+@media (max-width: 720px) {
   .lp-nav {
-    gap: 8px 14px;
+    display: grid;
+    grid-template-columns: auto auto minmax(0, 1fr);
+    grid-template-areas:
+      "lockup gh engine"
+      "actions actions actions";
+    align-items: center;
+    gap: 6px 10px;
+    padding: 7px 12px;
+  }
+  .lp-lockup {
+    grid-area: lockup;
+    font-size: 22px;
+  }
+  .lp-nav-gh {
+    grid-area: gh;
+    margin-left: 0;
+  }
+  .lp-nav-center {
+    grid-area: engine;
+    justify-content: flex-end;
+  }
+  .lp-nav-engine {
+    font-size: 13px;
+    padding: 6px 0 6px 8px;
+  }
+  .lp-nav-actions {
+    grid-area: actions;
+    flex-wrap: nowrap;
   }
   .lp-pill {
     font-size: 15px;
+    justify-content: center;
+  }
+}
+/* On phones the two actions share the row equally. */
+@media (max-width: 480px) {
+  .lp-pill {
+    flex: 1 1 0;
+    padding: 7px 12px;
   }
 }
 @media (prefers-reduced-motion: reduce) {
