@@ -114,7 +114,13 @@ export default function Landing({ lang = "es" }: { lang?: Locale }) {
         <section className="lp-section lp-platform">
           <figure>
             <div className="lp-platform-frame">
-              <img src={t.platform.src} alt={t.platform.alt} width={2688} height={1826} loading="lazy" />
+              <img
+                src={t.platform.src}
+                alt={t.platform.alt}
+                width={t.platform.width}
+                height={t.platform.height}
+                loading="lazy"
+              />
             </div>
             <figcaption className="lp-platform-caption">{t.platform.caption}</figcaption>
           </figure>

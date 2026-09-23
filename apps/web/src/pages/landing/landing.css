@@ -445,8 +445,14 @@ html.lp-html body {
   max-width: 1440px;
   margin-top: clamp(56px, 11vh, 120px);
 }
+/* The frame shrink-wraps the screenshot, and the screenshot is capped at 80%
+   of the viewport height: the whole view plus its caption is visible at once
+   instead of needing a scroll to take it in. Whatever the image's aspect
+   ratio, width follows height. */
 .lp-platform-frame {
-  width: 100%;
+  width: fit-content;
+  max-width: 100%;
+  margin: 0 auto;
   border-radius: clamp(10px, 1.2vw, 18px);
   overflow: hidden;
   border: 1px solid var(--lp-line);
@@ -455,8 +461,10 @@ html.lp-html body {
 }
 .lp-platform-frame img {
   display: block;
-  width: 100%;
+  width: auto;
   height: auto;
+  max-width: 100%;
+  max-height: 80svh;
 }
 .lp-platform-caption {
   margin: 16px auto 0;
@@ -989,13 +997,16 @@ html.lp-html body {
   .lp-hero h1 span {
     white-space: normal;
   }
-  /* Keep the dense UI legible and pannable instead of shrinking to texture. */
+  /* Keep the dense UI legible and pannable instead of shrinking to texture:
+     full-width frame, image at least 760px wide, no height cap. */
   .lp-platform-frame {
+    width: 100%;
     overflow-x: auto;
     -webkit-overflow-scrolling: touch;
   }
   .lp-platform-frame img {
     min-width: 760px;
+    max-height: none;
   }
 }
 @media (max-width: 560px) {

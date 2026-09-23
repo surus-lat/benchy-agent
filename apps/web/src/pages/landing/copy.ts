@@ -37,7 +37,9 @@ export interface LandingCopy {
     cta: string;
   };
   aws: { badgeAlt: string; lead: [string, string, string]; body: string };
-  platform: { src: string; alt: string; caption: string };
+  // width/height are the file's real pixels: the browser uses them as the
+  // aspect-ratio hint before the image loads, and the two locales differ.
+  platform: { src: string; width: number; height: number; alt: string; caption: string };
   access: AccessCopy;
   rail: {
     ariaLabel: string;
@@ -102,6 +104,8 @@ const en: LandingCopy = {
   },
   platform: {
     src: "/brand/platform-author-research.png",
+    width: 2688,
+    height: 1826,
     alt: "Benchy Agent authoring view: a peer-reviewed anthropology question with its expected answer and weighted rubric",
     caption:
       "Authoring a doctoral-level benchmark: the question, the expert reference answer, and a weighted rubric the engine can score against.",
@@ -212,7 +216,7 @@ const es: LandingCopy = {
     subtitle: "Dale forma al futuro de la Inteligencia",
     pipLabel: "benchy agent pensando",
     paragraph:
-      "Evaluá qué saben distintos modelos de IA, identificá sus puntos ciegos y sesgos, y construí los datos que definen lo que se viene.",
+      "Evaluá a distintos modelos de IA. Identificá sus puntos ciegos, vulnerabilidades y sesgos, y construí los criterios que definirán lo que se viene.",
     cta: "Solicitar acceso",
   },
   aws: {
@@ -222,6 +226,8 @@ const es: LandingCopy = {
   },
   platform: {
     src: "/brand/platform-author-research-es.png",
+    width: 2688,
+    height: 1948,
     alt: "Vista de autoría de Benchy Agent: una pregunta de antropología con referato, su respuesta esperada y una rúbrica ponderada",
     caption:
       "Autoría de un benchmark de nivel doctoral: la pregunta, la respuesta experta de referencia y una rúbrica ponderada que el motor puede puntuar.",
