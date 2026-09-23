@@ -976,12 +976,13 @@ invite itself.
   needed and the tests hit the real siteverify endpoint.
 - **The landing form sends only `email` + `orgName`** (the designed page has
   two inputs); `name` and `message` stay optional in the API for later.
-- **Routes:** `/` public landing (English) and `/es` (rioplatense Spanish) —
-  one layout, copy in `apps/web/src/pages/landing/copy.ts`, design source in
-  `docs/design/landing-page-handoff/`; `/login`, `/accept-invite` (sign-in
-  prefilled), `/app` and below behind `AuthGate`. Magic links land on `/app`;
-  failures on `/login`. The landing's "Log in" pill becomes "Open app" when a
-  session exists.
+- **Routes:** `/` public landing (rioplatense Spanish, the default) and `/en`
+  (English) — one layout, copy in `apps/web/src/pages/landing/copy.ts`, design
+  source in `docs/design/landing-page-handoff/`; `/login`, `/accept-invite`
+  (sign-in prefilled), `/app` and below behind `AuthGate`. Magic links land on
+  `/app`; failures on `/login`. The landing never shows an "Open app" entry —
+  the only way in is "Log in", and `/login` redirects to `/app` when a session
+  already exists.
 
 Not done, deliberately: Turnstile on the magic-link request itself. The invite
 gate already refuses strangers, but anyone can trigger sign-in emails to an
@@ -1076,8 +1077,9 @@ to end in production.**
 
 Also live since 2026-09-22: the public **Request Access** intake (below) at
 `POST /api/access-requests`, Turnstile-gated, with the app moved under `/app`,
-and the designed **landing page** at `/` (EN) and `/es` (ES), recreated from
-the claude.ai/design handoff in React (`apps/web/src/pages/landing/`).
+and the designed **landing page** at `/` (ES, default) and `/en` (EN),
+recreated from the claude.ai/design handoff in React
+(`apps/web/src/pages/landing/`).
 
 Preview deployments (`<hash>.benchy-agent.pages.dev`) serve the app but
 **cannot complete sign-in**: their origin is not in `trustedOrigins`, so

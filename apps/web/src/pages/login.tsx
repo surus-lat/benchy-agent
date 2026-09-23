@@ -1,5 +1,6 @@
-import { useState } from "react";
-import { signIn } from "@/lib/auth-client";
+import { useEffect, useState } from "react";
+import { useLocation } from "wouter";
+import { signIn, useSession } from "@/lib/auth-client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 
@@ -53,6 +54,16 @@ export default function Login() {
     "idle" | "sending" | "sent" | "error"
   >(callbackError ? "error" : "idle");
   const [errorMessage, setErrorMessage] = useState(callbackError ?? "");
+
+  // "Log in" is the only way into the app from the landing, so a visitor who
+  // already holds a session is sent straight through instead of being shown
+  // a form they don't need. AuthGate only renders this page when there is no
+  // session, so this cannot loop.
+  const { data: session } = useSession();
+  const [, navigate] = useLocation();
+  useEffect(() => {
+    if (session) navigate("/app", { replace: true });
+  }, [session, navigate]);
 
   async function handleMagicLink(e: React.FormEvent) {
     e.preventDefault();

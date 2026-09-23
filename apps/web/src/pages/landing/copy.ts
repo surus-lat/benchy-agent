@@ -1,7 +1,8 @@
-// All landing copy, per locale. The two locales share one layout; the Spanish
-// is rioplatense voseo by design («comillas latinas», "Convertí", "Evaluá"),
-// not neutral Spanish. Benchmark example data inside the feature panels is
-// illustrative — keep the shapes if you swap in real content.
+// All landing copy, per locale. Spanish is the default (/), English lives at
+// /en. The two share one layout; the Spanish is rioplatense voseo by design
+// («comillas latinas», "Convertí", "Evaluá"), not neutral Spanish. Benchmark
+// example data inside the feature panels is illustrative — keep the shapes if
+// you swap in real content.
 
 export type Locale = "en" | "es";
 
@@ -26,7 +27,6 @@ export interface LandingCopy {
     github: string;
     engine: string;
     login: string;
-    openApp: string;
     request: string;
   };
   hero: {
@@ -85,7 +85,6 @@ const en: LandingCopy = {
     github: "Benchy Agent on GitHub",
     engine: "benchy::engine",
     login: "Log in",
-    openApp: "Open app",
     request: "Request access",
   },
   hero: {
@@ -115,7 +114,8 @@ const en: LandingCopy = {
     orgLabel: "University or research group",
     cta: "Request access",
     sending: "Sending…",
-    invitedPrompt: "Already invited?",
+    // Same vocabulary as the CTAs: you request access, then you have it.
+    invitedPrompt: "Already have access?",
     login: "Log in",
     success: {
       title: "Request received.",
@@ -193,7 +193,7 @@ const en: LandingCopy = {
   footer: {
     by: "by SURUS",
     switchLabel: "ES",
-    switchHref: "/es",
+    switchHref: "/",
     switchTitle: "Versión en español",
   },
 };
@@ -205,7 +205,6 @@ const es: LandingCopy = {
     github: "Benchy Agent en GitHub",
     engine: "benchy::engine",
     login: "Ingresar",
-    openApp: "Abrir la app",
     request: "Solicitar acceso",
   },
   hero: {
@@ -213,7 +212,7 @@ const es: LandingCopy = {
     subtitle: "Dale forma al futuro de la Inteligencia",
     pipLabel: "benchy agent pensando",
     paragraph:
-      "Evaluá qué sabe la IA, identificá sus puntos ciegos y sesgos, y construí los datos que definen lo que viene.",
+      "Evaluá qué saben distintos modelos de IA, identificá sus puntos ciegos y sesgos, y construí los datos que definen lo que se viene.",
     cta: "Solicitar acceso",
   },
   aws: {
@@ -235,7 +234,7 @@ const es: LandingCopy = {
     orgLabel: "Universidad o grupo de investigación",
     cta: "Solicitar acceso",
     sending: "Enviando…",
-    invitedPrompt: "¿Ya tenés una invitación?",
+    invitedPrompt: "¿Ya tenés acceso?",
     login: "Ingresar",
     success: {
       title: "Recibimos tu solicitud.",
@@ -313,7 +312,7 @@ const es: LandingCopy = {
   footer: {
     by: "by SURUS",
     switchLabel: "EN",
-    switchHref: "/",
+    switchHref: "/en",
     switchTitle: "English version",
   },
 };

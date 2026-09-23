@@ -1,22 +1,23 @@
 import { useEffect, useRef } from "react";
 import { Link } from "wouter";
-import { useSession } from "@/lib/auth-client";
 import { COPY, type Locale } from "./landing/copy";
 import { RequestAccessForm } from "./landing/request-access-form";
 import "./landing/landing.css";
 
 // Public landing page, recreated from the design handoff. One layout, two
-// locales (/ and /es). The "Request access" CTAs all anchor to #access; the
-// form there is the only piece with real logic (see request-access-form.tsx).
+// locales (Spanish at /, English at /en). The "Request access" CTAs all anchor
+// to #access; the form there is the only piece with real logic (see
+// request-access-form.tsx). The only way into the app from here is "Log in" —
+// there is deliberately no session-aware "Open app" affordance; /login sends
+// an already-signed-in visitor on to /app itself.
 
 const GITHUB_URL = "https://github.com/surus-lat/benchy-agent";
 const ENGINE_URL = "https://benchy.lat";
 const AWS_URL = "https://aws.amazon.com/what-is-cloud-computing";
 const SURUS_URL = "https://surus.lat";
 
-export default function Landing({ lang = "en" }: { lang?: Locale }) {
+export default function Landing({ lang = "es" }: { lang?: Locale }) {
   const t = COPY[lang];
-  const { data: session } = useSession();
   useDocumentChrome(t.htmlLang);
   const railRef = useRailScrollSpy();
   const closerRef = useRevealOnce();
@@ -60,15 +61,9 @@ export default function Landing({ lang = "en" }: { lang?: Locale }) {
             </a>
           </div>
           <div className="lp-nav-actions">
-            {session ? (
-              <Link href="/app" className="lp-pill lp-pill-ghost">
-                {t.nav.openApp}
-              </Link>
-            ) : (
-              <Link href="/login" className="lp-pill lp-pill-ghost">
-                {t.nav.login}
-              </Link>
-            )}
+            <Link href="/login" className="lp-pill lp-pill-ghost">
+              {t.nav.login}
+            </Link>
             <a href="#access" className="lp-pill lp-pill-ink">
               {t.nav.request}
             </a>
