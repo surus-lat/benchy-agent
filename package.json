@@ -6,6 +6,9 @@
   "scripts": {
     "dev:web": "pnpm --filter @benchy/web dev",
     "dev:api": "pnpm --filter @benchy/api dev",
+    "test": "pnpm --filter @benchy/api test && pnpm --filter @benchy/api test:scripts",
+    "deploy:api": "pnpm --filter @benchy/api deploy",
+    "deploy:web": "pnpm --filter @benchy/web build && pnpm --filter @benchy/api exec wrangler pages deploy --cwd ../web --branch main",
     "invite": "pnpm --filter @benchy/api invite",
     "access-requests": "pnpm --filter @benchy/api access-requests"
   }
