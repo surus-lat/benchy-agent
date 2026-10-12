@@ -104,8 +104,8 @@ const en: LandingCopy = {
   },
   platform: {
     src: "/brand/platform-author-research.png",
-    width: 2688,
-    height: 1826,
+    width: 2880,
+    height: 1716,
     alt: "Benchy Agent authoring view: a peer-reviewed anthropology question with its expected answer and weighted rubric",
     caption:
       "Authoring a doctoral-level benchmark: the question, the expert reference answer, and a weighted rubric the engine can score against.",
@@ -226,8 +226,8 @@ const es: LandingCopy = {
   },
   platform: {
     src: "/brand/platform-author-research-es.png",
-    width: 2688,
-    height: 1948,
+    width: 2880,
+    height: 1878,
     alt: "Vista de autoría de Benchy Agent: una pregunta de antropología con referato, su respuesta esperada y una rúbrica ponderada",
     caption:
       "Autoría de un benchmark de nivel doctoral: la pregunta, la respuesta experta de referencia y una rúbrica ponderada que el motor puede puntuar.",
