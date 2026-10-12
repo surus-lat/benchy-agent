@@ -77,6 +77,8 @@
     "zod": "^3.25.76"
   },
   "dependencies": {
-    "better-auth": "^1.7.5"
+    "better-auth": "^1.7.5",
+    "react-markdown": "^10.1.0",
+    "remark-gfm": "^4.0.1"
   }
 }

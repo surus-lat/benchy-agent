@@ -5,7 +5,7 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import { AuthGate } from "@/components/auth-gate";
 import Landing from "@/pages/landing";
 import Login from "@/pages/login";
-import Home from "@/pages/home";
+import AgentApp from "@/pages/app/agent-app";
 import NotFound from "@/pages/not-found";
 
 const queryClient = new QueryClient();
@@ -17,7 +17,7 @@ const queryClient = new QueryClient();
 function GatedApp() {
   return (
     <AuthGate>
-      <Home />
+      <AgentApp />
     </AuthGate>
   );
 }
