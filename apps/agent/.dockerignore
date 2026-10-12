@@ -1,0 +1,4 @@
+**/__pycache__
+*.md
+!SOUL.md
+!skills/**/SKILL.md

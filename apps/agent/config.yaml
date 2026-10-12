@@ -1,0 +1,50 @@
+# Pinned Hermes configuration for every org's Benchy Agent container.
+#
+# Copied over $HERMES_HOME/config.yaml on every boot by
+# /etc/cont-init.d/03-benchy-setup, so an org cannot drift from it: the image
+# is the only way to change it. Identical across all orgs; per-org values
+# (API_SERVER_KEY, the Bedrock key) come from service variables.
+#
+# Contract: docs/backend-integration-contract.md, "How the per-org Hermes is
+# configured".
+
+model:
+  provider: bedrock
+  # Kimi K3 is only invocable through its cross-region inference profile.
+  default: us.moonshotai.kimi-k3
+
+bedrock:
+  region: us-east-1
+
+fallback_providers: []
+
+# The API server is the only surface, and the Worker is its only caller.
+# Pinned toolset — an explicit list is an allowlist:
+#   file, skills, todo, memory  Hermes's own tools for working on benchmark files
+#   benchy                      the engine, as the MCP server below
+# Deliberately absent: terminal (no arbitrary code, no reading credentials),
+# session_search (would cross researchers' conversations), web, browser.
+platform_toolsets:
+  api_server: [file, skills, todo, memory, benchy]
+
+mcp_servers:
+  benchy:
+    command: /opt/hermes/.venv/bin/python
+    args: [/opt/benchy/mcp/benchy_mcp.py]
+    # A stdio MCP child gets a minimal environment, not the gateway's; pass
+    # exactly what the engine needs and nothing else. Hermes interpolates ${VAR}.
+    env:
+      AWS_REGION: ${AWS_REGION}
+      AWS_BEARER_TOKEN_BEDROCK: ${AWS_BEARER_TOKEN_BEDROCK}
+      BENCHY_WORKSPACE: ${BENCHY_WORKSPACE}
+    timeout: 900          # a run makes one model call per exam row
+    connect_timeout: 30
+
+skills:
+  # Core benchy skills: root-owned and read-only in the image. The org's own
+  # skills live in $HERMES_HOME/skills, which Hermes writes as usual.
+  external_dirs:
+    - /opt/benchy/skills
+
+agent:
+  max_turns: 60

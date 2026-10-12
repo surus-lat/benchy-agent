@@ -1,0 +1,58 @@
+#!/command/with-contenv sh
+# Benchy pre-start, run as root by s6 after Hermes's own bootstrap
+# (01-hermes-setup) and before the gateway starts. Fails the container
+# rather than letting it serve unprotected.
+set -eu
+
+HERMES_HOME="${HERMES_HOME:-/opt/data}"
+CORE=/opt/benchy/skills
+say() { echo "[benchy-setup] $*"; }
+die() { echo "[benchy-setup] FATAL: $*" >&2; exit 1; }
+
+# 1. Secrets the gateway and the engine cannot run without.
+[ -n "${API_SERVER_KEY:-}" ] || die "API_SERVER_KEY is not set"
+[ "${#API_SERVER_KEY}" -ge 32 ] || die "API_SERVER_KEY must be at least 32 characters"
+[ -n "${AWS_BEARER_TOKEN_BEDROCK:-}" ] || die "AWS_BEARER_TOKEN_BEDROCK is not set"
+
+# 2. Core skills must be unwritable by the user the gateway runs as.
+s6-setuidgid hermes test -w "$CORE" && die "$CORE is writable by hermes"
+for d in "$CORE"/*/; do
+  s6-setuidgid hermes test -w "$d" && die "$d is writable by hermes"
+done
+
+# 3. Pinned config and persona: the image is the only source of truth.
+install -o hermes -g hermes -m 0644 /opt/benchy/config.yaml "$HERMES_HOME/config.yaml"
+install -o hermes -g hermes -m 0644 /opt/benchy/SOUL.md "$HERMES_HOME/SOUL.md"
+
+# 4. Reserve core skill names in the org tier so nothing can shadow them:
+#    an empty root-owned 0555 dir has no SKILL.md (Hermes ignores it) and
+#    cannot be written into. Also sweep legacy flat <name>.md shadows.
+mkdir -p "$HERMES_HOME/skills"
+for d in "$CORE"/*/; do
+  name="$(basename "$d")"
+  target="$HERMES_HOME/skills/$name"
+  if [ -e "$target" ] && [ "$(stat -c %U "$target")" != root ]; then
+    say "removing org-tier shadow of core skill: $target"
+    rm -rf "$target"
+  fi
+  if [ ! -e "$target" ]; then
+    mkdir "$target"
+    chown root:root "$target"
+    chmod 0555 "$target"
+  fi
+  find "$HERMES_HOME/skills" -name "$name.md" -print -delete | sed 's/^/[benchy-setup] removed shadow: /'
+done
+
+# 5. s6 keeps the container's environment as world-readable files, one per
+#    variable — including API_SERVER_KEY and the Bedrock key — and Hermes's
+#    file tool can read them. Only root needs them (with-contenv runs as root
+#    before dropping to hermes; the engine gets its variables passed
+#    explicitly), so make them root-only.
+chmod 0700 /run/s6/container_environment
+chmod 0600 /run/s6/container_environment/*
+s6-setuidgid hermes test -r /run/s6/container_environment/API_SERVER_KEY && die "s6 environment is readable by hermes"
+
+# 6. The org's benchmark workspace.
+install -d -o hermes -g hermes "$HERMES_HOME/workspace"
+
+say "ok — core skills protected, config pinned, workspace ready"

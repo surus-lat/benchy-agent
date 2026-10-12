@@ -1,0 +1,3 @@
+# Core benchy skills and the agent image are owner-only: every org container
+# runs them read-only, and rebuilding the image is the only path to change them.
+/apps/agent/ @tatakof
