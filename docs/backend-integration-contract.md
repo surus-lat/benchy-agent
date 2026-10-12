@@ -47,11 +47,11 @@ through that inference profile). Benchmarks may name, as
 `deepseek.v3.2` — enforced twice: `BENCHY_MODELS` in the MCP server and the
 IAM policy. gpt-oss is excluded (it prefixes reasoning to JSON, so every
 structured output is invalid). **Claude is not entitled on the AWS account**
-(354918377724); enabling it needs an AWS request.
+(354918377724); not needed for now — Kimi K3 is the model.
 
 **Credentials.** One secret per org container for inference:
-`AWS_BEARER_TOKEN_BEDROCK`, a long-term Bedrock API key (365 days, expires
-2027-10-12) of IAM user `benchy-agent-bedrock`, whose inline policy allows
+`AWS_BEARER_TOKEN_BEDROCK`, a long-term Bedrock API key (365 days; rotated 2026-10-12, next due
+before 2027-10-12) of IAM user `benchy-agent-bedrock` (rotate with `apps/agent/rotate-bedrock-key.sh`; zero downtime), whose inline policy allows
 `bedrock:InvokeModel*` on the four models only, plus
 `bedrock:CallWithBearerToken`. botocore (Hermes) and Bedrock's
 OpenAI-compatible endpoint (the engine) both accept it. The stdio MCP child
@@ -78,8 +78,9 @@ workspace on the volume and are visible to every member of the org.
   the landing's rubric-graded open answers need an engine design change
   (LLM-as-judge). Today the agent turns each rubric criterion into a closed
   decision.
-- **The ontology's domains are narrow** (`general, finance, healthcare, legal,
-  retail`); academic fields use `general` until `extend-ontology` adds them.
+- **Academic domains** (anthropology, sociology, history, linguistics, biology,
+  public_health and 20 more) were added to ontology 1.0 in surus-lat/benchy#38;
+  the image pins that branch commit until it merges.
 - **Turns are synchronous.** A very long benchmark run could hit the 14-minute
   turn timeout; results still land in `runs/`. Streaming
   (`/chat/stream`) or async runs are the next step if that bites.

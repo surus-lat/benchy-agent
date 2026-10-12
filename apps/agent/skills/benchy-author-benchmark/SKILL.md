@@ -42,9 +42,14 @@ them correct before writing many.
 
 **4. Task, domain, language.** Closed vocabularies — anything else fails to compile:
 `task` is `extract`, `classify` or `translate` (`classify` needs exactly one enum
-output leaf); `domain` is `general`, `finance`, `healthcare`, `legal` or `retail`
-(use `general` for academic fields not listed, and keep the field itself in the
-folder name and the YAML comments); `language` is `es`, `pt` or `en`.
+output leaf); `language` is `es`, `pt` or `en`; `domain` is one of `general`,
+`finance`, `healthcare`, `legal`, `retail`, or an academic field: `anthropology`,
+`archaeology`, `sociology`, `history`, `linguistics`, `literature`, `philosophy`,
+`political_science`, `economics`, `psychology`, `education`, `geography`,
+`communication`, `arts`, `law`, `biology`, `chemistry`, `physics`,
+`mathematics`, `computer_science`, `earth_sciences`, `environmental_science`,
+`agriculture`, `engineering`, `medicine`, `public_health`. Pick the closest;
+use `general` only when none fits.
 
 ## Exact match is the scoring rule
 
@@ -59,8 +64,7 @@ plainly and help them reframe it as decisions the model must get right (e.g. one
 ```yaml
 version: "1.0"
 ontology_version: "1.0"
-# Field: anthropology (domain `general` until the ontology lists it)
-benchmark: { task: classify, domain: general, language: es }
+benchmark: { task: classify, domain: anthropology, language: es }
 program:
   input:  { question: string }
   output: { answer: { enum: [a, b, c, d] } }
