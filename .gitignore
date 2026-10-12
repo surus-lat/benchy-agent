@@ -7,3 +7,5 @@ dist/
 .wrangler/
 .dev.vars
 .env
+__pycache__/
+*.pyc
