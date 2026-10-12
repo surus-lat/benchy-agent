@@ -131,3 +131,21 @@ export const conversationMessages = sqliteTable("conversationMessages", {
   content: text("content").notNull(),
   createdAt: integer("createdAt", { mode: "timestamp" }).notNull(),
 });
+
+// WebAuthn passkeys (better-auth passkey plugin): a researcher's Touch ID /
+// Face ID / Windows Hello credential, registered after their first sign-in.
+export const passkey = sqliteTable("passkey", {
+  id: text("id").primaryKey(),
+  name: text("name"),
+  publicKey: text("publicKey").notNull(),
+  userId: text("userId")
+    .notNull()
+    .references(() => user.id, { onDelete: "cascade" }),
+  credentialID: text("credentialID").notNull(),
+  counter: integer("counter").notNull(),
+  deviceType: text("deviceType").notNull(),
+  backedUp: integer("backedUp", { mode: "boolean" }).notNull(),
+  transports: text("transports"),
+  createdAt: integer("createdAt", { mode: "timestamp" }),
+  aaguid: text("aaguid"),
+});

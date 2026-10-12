@@ -22,6 +22,13 @@
       "when": 1791830122395,
       "tag": "0002_agent_conversations",
       "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "6",
+      "when": 1791844060853,
+      "tag": "0003_passkeys",
+      "breakpoints": true
     }
   ]
 }

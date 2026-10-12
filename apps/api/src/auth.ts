@@ -1,7 +1,8 @@
 import { betterAuth } from "better-auth";
-import { magicLink } from "better-auth/plugins";
+import { emailOTP, magicLink } from "better-auth/plugins";
+import { passkey } from "@better-auth/passkey";
 import { drizzleAdapter } from "@better-auth/drizzle-adapter";
-import { env } from "cloudflare:workers";
+import { env, waitUntil } from "cloudflare:workers";
 import { schema } from "@benchy/db";
 import { db } from "./db";
 import { socialProviders } from "./social-providers";
@@ -38,6 +39,17 @@ export const auth = betterAuth({
     "https://benchy-agent.pages.dev",
     "http://localhost:21707",
   ],
+  // better-auth sends some mail (the sign-in code) after responding, so a
+  // request cannot reveal which addresses are invited. On Workers that work
+  // must be handed to waitUntil, or it is cut off when the response is sent.
+  advanced: {
+    backgroundTasks: { handler: (promise: Promise<unknown>) => waitUntil(promise) },
+  },
+  // Researchers should rarely have to sign in: 30-day sessions, refreshed daily.
+  session: {
+    expiresIn: 60 * 60 * 24 * 30,
+    updateAge: 60 * 60 * 24,
+  },
   user: {
     additionalFields: {
       orgId: {
@@ -76,6 +88,36 @@ export const auth = betterAuth({
     },
   },
   plugins: [
+    // Passkeys: after the first email sign-in, a researcher can register Touch
+    // ID / Face ID / Windows Hello and sign in with one tap from then on. No
+    // third party involved. Passkey sign-in never creates users.
+    passkey({
+      rpID: new URL(env.BETTER_AUTH_URL).hostname,
+      rpName: "benchy agent",
+      origin: [env.BETTER_AUTH_URL, "http://localhost:21707"],
+    }),
+    // A 6-digit code by email — the primary sign-in. University mail filters
+    // (Safe Links and similar) open links before the person does, which burns a
+    // one-time magic link; a code survives that. The email also carries a link,
+    // but it only pre-fills the login form: nothing is redeemed until the
+    // researcher presses the button, so a scanner opening it changes nothing.
+    emailOTP({
+      otpLength: 6,
+      expiresIn: 10 * 60,
+      async sendVerificationOTP({ email, otp, type }) {
+        if (type !== "sign-in") return; // the only OTP flow this app uses
+        await requireInviteOrExistingUser(db, email);
+        const link = `${env.BETTER_AUTH_URL}/login?${new URLSearchParams({ email, code: otp })}`;
+        await env.EMAIL.send({
+          to: email,
+          from: { email: env.EMAIL_FROM, name: "benchy agent" },
+          subject: `${otp} es tu código para ingresar a benchy`,
+          text: `Tu código para ingresar a benchy agent: ${otp}\n\nO abrí este link y tocá "Ingresar": ${link}\n\nVence en 10 minutos. Si no lo pediste, ignorá este mail.`,
+          html: `<p>Tu código para ingresar a benchy agent:</p><p style="font-size:28px;font-weight:600;letter-spacing:6px;font-family:monospace">${otp}</p><p>O <a href="${link}">abrí este link</a> y tocá "Ingresar".</p><p style="color:#756e66">Vence en 10 minutos. Si no lo pediste, ignorá este mail.</p>`,
+        });
+      },
+    }),
+    // Kept for links already sent; the login page now uses the code above.
     magicLink({
       sendMagicLink: async ({ email, url }) => {
         await requireInviteOrExistingUser(db, email);
