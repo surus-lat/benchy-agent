@@ -1,0 +1,4 @@
+# vendor/ holds the private llm-client wheel (see prepare-vendor.sh). It is
+# excluded from git via .git/info/exclude, but must reach the Railway build.
+!vendor/
+!vendor/**

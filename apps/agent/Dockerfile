@@ -8,8 +8,9 @@
 #   - a small proxy as the only public port: read-only workspace routes,
 #     everything else forwarded to Hermes on loopback
 #
-# Build (llm-client is private; the token is a BuildKit secret, never a layer):
-#   docker build --secret id=gh_token,env=GH_TOKEN -t benchy-agent apps/agent
+# Build (llm-client is private: vendor its wheel first; no secret in the build):
+#   apps/agent/prepare-vendor.sh && docker build -t benchy-agent apps/agent
+# Railway: apps/agent/prepare-vendor.sh && railway up apps/agent --path-as-root
 #
 # Never override ENTRYPOINT on the host: /init + main-wrapper drop to the
 # unprivileged hermes user, which is what keeps the core skills read-only.
@@ -21,13 +22,12 @@ FROM nousresearch/hermes-agent@sha256:444b42594e7f467425872fc35e077a227d377f0fe0
 ARG BENCHY_ENGINE_REF=8933ec392cd29b6a08d3cede65a0eb8a57dd0650
 
 USER root
-RUN --mount=from=uv,source=/uv,target=/usr/local/bin/uv \
-    --mount=type=secret,id=gh_token,required=true \
-    git config --global url."https://x-access-token:$(cat /run/secrets/gh_token)@github.com/".insteadOf "https://github.com/" \
- && uv pip install --python /opt/hermes/.venv/bin/python --no-cache \
-      "benchy[providers] @ git+https://github.com/surus-lat/benchy.git@${BENCHY_ENGINE_REF}" \
- && git config --global --unset-all url."https://x-access-token:$(cat /run/secrets/gh_token)@github.com/".insteadOf \
- && rm -f /root/.gitconfig
+# Railway's builder supports only cache mounts, so uv is copied in and removed.
+COPY --from=uv /uv /usr/local/bin/uv
+COPY vendor/ /tmp/vendor/
+RUN uv pip install --python /opt/hermes/.venv/bin/python --no-cache /tmp/vendor/llm_client-*.whl \
+      "benchy @ git+https://github.com/surus-lat/benchy.git@${BENCHY_ENGINE_REF}" \
+ && rm -rf /tmp/vendor /usr/local/bin/uv
 
 COPY --chown=root:root config.yaml SOUL.md /opt/benchy/
 COPY --chown=root:root mcp/ /opt/benchy/mcp/
