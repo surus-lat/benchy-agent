@@ -139,6 +139,9 @@ export default function AgentApp() {
           <span className="ba-lockup-suffix">agent</span>
         </a>
         <div className="ba-top-right">
+          <a href="/app" className="ba-user" style={{ textDecoration: "underline", textUnderlineOffset: 3 }} title="Vista de benchmarks">
+            Vista benchmarks
+          </a>
           <button className="ba-pill ba-only-medium" onClick={() => setPanel(panel === "files" ? "none" : "files")}>
             Archivos
           </button>

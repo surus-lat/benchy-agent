@@ -5,7 +5,7 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import { AuthGate } from "@/components/auth-gate";
 import Landing from "@/pages/landing";
 import Login from "@/pages/login";
-import AgentApp from "@/pages/app/agent-app";
+import PlatformApp from "@/pages/platform/platform-app";
 import NotFound from "@/pages/not-found";
 
 const queryClient = new QueryClient();
@@ -17,7 +17,7 @@ const queryClient = new QueryClient();
 function GatedApp() {
   return (
     <AuthGate>
-      <AgentApp />
+      <PlatformApp />
     </AuthGate>
   );
 }
@@ -39,7 +39,7 @@ function Router() {
       <Route path="/login" component={Login} />
       <Route path="/accept-invite" component={Login} />
       <Route path="/app" component={GatedApp} />
-      <Route path="/app/:rest*" component={GatedApp} />
+      <Route path="/app/*" component={GatedApp} />
       <Route component={NotFound} />
     </Switch>
   );
