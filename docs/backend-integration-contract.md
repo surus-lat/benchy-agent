@@ -65,6 +65,15 @@ s6's per-variable environment files (world-readable by default, readable via
 `read_file`) are made root-only at boot, and the container refuses to start
 if they are not.
 
+**Sign-in.** Magic link (always) plus Google and Microsoft, each enabled only
+when its Worker secrets exist (`GOOGLE_CLIENT_ID/SECRET`,
+`MICROSOFT_CLIENT_ID/SECRET`); `GET /api/auth-providers` tells the login page
+which buttons to show. OAuth redirect URIs:
+`https://getbenchy.lat/api/auth/callback/google` and `…/callback/microsoft`.
+All three pass the invite gate; account linking joins them on a verified
+email. Microsoft is multi-tenant (`common`), so its unverified `email` claim
+is never trusted (nOAuth): see `apps/api/src/social-providers.ts`.
+
 **Conversations.** Per user (a colleague's id is a 404); the org always comes
 from the session; turns serialized per conversation by an atomic conditional
 UPDATE (409 while one is in flight; a lock older than 15 minutes is
