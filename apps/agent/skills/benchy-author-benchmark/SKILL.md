@@ -19,6 +19,11 @@ benchmarks is `/opt/data/workspace`):
 /opt/data/workspace/<slug>/exam.jsonl
 ```
 
+**The first line of every `benchmark.yaml` is its human-readable name**, as a
+comment: `# Corrientes teóricas en etnografía rioplatense`. The app shows it as
+the benchmark's title; keep it short and in the researcher's language, and
+update it if the benchmark's purpose changes.
+
 Tools take paths **relative to the workspace**: `benchy_validate("<slug>/benchmark.yaml")`.
 The workspace is shared by the whole organization — name folders clearly.
 
@@ -62,6 +67,7 @@ plainly and help them reframe it as decisions the model must get right (e.g. one
 ## The skeleton
 
 ```yaml
+# Conceptos de antropología andina
 version: "1.0"
 ontology_version: "1.0"
 benchmark: { task: classify, domain: anthropology, language: es }

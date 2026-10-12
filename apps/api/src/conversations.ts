@@ -49,6 +49,8 @@ export function createConversationsApp(deps: ConversationsDeps) {
   app.use("/api/conversations/*", authed);
   app.use("/api/conversations", authed);
   app.use("/api/workspace/*", authed);
+  app.use("/api/models", authed);
+  app.use("/api/me", authed);
 
   async function authed(c: any, next: () => Promise<void>) {
     const user = await deps.currentUser(c.req.raw);
@@ -211,6 +213,45 @@ export function createConversationsApp(deps: ConversationsDeps) {
     } catch (err) {
       return agentFailure(c, err);
     }
+  });
+
+  // Engine checks for the app, through the org's container (read-only).
+  for (const [route, call] of [
+    ["/api/workspace/validate", (a: HermesClient, p: string) => a.validate(p)],
+    ["/api/workspace/exam", (a: HermesClient, p: string) => a.exam(p)],
+  ] as const) {
+    app.get(route, async (c) => {
+      const path = c.req.query("path");
+      if (!path || path.length > 1000) return c.json({ error: "INVALID_PATH" }, 400);
+      const agent = await deps.agentFor(c.get("user").orgId);
+      if (!agent) return c.json({ error: "AGENT_NOT_PROVISIONED" }, 503);
+      try {
+        return c.json(await call(agent, path));
+      } catch (err) {
+        return agentFailure(c, err);
+      }
+    });
+  }
+
+  app.get("/api/models", async (c) => {
+    const agent = await deps.agentFor(c.get("user").orgId);
+    if (!agent) return c.json({ error: "AGENT_NOT_PROVISIONED" }, 503);
+    try {
+      return c.json(await agent.models());
+    } catch (err) {
+      return agentFailure(c, err);
+    }
+  });
+
+  // Who is signed in, and their organization's display name.
+  app.get("/api/me", async (c) => {
+    const user = c.get("user");
+    const [org] = await db
+      .select({ id: schema.orgs.id, name: schema.orgs.name })
+      .from(schema.orgs)
+      .where(eq(schema.orgs.id, user.orgId))
+      .limit(1);
+    return c.json({ user: { id: user.id, name: user.name, email: user.email }, org: org ?? null });
   });
 
   async function ownConversation(id: string, userId: string) {

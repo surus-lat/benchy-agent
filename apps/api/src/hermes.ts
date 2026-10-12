@@ -14,6 +14,12 @@ export interface HermesClient {
   listFiles(): Promise<{ files: WorkspaceFile[]; truncated: boolean }>;
   /** One workspace file, or null if it does not exist. */
   readFile(path: string): Promise<WorkspaceFileContent | null>;
+  /** Compile a benchmark.yaml with the engine: ok, or the exact error. */
+  validate(path: string): Promise<unknown>;
+  /** Every exam row of a benchmark checked against its program. */
+  exam(path: string): Promise<unknown>;
+  /** The models a benchmark may run. */
+  models(): Promise<unknown>;
 }
 
 export class HermesError extends Error {
@@ -68,6 +74,11 @@ export function hermesClient(baseUrl: string, apiKey: string): HermesClient {
     }
   }
 
+  async function json(res: Response): Promise<unknown> {
+    if (!res.ok) throw new HermesError(`agent returned ${res.status}`, 502);
+    return res.json();
+  }
+
   return {
     async listFiles() {
       const res = await get("/benchy/files");
@@ -79,6 +90,15 @@ export function hermesClient(baseUrl: string, apiKey: string): HermesClient {
       if (res.status === 404) return null;
       if (!res.ok) throw new HermesError(`agent returned ${res.status}`, 502);
       return (await res.json()) as WorkspaceFileContent;
+    },
+    async validate(path) {
+      return json(await get(`/benchy/validate?path=${encodeURIComponent(path)}`));
+    },
+    async exam(path) {
+      return json(await get(`/benchy/exam?path=${encodeURIComponent(path)}`));
+    },
+    async models() {
+      return json(await get("/benchy/models"));
     },
     async createSession(userId) {
       const data = await call("/api/sessions", userId, {}, SESSION_TIMEOUT_MS);

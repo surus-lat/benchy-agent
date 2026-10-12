@@ -36,6 +36,18 @@ function fakeHermes(opts: { fail?: "chat" | "session" } = {}) {
       calls.push({ op: "listFiles", args: [] });
       return { files: [{ path: "capitales/benchmark.yaml", size: 10, modified: 1 }], truncated: false };
     },
+    async validate(path) {
+      calls.push({ op: "validate", args: [path] });
+      return { ok: true, path };
+    },
+    async exam(path) {
+      calls.push({ op: "exam", args: [path] });
+      return { ok: true, total: 0, rows: [] };
+    },
+    async models() {
+      calls.push({ op: "models", args: [] });
+      return { provider: "bedrock", models: ["us.moonshotai.kimi-k3"] };
+    },
     async readFile(path) {
       calls.push({ op: "readFile", args: [path] });
       return path === "capitales/benchmark.yaml"
@@ -203,4 +215,18 @@ it("serves the org workspace to any member, through the org's agent", async () =
   expect(orgsSeen.every((o) => o === "org_uni")).toBe(true);
   expect(calls.map((c) => c.op)).toEqual(["listFiles", "readFile", "readFile"]);
   expect((await req(makeApp(null), "GET", "/api/workspace/files", ana)).status).toBe(503);
+});
+
+it("exposes engine checks, models and the caller's org to members", async () => {
+  const { client, calls } = fakeHermes();
+  const app = makeApp(client);
+  expect((await req(app, "GET", "/api/models")).status).toBe(401);
+  expect(await (await req(app, "GET", "/api/models", ana)).json()).toMatchObject({ models: ["us.moonshotai.kimi-k3"] });
+  expect(await (await req(app, "GET", "/api/workspace/validate?path=x/benchmark.yaml", beto)).json()).toMatchObject({ ok: true });
+  expect(await (await req(app, "GET", "/api/workspace/exam?path=x/benchmark.yaml", ana)).json()).toMatchObject({ ok: true });
+  expect((await req(app, "GET", "/api/workspace/validate", ana)).status).toBe(400);
+  expect(calls.map((c) => c.op)).toEqual(["models", "validate", "exam"]);
+  const me = await (await req(app, "GET", "/api/me", ana)).json();
+  expect(me).toEqual({ user: { id: ana.id, name: ana.name, email: ana.email }, org: { id: "org_uni", name: "Uni" } });
+  expect((await req(app, "GET", "/api/me", orphan)).status).toBe(403);
 });
