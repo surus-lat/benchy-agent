@@ -1,0 +1,5 @@
+#!/command/with-contenv sh
+# The container's public port: workspace read routes + reverse proxy to the
+# Hermes API server on 127.0.0.1. Runs as the unprivileged hermes user.
+export HOME=/opt/data
+exec s6-setuidgid hermes /opt/hermes/.venv/bin/python /opt/benchy/proxy/benchy_proxy.py

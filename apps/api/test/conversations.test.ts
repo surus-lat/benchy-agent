@@ -32,6 +32,16 @@ function fakeHermes(opts: { fail?: "chat" | "session" } = {}) {
       if (opts.fail === "chat") throw new HermesError("agent timed out", 504);
       return { reply: `eco: ${message}`, usage: { input_tokens: 1 } };
     },
+    async listFiles() {
+      calls.push({ op: "listFiles", args: [] });
+      return { files: [{ path: "capitales/benchmark.yaml", size: 10, modified: 1 }], truncated: false };
+    },
+    async readFile(path) {
+      calls.push({ op: "readFile", args: [path] });
+      return path === "capitales/benchmark.yaml"
+        ? { path, size: 10, modified: 1, truncated: false, content: "version: 1.0" }
+        : null;
+    },
   };
   return { client, calls };
 }
@@ -175,4 +185,22 @@ it("validates turn bodies", async () => {
   const { id } = (await (await req(app, "POST", "/api/conversations", ana, {})).json()) as { id: string };
   expect((await req(app, "POST", `/api/conversations/${id}/turns`, ana, { message: "  " })).status).toBe(400);
   expect((await req(app, "POST", `/api/conversations/${id}/turns`, ana, {})).status).toBe(400);
+});
+
+it("serves the org workspace to any member, through the org's agent", async () => {
+  const { client, calls } = fakeHermes();
+  const orgsSeen: string[] = [];
+  const app = makeApp(client, orgsSeen);
+  expect((await req(app, "GET", "/api/workspace/files")).status).toBe(401);
+  expect((await req(app, "GET", "/api/workspace/files", orphan)).status).toBe(403);
+
+  const list = await req(app, "GET", "/api/workspace/files", beto);
+  expect(await list.json()).toMatchObject({ files: [{ path: "capitales/benchmark.yaml" }] });
+  const file = await req(app, "GET", "/api/workspace/file?path=capitales/benchmark.yaml", ana);
+  expect(await file.json()).toMatchObject({ content: "version: 1.0" });
+  expect((await req(app, "GET", "/api/workspace/file?path=nope.yaml", ana)).status).toBe(404);
+  expect((await req(app, "GET", "/api/workspace/file", ana)).status).toBe(400);
+  expect(orgsSeen.every((o) => o === "org_uni")).toBe(true);
+  expect(calls.map((c) => c.op)).toEqual(["listFiles", "readFile", "readFile"]);
+  expect((await req(makeApp(null), "GET", "/api/workspace/files", ana)).status).toBe(503);
 });

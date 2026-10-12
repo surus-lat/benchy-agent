@@ -1,6 +1,6 @@
 import { Hono } from "hono";
 import { z } from "zod";
-import { and, asc, desc, eq, isNull, lt, or } from "drizzle-orm";
+import { and, asc, desc, eq, isNull, lt, or, sql } from "drizzle-orm";
 import type { DrizzleD1Database } from "drizzle-orm/d1";
 import { schema } from "@benchy/db";
 import { HermesError, type HermesClient } from "./hermes";
@@ -48,6 +48,7 @@ export function createConversationsApp(deps: ConversationsDeps) {
 
   app.use("/api/conversations/*", authed);
   app.use("/api/conversations", authed);
+  app.use("/api/workspace/*", authed);
 
   async function authed(c: any, next: () => Promise<void>) {
     const user = await deps.currentUser(c.req.raw);
@@ -115,7 +116,9 @@ export function createConversationsApp(deps: ConversationsDeps) {
       })
       .from(schema.conversationMessages)
       .where(eq(schema.conversationMessages.conversationId, conversation.id))
-      .orderBy(asc(schema.conversationMessages.createdAt), asc(schema.conversationMessages.id));
+      // Insertion order, not createdAt: timestamps are whole seconds, so a
+      // question and its reply often share one and would sort by random id.
+      .orderBy(asc(sql`rowid`));
     return c.json({ messages });
   });
 
@@ -183,6 +186,30 @@ export function createConversationsApp(deps: ConversationsDeps) {
         .update(schema.conversations)
         .set({ turnStartedAt: null })
         .where(eq(schema.conversations.id, conversation.id));
+    }
+  });
+
+  // The org's workspace — benchmarks are org-visible, so any member may read.
+  app.get("/api/workspace/files", async (c) => {
+    const agent = await deps.agentFor(c.get("user").orgId);
+    if (!agent) return c.json({ error: "AGENT_NOT_PROVISIONED" }, 503);
+    try {
+      return c.json(await agent.listFiles());
+    } catch (err) {
+      return agentFailure(c, err);
+    }
+  });
+
+  app.get("/api/workspace/file", async (c) => {
+    const path = c.req.query("path");
+    if (!path || path.length > 1000) return c.json({ error: "INVALID_PATH" }, 400);
+    const agent = await deps.agentFor(c.get("user").orgId);
+    if (!agent) return c.json({ error: "AGENT_NOT_PROVISIONED" }, 503);
+    try {
+      const file = await agent.readFile(path);
+      return file ? c.json(file) : c.json({ error: "NOT_FOUND" }, 404);
+    } catch (err) {
+      return agentFailure(c, err);
     }
   });
 

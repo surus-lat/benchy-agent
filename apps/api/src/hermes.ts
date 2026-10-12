@@ -2,12 +2,18 @@
 // is its only caller: the browser never sees a Hermes URL, session id or key.
 
 export type HermesTurn = { reply: string; usage: unknown };
+export type WorkspaceFile = { path: string; size: number; modified: number };
+export type WorkspaceFileContent = WorkspaceFile & { truncated: boolean; content: string };
 
 export interface HermesClient {
   /** Start a Hermes session; returns its id. */
   createSession(userId: string): Promise<string>;
   /** One synchronous agent turn in an existing session. */
   chat(sessionId: string, userId: string, message: string, speaker: string): Promise<HermesTurn>;
+  /** The org workspace (benchmarks, exams, runs), via the container's read-only routes. */
+  listFiles(): Promise<{ files: WorkspaceFile[]; truncated: boolean }>;
+  /** One workspace file, or null if it does not exist. */
+  readFile(path: string): Promise<WorkspaceFileContent | null>;
 }
 
 export class HermesError extends Error {
@@ -51,7 +57,29 @@ export function hermesClient(baseUrl: string, apiKey: string): HermesClient {
     return (await res.json()) as Record<string, any>;
   }
 
+  async function get(path: string): Promise<Response> {
+    try {
+      return await fetch(root + path, {
+        headers: { authorization: `Bearer ${apiKey}` },
+        signal: AbortSignal.timeout(SESSION_TIMEOUT_MS),
+      });
+    } catch {
+      throw new HermesError("agent unreachable", 502);
+    }
+  }
+
   return {
+    async listFiles() {
+      const res = await get("/benchy/files");
+      if (!res.ok) throw new HermesError(`agent returned ${res.status}`, 502);
+      return (await res.json()) as { files: WorkspaceFile[]; truncated: boolean };
+    },
+    async readFile(path) {
+      const res = await get(`/benchy/file?path=${encodeURIComponent(path)}`);
+      if (res.status === 404) return null;
+      if (!res.ok) throw new HermesError(`agent returned ${res.status}`, 502);
+      return (await res.json()) as WorkspaceFileContent;
+    },
     async createSession(userId) {
       const data = await call("/api/sessions", userId, {}, SESSION_TIMEOUT_MS);
       const id = data.session?.id ?? data.session_id ?? data.id;

@@ -5,6 +5,8 @@
 #   - core benchy skills, root-owned and read-only
 #   - a pinned config.yaml and persona, copied over $HERMES_HOME on every boot
 #   - a root pre-start that refuses to serve if any of that is not true
+#   - a small proxy as the only public port: read-only workspace routes,
+#     everything else forwarded to Hermes on loopback
 #
 # Build (llm-client is private; the token is a BuildKit secret, never a layer):
 #   docker build --secret id=gh_token,env=GH_TOKEN -t benchy-agent apps/agent
@@ -29,18 +31,21 @@ RUN --mount=from=uv,source=/uv,target=/usr/local/bin/uv \
 
 COPY --chown=root:root config.yaml SOUL.md /opt/benchy/
 COPY --chown=root:root mcp/ /opt/benchy/mcp/
+COPY --chown=root:root proxy/ /opt/benchy/proxy/
 COPY --chown=root:root skills/ /opt/benchy/skills/
 COPY --chown=root:root rootfs/ /
 RUN chmod -R a-w,a+rX /opt/benchy \
- && chmod 0755 /etc/cont-init.d/03-benchy-setup \
+ && chmod 0755 /etc/cont-init.d/03-benchy-setup /etc/s6-overlay/s6-rc.d/benchy-proxy/run \
  && /opt/hermes/.venv/bin/python -c "import benchy, llm_client, mcp.server.mcpserver; print('engine', benchy.__file__)"
 
 # The engine's Bedrock provider builds its endpoint from AWS_REGION.
 ENV AWS_REGION=us-east-1 \
     BENCHY_WORKSPACE=/opt/data/workspace \
     API_SERVER_ENABLED=true \
-    API_SERVER_HOST=0.0.0.0 \
-    API_SERVER_PORT=8642
+    API_SERVER_HOST=127.0.0.1 \
+    API_SERVER_PORT=8642 \
+    PORT=8080
 
-EXPOSE 8642
+# Only the proxy is public (benchy_proxy.py); Hermes listens on loopback.
+EXPOSE 8080
 CMD ["gateway", "run"]
