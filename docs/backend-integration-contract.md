@@ -36,9 +36,9 @@ browser ──► getbenchy.lat (Pages) ──/api/*──► Worker benchy-api 
 | Core skills | `apps/agent/skills/benchy-*` | Root-owned, read-only in the image (`skills.external_dirs`). `.github/CODEOWNERS` gates the path. |
 | Pinned config | `apps/agent/config.yaml`, `SOUL.md` | Copied over `$HERMES_HOME` on every boot by `rootfs/etc/cont-init.d/03-benchy-setup`. |
 | Public port | `apps/agent/proxy/benchy_proxy.py` (s6 longrun) | Only thing on `0.0.0.0`; Hermes listens on loopback. Same bearer key for both. |
-| Worker routes | `apps/api/src/conversations.ts`, `hermes.ts` | `/api/conversations*` and `/api/workspace/*`, all authenticated. |
+| Worker routes | `apps/api/src/conversations.ts`, `hermes.ts` | `/api/conversations*`, `/api/workspace/{files,file,validate,exam}`, `/api/models`, `/api/me`, all authenticated. |
 | Tables | `packages/db` migration `0002` | `orgAgentEndpoints`, `conversations`, `conversationMessages`. |
-| UI | `apps/web/src/pages/app/` | `/app`: conversations · chat · org files. |
+| UI | `apps/web/src/pages/platform/` (state A), `pages/app/` (state B) | `/app`: benchmarks home, `/app/b/:slug/:tab` (definición, examen, sistemas, corridas, resultados, historial), `/app/nuevo`, `/app/cuenta`; `/app/chat` keeps the earlier chat + files view. Design: `docs/design/platform-handoff/`. |
 
 **Models.** The agent itself runs on `us.moonshotai.kimi-k3` (only invocable
 through that inference profile). Benchmarks may name, as

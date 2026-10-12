@@ -1,0 +1,632 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Hanken+Grotesk:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link rel="icon" href="assets/favicon.svg">
+<style>
+  *, *::before, *::after { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; }
+  body { background-color: #FBF9F7; background-image: radial-gradient(rgba(42,46,58,.09) 1px, transparent 1px); background-size: 24px 24px; color: #2A2E3A; font-family: 'Hanken Grotesk', system-ui, sans-serif; -webkit-font-smoothing: antialiased; }
+  a { color: inherit; text-decoration: none; }
+  a:hover { color: #1B1E27; }
+  button { font: inherit; color: inherit; cursor: pointer; }
+  :focus-visible { outline: 2px solid #2A2E3A; outline-offset: 2px; }
+  @keyframes ba-march { 0%,100% { opacity: .22; } 50% { opacity: 1; } }
+  @keyframes ba-breathe { 0%,100% { transform: scale(1); opacity: 1; } 50% { transform: scale(.82); opacity: .68; } }
+  @keyframes ba-indet { 0% { transform: translateX(-100%); } 100% { transform: translateX(260%); } }
+  @media (prefers-reduced-motion: reduce) { [data-anim] { animation: none !important; opacity: 1 !important; } }
+  @media (max-width: 860px) {
+    [data-side] { display: none !important; }
+    [data-body] { grid-template-columns: minmax(0,1fr) !important; }
+    [data-only-narrow] { display: inline-flex !important; }
+  }
+  @media (max-width: 1040px) {
+    [data-split] { grid-template-columns: minmax(0,1fr) !important; overflow-y: auto; }
+    [data-chat-col] { min-height: 62vh !important; }
+    [data-yaml-pane] { border-left: 0 !important; border-top: 1px solid #EDE7E0; min-height: auto !important; overflow: visible !important; }
+    [data-col-items], [data-col-when] { display: none !important; }
+    [data-home-row] { grid-template-columns: minmax(0,1fr) 5rem 8rem !important; }
+  }
+  @media (max-width: 640px) { [data-hide-sm] { display: none !important; } }
+</style>
+</helmet>
+<div style="height:100vh;height:100dvh;display:flex;flex-direction:column;overflow:hidden">
+
+  <header style="display:flex;align-items:center;gap:12px;padding:8px 16px;background:rgba(251,249,247,.94);border-bottom:1px solid #EDE7E0;flex:none">
+    <button data-only-narrow onClick="{{ goHome }}" aria-label="Benchmarks" style="display:none;border:0;background:transparent;border-radius:8px;padding:4px 8px;font-size:16px;color:#3A3F4D">☰</button>
+    <a href="#" onClick="{{ goHome }}" aria-label="benchy agent" style="display:flex;align-items:baseline;gap:.22em;font-size:22px">
+      <img src="assets/pip-mark.svg" alt="" style="height:1.18em;align-self:center;margin-right:6px" />
+      <span style="font-weight:700;letter-spacing:-.025em;line-height:1">benchy</span>
+      <span style="font:500 .53em/1 'JetBrains Mono',ui-monospace,monospace;color:#C97A10">agent</span>
+    </a>
+    <span data-hide-sm style="font-size:13px;color:#756E66;padding-left:10px;border-left:1px solid #E5DFD8;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0">{{ org }}</span>
+    <div style="margin-left:auto;display:flex;align-items:center;gap:10px;min-width:0">
+      <span data-hide-sm style="font-size:13px;color:#756E66;max-width:26ch;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{ email }}</span>
+      <button onClick="{{ goAccount }}" style="border:0;border-radius:999px;background:rgba(42,46,58,.06);padding:6px 14px;font-size:14px" style-hover="background:rgba(42,46,58,.12)">Cuenta</button>
+    </div>
+  </header>
+
+  <sc-if value="{{ notProvisioned }}" hint-placeholder-val="{{ false }}">
+    <div role="status" style="flex:none;display:flex;align-items:center;gap:10px;padding:10px 16px;background:#FBEFD9;border-bottom:1px solid #F1D9AE;font-size:14px;color:#3A3F4D">
+      <span style="width:8px;height:8px;border-radius:999px;background:#F5A623;flex:none"></span>
+      El agente de tu organización todavía no está activo. Te avisamos apenas esté listo.
+      <span style="margin-left:auto;font:400 11px 'JetBrains Mono',monospace;color:#756E66">AGENT_NOT_PROVISIONED</span>
+    </div>
+  </sc-if>
+
+  <div data-body style="flex:1;min-height:0;display:grid;grid-template-columns:248px minmax(0,1fr);overflow:hidden">
+
+    <aside data-side aria-label="Benchmarks" style="min-height:0;overflow-y:auto;background:rgba(255,255,255,.72);backdrop-filter:blur(6px);border-right:1px solid #EDE7E0;padding:12px 10px;display:flex;flex-direction:column;gap:2px">
+      <button onClick="{{ newBench }}" style="width:100%;border:1px solid #E5DFD8;background:#fff;border-radius:10px;padding:9px 12px;text-align:left;font-size:14px;margin-bottom:10px" style-hover="border-color:#3A3F4D">+ Nuevo benchmark</button>
+      <button onClick="{{ goHome }}" style="{{ navHomeStyle }}">Todos los benchmarks</button>
+      <p style="margin:14px 10px 6px;font:400 11px 'JetBrains Mono',monospace;letter-spacing:.08em;text-transform:uppercase;color:#C97A10">Tu organización</p>
+      <sc-for list="{{ sideBenches }}" as="b" hint-placeholder-count="4">
+        <button onClick="{{ b.open }}" title="{{ b.slug }}" style="{{ b.style }}">
+          <span style="{{ b.dot }}"></span>
+          <span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{ b.name }}</span>
+        </button>
+      </sc-for>
+      <div style="margin-top:auto;padding:12px 10px 4px;font-size:12px;color:#756E66;line-height:1.5">Los benchmarks son visibles para toda la organización. Las conversaciones son tuyas.</div>
+    </aside>
+
+    <main style="min-height:0;overflow-y:auto;display:flex;flex-direction:column">
+
+      <sc-if value="{{ isHome }}" hint-placeholder-val="{{ true }}">
+        <section data-screen-label="Benchmarks" style="width:100%;max-width:1080px;margin:0 auto;padding:32px clamp(16px,4vw,40px) 48px">
+          <div style="display:flex;flex-wrap:wrap;align-items:flex-end;justify-content:space-between;gap:16px">
+            <div>
+              <h1 style="margin:0;font-size:clamp(24px,3vw,32px);font-weight:500;letter-spacing:-.02em">Benchmarks</h1>
+              <p style="margin:6px 0 0;font-size:14px;color:#6B6660">{{ homeSub }}</p>
+            </div>
+            <button onClick="{{ newBench }}" style="border:0;border-radius:999px;background:#2A2E3A;color:#fff;padding:10px 20px;font-size:14px;box-shadow:0 8px 20px -10px rgba(42,46,58,.5)" style-hover="background:#1B1E27">+ Nuevo benchmark</button>
+          </div>
+
+          <sc-if value="{{ homeHasData }}" hint-placeholder-val="{{ true }}">
+            <div style="margin-top:24px;background:#fff;border:1px solid #EDE7E0;border-radius:14px;overflow:hidden;box-shadow:0 1px 2px rgba(42,46,58,.04),0 12px 28px -14px rgba(42,46,58,.16)">
+              <div data-hide-sm data-home-row style="display:grid;grid-template-columns:minmax(0,2.4fr) 5rem 6rem 7rem 8rem;gap:16px;padding:10px 18px;border-bottom:1px solid #EDE7E0;font:400 11px 'JetBrains Mono',monospace;letter-spacing:.06em;text-transform:uppercase;color:#756E66">
+                <span>Benchmark</span><span data-col-items style="text-align:right">Ítems</span><span style="text-align:right">Mejor</span><span data-col-when>Última corrida</span><span>Estado</span>
+              </div>
+              <sc-for list="{{ benches }}" as="b" hint-placeholder-count="4">
+                <button data-home-row onClick="{{ b.open }}" style="display:grid;grid-template-columns:minmax(0,2.4fr) 5rem 6rem 7rem 8rem;gap:6px 16px;align-items:center;width:100%;border:0;border-bottom:1px solid #EDE7E0;background:transparent;text-align:left;padding:14px 18px" style-hover="background:#FBF9F7">
+                  <span style="min-width:0">
+                    <span style="display:block;font-size:15px;font-weight:500;color:#2A2E3A;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{ b.name }}</span>
+                    <span style="display:block;margin-top:3px;font:400 12px 'JetBrains Mono',monospace;color:#756E66;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{ b.meta }}</span>
+                  </span>
+                  <span data-col-items style="text-align:right;font-size:14px;font-variant-numeric:tabular-nums;color:#3A3F4D">{{ b.items }}</span>
+                  <span style="text-align:right;font-size:14px;font-variant-numeric:tabular-nums;color:#2A2E3A;font-weight:500">{{ b.score }}</span>
+                  <span data-col-when style="font-size:13px;color:#6B6660">{{ b.when }}</span>
+                  <span style="{{ b.statusStyle }}">{{ b.status }}</span>
+                </button>
+              </sc-for>
+            </div>
+          </sc-if>
+
+          <sc-if value="{{ homeEmpty }}" hint-placeholder-val="{{ false }}">
+            <div style="margin-top:24px;background:#fff;border:1px dashed #D9D2CA;border-radius:14px;padding:56px 24px;display:flex;flex-direction:column;align-items:center;text-align:center">
+              <span role="img" aria-label="benchy agent" style="display:flex;align-items:center;gap:5px;color:#2A2E3A">
+                <span style="display:block;width:8px;height:40px;border:3px solid currentColor;border-right:0"></span>
+                <span style="display:flex;justify-content:center;width:36px"><span data-anim style="display:block;width:16px;height:16px;border-radius:999px;background:#F5A623;animation:ba-breathe 3.2s ease-in-out infinite"></span></span>
+                <span style="display:block;width:8px;height:40px;border:3px solid currentColor;border-left:0"></span>
+              </span>
+              <h2 style="margin:20px 0 0;font-size:22px;font-weight:500;letter-spacing:-.015em">Todavía no hay benchmarks</h2>
+              <p style="margin:8px 0 0;max-width:30rem;font-size:15px;line-height:1.6;color:#6B6660">Contale al agente qué sabe tu campo que los modelos deberían saber. Arma el benchmark con vos.</p>
+              <button onClick="{{ newBench }}" style="margin-top:20px;border:0;border-radius:999px;background:#2A2E3A;color:#fff;padding:10px 20px;font-size:14px">Empezar con el agente</button>
+            </div>
+          </sc-if>
+        </section>
+      </sc-if>
+
+      <sc-if value="{{ isBench }}" hint-placeholder-val="{{ false }}">
+        <div style="flex:1;min-height:0;display:flex;flex-direction:column">
+          <div style="flex:none;padding:20px clamp(16px,4vw,32px) 0;border-bottom:1px solid #EDE7E0;background:rgba(251,249,247,.9)">
+            <div style="display:flex;flex-wrap:wrap;align-items:flex-start;justify-content:space-between;gap:12px">
+              <div style="min-width:0">
+                <h1 style="margin:0;font-size:24px;font-weight:500;letter-spacing:-.02em">{{ bench.name }}</h1>
+                <div style="margin-top:6px;display:flex;flex-wrap:wrap;align-items:center;gap:6px 10px;font:400 12px 'JetBrains Mono',monospace;color:#756E66">
+                  <span>{{ bench.slug }}/benchmark.yaml</span>
+                  <span style="display:inline-flex;align-items:center;gap:6px;border:1px solid #CFE6D9;background:#EEF7F2;color:#1F6E4A;border-radius:999px;padding:2px 9px;white-space:nowrap">✓ benchy_validate</span>
+                  <span>{{ bench.meta }}</span>
+                </div>
+              </div>
+              <button onClick="{{ startRun }}" style="border:0;border-radius:999px;background:#2A2E3A;color:#fff;padding:9px 18px;font-size:14px;white-space:nowrap" style-hover="background:#1B1E27">Ejecutar comparación</button>
+            </div>
+            <nav aria-label="Secciones del benchmark" style="margin-top:16px;display:flex;gap:4px;overflow-x:auto">
+              <sc-for list="{{ tabs }}" as="t" hint-placeholder-count="6">
+                <button onClick="{{ t.go }}" style="{{ t.style }}">{{ t.label }}</button>
+              </sc-for>
+            </nav>
+          </div>
+
+          <sc-if value="{{ tDef }}" hint-placeholder-val="{{ true }}">
+            <div data-split data-screen-label="Definición" style="flex:1;min-height:0;display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr)">
+              <div data-chat-col style="min-height:0;display:flex;flex-direction:column">
+                <div style="flex:1;overflow-y:auto;padding:24px clamp(16px,3vw,28px) 12px;display:flex;flex-direction:column;gap:14px">
+                  <sc-for list="{{ messages }}" as="m" hint-placeholder-count="4">
+                    <div style="{{ m.style }}">
+                      <sc-if value="{{ m.isAsk }}" hint-placeholder-val="{{ false }}">
+                        <span style="display:block;margin-bottom:6px;font:400 11px 'JetBrains Mono',monospace;letter-spacing:.08em;text-transform:uppercase;color:#C97A10">El agente pregunta</span>
+                      </sc-if>
+                      <span style="white-space:pre-wrap">{{ m.content }}</span>
+                      <sc-if value="{{ m.isAsk }}" hint-placeholder-val="{{ false }}">
+                        <span style="margin-top:12px;display:flex;flex-wrap:wrap;gap:8px">
+                          <button onClick="{{ answerYes }}" style="border:0;border-radius:999px;background:#2A2E3A;color:#fff;padding:6px 14px;font-size:13px">Sí, pasalo a enum</button>
+                          <button onClick="{{ answerNo }}" style="border:1px solid #E5DFD8;border-radius:999px;background:#fff;padding:6px 14px;font-size:13px">Dejalo como texto</button>
+                        </span>
+                      </sc-if>
+                    </div>
+                  </sc-for>
+                  <sc-if value="{{ pending }}" hint-placeholder-val="{{ false }}">
+                    <div role="status" style="display:flex;align-items:center;gap:12px;font-size:14px;color:#6B6660">
+                      <span style="display:flex;align-items:center;gap:4px;color:#2A2E3A">
+                        <span style="display:block;width:5px;height:22px;border:2px solid currentColor;border-right:0"></span>
+                        <span style="display:flex;gap:3px">
+                          <span data-anim style="width:6px;height:6px;border-radius:999px;background:#F5A623;animation:ba-march 1.1s ease-in-out infinite"></span>
+                          <span data-anim style="width:6px;height:6px;border-radius:999px;background:#F5A623;animation:ba-march 1.1s ease-in-out infinite;animation-delay:.16s"></span>
+                          <span data-anim style="width:6px;height:6px;border-radius:999px;background:#F5A623;animation:ba-march 1.1s ease-in-out infinite;animation-delay:.32s"></span>
+                        </span>
+                        <span style="display:block;width:5px;height:22px;border:2px solid currentColor;border-left:0"></span>
+                      </span>
+                      El agente está trabajando…
+                    </div>
+                  </sc-if>
+                </div>
+                <form onSubmit="{{ send }}" style="flex:none;display:flex;gap:8px;align-items:flex-end;margin:0 clamp(16px,3vw,28px) 16px;background:#fff;border:1px solid #E5DFD8;border-radius:16px;padding:8px 8px 8px 14px;box-shadow:0 1px 2px rgba(42,46,58,.04),0 12px 28px -14px rgba(42,46,58,.18)">
+                  <textarea rows="1" value="{{ draft }}" onChange="{{ setDraft }}" onKeyDown="{{ onKey }}" placeholder="Escribile al agente…" aria-label="Mensaje para el agente" style="flex:1;border:0;outline:none;resize:none;background:transparent;font:15px/1.5 'Hanken Grotesk',sans-serif;color:#2A2E3A;padding:6px 0;min-height:34px"></textarea>
+                  <button type="submit" disabled="{{ sendDisabled }}" style="border:0;border-radius:999px;background:#2A2E3A;color:#fff;padding:8px 18px;font-size:14px">Enviar</button>
+                </form>
+              </div>
+              <div data-yaml-pane style="min-height:0;overflow:auto;border-left:1px solid #EDE7E0;background:rgba(255,255,255,.8);display:flex;flex-direction:column">
+                <div style="position:sticky;top:0;display:flex;align-items:center;justify-content:space-between;gap:12px;padding:11px 16px;background:rgba(255,255,255,.95);border-bottom:1px solid #EDE7E0">
+                  <span style="font:400 11px 'JetBrains Mono',monospace;letter-spacing:.08em;text-transform:uppercase;color:#C97A10">benchmark.yaml</span>
+                  <span style="font-size:12px;color:#756E66">{{ yamlStatus }}</span>
+                </div>
+                <pre style="margin:0;padding:16px 18px;font:12.5px/1.75 'JetBrains Mono',ui-monospace,monospace;color:#3A3F4D;white-space:pre;overflow-x:auto">{{ yaml }}</pre>
+                <div style="margin:auto 16px 16px;padding:12px 14px;border:1px solid #EDE7E0;border-radius:10px;background:#F6F2EE;font-size:13px;line-height:1.55;color:#6B6660">La persona, el agente y el motor trabajan sobre este mismo archivo. Nada se infiere a tus espaldas.</div>
+              </div>
+            </div>
+          </sc-if>
+
+          <sc-if value="{{ tExam }}" hint-placeholder-val="{{ false }}">
+            <section data-screen-label="Examen" style="width:100%;max-width:1080px;margin:0 auto;padding:24px clamp(16px,4vw,32px) 48px">
+              <div style="display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:12px">
+                <p style="margin:0;font-size:14px;color:#6B6660"><span style="color:#2A2E3A;font-weight:500">{{ exam.total }} ítems</span> en exam.jsonl · {{ exam.valid }} válidos · {{ exam.rejected }} rechazados</p>
+                <div role="group" aria-label="Filtrar" style="display:flex;gap:4px;background:rgba(42,46,58,.05);border-radius:999px;padding:3px">
+                  <sc-for list="{{ examFilters }}" as="f" hint-placeholder-count="3">
+                    <button onClick="{{ f.go }}" style="{{ f.style }}">{{ f.label }}</button>
+                  </sc-for>
+                </div>
+              </div>
+              <div style="margin-top:16px;background:#fff;border:1px solid #EDE7E0;border-radius:14px;overflow:hidden;box-shadow:0 1px 2px rgba(42,46,58,.04),0 12px 28px -14px rgba(42,46,58,.16)">
+                <sc-for list="{{ examRows }}" as="r" hint-placeholder-count="6">
+                  <div style="display:grid;grid-template-columns:2.6rem minmax(0,1fr);gap:4px 12px;padding:14px 18px;border-bottom:1px solid #EDE7E0">
+                    <span style="font:400 12px/1.6 'JetBrains Mono',monospace;color:#756E66">{{ r.idx }}</span>
+                    <div style="min-width:0">
+                      <p style="margin:0;font-size:14px;line-height:1.55;color:#2A2E3A;text-wrap:pretty">{{ r.fragment }}</p>
+                      <div style="margin-top:8px;display:flex;flex-wrap:wrap;align-items:center;gap:6px 12px">
+                        <span style="font:400 12px 'JetBrains Mono',monospace;color:#3A3F4D;background:#F6F2EE;border-radius:6px;padding:3px 8px">{{ r.expected }}</span>
+                        <span style="{{ r.statusStyle }}">{{ r.status }}</span>
+                        <sc-if value="{{ r.hasCode }}" hint-placeholder-val="{{ false }}">
+                          <span style="font:400 12px 'JetBrains Mono',monospace;color:#B4342A">{{ r.code }}</span>
+                        </sc-if>
+                      </div>
+                    </div>
+                  </div>
+                </sc-for>
+              </div>
+              <p style="margin:14px 0 0;font-size:13px;line-height:1.6;color:#756E66">Cada ítem se verifica contra el programa antes de entrar al examen: las fallas aparecen como rechazos, no como ruido en tus resultados.</p>
+            </section>
+          </sc-if>
+
+          <sc-if value="{{ tSys }}" hint-placeholder-val="{{ false }}">
+            <section data-screen-label="Sistemas de IA" style="width:100%;max-width:1080px;margin:0 auto;padding:24px clamp(16px,4vw,32px) 48px">
+              <p style="margin:0;max-width:44rem;font-size:14px;line-height:1.6;color:#6B6660">Para comparar, el benchmark queda igual y solo cambia el bloque <span style="font-family:'JetBrains Mono',monospace;color:#2A2E3A">ai-system</span>. Elegí qué sistemas entran en la próxima comparación.</p>
+              <div style="margin-top:18px;display:grid;grid-template-columns:repeat(auto-fit,minmax(min(300px,100%),1fr));gap:12px">
+                <sc-for list="{{ systems }}" as="s" hint-placeholder-count="4">
+                  <div style="{{ s.cardStyle }}">
+                    <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:12px">
+                      <div style="min-width:0">
+                        <p style="margin:0;font:500 14px 'JetBrains Mono',monospace;color:#2A2E3A;overflow-wrap:anywhere">{{ s.model }}</p>
+                        <p style="margin:4px 0 0;font-size:12px;color:#756E66">type: model · provider: bedrock</p>
+                      </div>
+                      <button role="switch" aria-checked="{{ s.on }}" aria-label="Incluir en la comparación" onClick="{{ s.toggle }}" style="{{ s.switchStyle }}"><span style="{{ s.knobStyle }}"></span></button>
+                    </div>
+                    <div style="margin-top:14px;display:flex;flex-wrap:wrap;gap:6px">
+                      <span style="font:400 12px 'JetBrains Mono',monospace;color:#3A3F4D;background:#F6F2EE;border-radius:6px;padding:3px 8px">temperature: 0</span>
+                      <span style="font:400 12px 'JetBrains Mono',monospace;color:#3A3F4D;background:#F6F2EE;border-radius:6px;padding:3px 8px">max_tokens: {{ s.maxTokens }}</span>
+                    </div>
+                    <p style="margin:12px 0 0;font-size:13px;color:#6B6660">{{ s.note }}</p>
+                  </div>
+                </sc-for>
+              </div>
+              <div style="margin-top:20px;display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:12px;padding:14px 16px;border:1px solid #EDE7E0;border-radius:12px;background:#fff">
+                <span style="font-size:14px;color:#3A3F4D">{{ sysSummary }}</span>
+                <button onClick="{{ startRun }}" style="border:0;border-radius:999px;background:#2A2E3A;color:#fff;padding:8px 16px;font-size:14px">Ejecutar comparación</button>
+              </div>
+            </section>
+          </sc-if>
+
+          <sc-if value="{{ tRun }}" hint-placeholder-val="{{ false }}">
+            <section data-screen-label="Corridas" style="width:100%;max-width:820px;margin:0 auto;padding:32px clamp(16px,4vw,32px) 48px">
+              <sc-if value="{{ runIdle }}" hint-placeholder-val="{{ true }}">
+                <div style="background:#fff;border:1px solid #EDE7E0;border-radius:14px;padding:32px 24px;text-align:center">
+                  <p style="margin:0;font-size:16px;color:#2A2E3A">No hay ninguna corrida en curso.</p>
+                  <p style="margin:6px 0 0;font-size:14px;color:#6B6660">Las corridas terminadas quedan en <span style="font-family:'JetBrains Mono',monospace">runs/</span> y aparecen en Resultados.</p>
+                  <button onClick="{{ startRun }}" style="margin-top:18px;border:0;border-radius:999px;background:#2A2E3A;color:#fff;padding:9px 18px;font-size:14px">Ejecutar comparación</button>
+                </div>
+              </sc-if>
+              <sc-if value="{{ runActive }}" hint-placeholder-val="{{ false }}">
+                <div style="background:#fff;border:1px solid #EDE7E0;border-radius:14px;overflow:hidden;box-shadow:0 1px 2px rgba(42,46,58,.04),0 12px 28px -14px rgba(42,46,58,.16)">
+                  <div style="padding:22px 22px 18px;display:flex;align-items:center;gap:14px;border-bottom:1px solid #EDE7E0">
+                    <span style="display:flex;align-items:center;gap:4px;color:#2A2E3A;flex:none">
+                      <span style="display:block;width:6px;height:26px;border:2.5px solid currentColor;border-right:0"></span>
+                      <span style="display:flex;gap:4px">
+                        <span data-anim style="{{ runDot }}"></span>
+                        <span data-anim style="{{ runDot2 }}"></span>
+                        <span data-anim style="{{ runDot3 }}"></span>
+                      </span>
+                      <span style="display:block;width:6px;height:26px;border:2.5px solid currentColor;border-left:0"></span>
+                    </span>
+                    <div style="min-width:0;flex:1">
+                      <p style="margin:0;font-size:16px;font-weight:500">{{ runTitle }}</p>
+                      <p style="margin:3px 0 0;font-size:13px;color:#6B6660">{{ runSub }}</p>
+                    </div>
+                    <span style="font:400 13px 'JetBrains Mono',monospace;color:#756E66;font-variant-numeric:tabular-nums">{{ runElapsed }}</span>
+                  </div>
+                  <sc-for list="{{ runModels }}" as="rm" hint-placeholder-count="4">
+                    <div style="display:grid;grid-template-columns:minmax(0,1fr) 7.5rem;align-items:center;gap:12px;padding:13px 22px;border-bottom:1px solid #EDE7E0">
+                      <div style="min-width:0">
+                        <p style="margin:0;font:400 13px 'JetBrains Mono',monospace;color:#2A2E3A;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{ rm.model }}</p>
+                        <div style="position:relative;margin-top:8px;height:4px;border-radius:999px;background:#F4F1EE;overflow:hidden">
+                          <span data-anim style="{{ rm.bar }}"></span>
+                        </div>
+                      </div>
+                      <span style="{{ rm.stateStyle }}">{{ rm.state }}</span>
+                    </div>
+                  </sc-for>
+                  <div style="padding:14px 22px;display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:12px;background:#FBF9F7">
+                    <span style="font-size:13px;color:#6B6660">Podés cerrar esta pestaña: el resultado queda guardado en <span style="font-family:'JetBrains Mono',monospace">runs/</span>.</span>
+                    <sc-if value="{{ runDone }}" hint-placeholder-val="{{ false }}">
+                      <button onClick="{{ goResults }}" style="border:0;border-radius:999px;background:#2A2E3A;color:#fff;padding:8px 16px;font-size:14px">Ver resultados</button>
+                    </sc-if>
+                  </div>
+                </div>
+              </sc-if>
+            </section>
+          </sc-if>
+
+          <sc-if value="{{ tRes }}" hint-placeholder-val="{{ false }}">
+            <section data-screen-label="Resultados" style="width:100%;max-width:1080px;margin:0 auto;padding:24px clamp(16px,4vw,32px) 48px;display:flex;flex-direction:column;gap:20px">
+              <div style="display:flex;flex-wrap:wrap;align-items:baseline;justify-content:space-between;gap:8px">
+                <h2 style="margin:0;font-size:20px;font-weight:500;letter-spacing:-.015em">Comparación · 48 ítems · 4 sistemas</h2>
+                <span style="font:400 12px 'JetBrains Mono',monospace;color:#756E66">runs/benchmark-20261012-191422.json</span>
+              </div>
+              <div style="background:#fff;border:1px solid #EDE7E0;border-radius:14px;padding:20px 22px;box-shadow:0 1px 2px rgba(42,46,58,.04),0 12px 28px -14px rgba(42,46,58,.16);display:flex;flex-direction:column;gap:16px">
+                <sc-for list="{{ results }}" as="r" hint-placeholder-count="4">
+                  <div>
+                    <div style="display:grid;grid-template-columns:minmax(0,13rem) minmax(0,1fr) 3.5rem;align-items:center;gap:12px 16px">
+                      <span style="font:400 13px 'JetBrains Mono',monospace;color:#2A2E3A;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{ r.model }}</span>
+                      <span style="display:block;height:10px;background:#F4F1EE;border-radius:2px;overflow:hidden"><span style="{{ r.bar }}"></span></span>
+                      <span style="text-align:right;font-size:15px;font-weight:500;font-variant-numeric:tabular-nums">{{ r.score }}</span>
+                    </div>
+                    <div style="margin-top:6px;display:flex;flex-wrap:wrap;gap:4px 14px;font-size:12px;color:#6B6660;padding-left:0">
+                      <span>{{ r.valid }} válidos</span>
+                      <span style="{{ r.invStyle }}">{{ r.invalid }} invalid_output</span>
+                      <span style="{{ r.errStyle }}">{{ r.errors }} execution_error</span>
+                    </div>
+                  </div>
+                </sc-for>
+                <p style="margin:4px 0 0;padding:10px 12px;border-radius:8px;background:#FBEFD9;font-size:13px;line-height:1.55;color:#3A3F4D">Leé las fallas antes del puntaje: qwen3-32b tuvo 8 salidas inválidas, que cuentan como 0. Con 48 ítems, diferencias menores a ~0.05 son ruido.</p>
+              </div>
+
+              <div style="background:#fff;border:1px solid #EDE7E0;border-radius:14px;overflow:hidden">
+                <div style="padding:14px 18px;border-bottom:1px solid #EDE7E0;font:400 11px 'JetBrains Mono',monospace;letter-spacing:.08em;text-transform:uppercase;color:#C97A10">Puntaje por campo</div>
+                <div style="overflow-x:auto">
+                  <div style="min-width:620px">
+                    <div style="display:grid;grid-template-columns:minmax(0,1.4fr) 4rem repeat(4,minmax(0,1fr));gap:12px;padding:10px 18px;border-bottom:1px solid #EDE7E0;font:400 11px 'JetBrains Mono',monospace;color:#756E66">
+                      <span>campo</span><span style="text-align:right">peso</span><span style="text-align:right">kimi-k3</span><span style="text-align:right">qwen3-next</span><span style="text-align:right">deepseek</span><span style="text-align:right">qwen3-32b</span>
+                    </div>
+                    <sc-for list="{{ fieldRows }}" as="fr" hint-placeholder-count="3">
+                      <div style="display:grid;grid-template-columns:minmax(0,1.4fr) 4rem repeat(4,minmax(0,1fr));gap:12px;padding:12px 18px;border-bottom:1px solid #EDE7E0;font-size:14px;font-variant-numeric:tabular-nums">
+                        <span style="font-family:'JetBrains Mono',monospace;font-size:13px">{{ fr.field }}</span>
+                        <span style="text-align:right;color:#756E66">{{ fr.weight }}</span>
+                        <span style="text-align:right">{{ fr.a }}</span><span style="text-align:right">{{ fr.b }}</span><span style="text-align:right">{{ fr.c }}</span><span style="text-align:right">{{ fr.d }}</span>
+                      </div>
+                    </sc-for>
+                  </div>
+                </div>
+              </div>
+
+              <div style="background:#fff;border:1px solid #EDE7E0;border-radius:14px;overflow:hidden">
+                <div style="padding:14px 18px;border-bottom:1px solid #EDE7E0;font:400 11px 'JetBrains Mono',monospace;letter-spacing:.08em;text-transform:uppercase;color:#C97A10">Fallas</div>
+                <sc-for list="{{ failures }}" as="x" hint-placeholder-count="2">
+                  <div style="padding:14px 18px;border-bottom:1px solid #EDE7E0;display:flex;flex-direction:column;gap:6px">
+                    <div style="display:flex;flex-wrap:wrap;gap:6px 12px;align-items:center;font:400 12px 'JetBrains Mono',monospace">
+                      <span style="color:#756E66">ítem {{ x.idx }}</span>
+                      <span style="color:#2A2E3A">{{ x.model }}</span>
+                      <span style="color:#B4342A">{{ x.status }}</span>
+                    </div>
+                    <code style="display:block;font:400 12.5px/1.6 'JetBrains Mono',monospace;color:#3A3F4D;background:#F6F2EE;border-radius:6px;padding:8px 10px;overflow-x:auto;white-space:pre">{{ x.detail }}</code>
+                    <span style="font-size:13px;color:#6B6660">{{ x.fix }}</span>
+                  </div>
+                </sc-for>
+              </div>
+            </section>
+          </sc-if>
+
+          <sc-if value="{{ tHist }}" hint-placeholder-val="{{ false }}">
+            <section data-screen-label="Historial" style="width:100%;max-width:880px;margin:0 auto;padding:24px clamp(16px,4vw,32px) 48px">
+              <p style="margin:0 0 16px;font-size:14px;color:#6B6660">Cada cambio a <span style="font-family:'JetBrains Mono',monospace;color:#2A2E3A">benchmark.yaml</span>, de quién vino y qué puntaje dio.</p>
+              <ol style="list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:10px">
+                <sc-for list="{{ versions }}" as="v" hint-placeholder-count="4">
+                  <li style="background:#fff;border:1px solid #EDE7E0;border-radius:12px;padding:14px 16px">
+                    <div style="display:flex;flex-wrap:wrap;align-items:center;gap:6px 12px">
+                      <span style="font:500 12px 'JetBrains Mono',monospace;color:#2A2E3A">{{ v.id }}</span>
+                      <span style="{{ v.whoStyle }}">{{ v.who }}</span>
+                      <span style="font-size:14px;color:#2A2E3A;flex:1;min-width:12rem">{{ v.msg }}</span>
+                      <span style="font-size:12px;color:#756E66">{{ v.when }}</span>
+                      <span style="font:500 13px 'JetBrains Mono',monospace;color:#2A2E3A;min-width:3rem;text-align:right">{{ v.score }}</span>
+                    </div>
+                    <code style="margin-top:10px;display:block;font:400 12px/1.7 'JetBrains Mono',monospace;color:#3A3F4D;background:#F6F2EE;border-radius:6px;padding:8px 10px;white-space:pre;overflow-x:auto">{{ v.diff }}</code>
+                  </li>
+                </sc-for>
+              </ol>
+            </section>
+          </sc-if>
+        </div>
+      </sc-if>
+
+      <sc-if value="{{ isAccount }}" hint-placeholder-val="{{ false }}">
+        <section data-screen-label="Cuenta" style="width:100%;max-width:720px;margin:0 auto;padding:32px clamp(16px,4vw,32px) 48px;display:flex;flex-direction:column;gap:16px">
+          <h1 style="margin:0;font-size:clamp(24px,3vw,30px);font-weight:500;letter-spacing:-.02em">Cuenta</h1>
+          <div style="background:#fff;border:1px solid #EDE7E0;border-radius:14px;padding:20px 22px;display:grid;gap:14px">
+            <label style="display:grid;gap:6px;font-size:13px;color:#6B6660">Nombre
+              <input value="{{ name }}" onChange="{{ setName }}" style="border:1px solid #E5DFD8;border-radius:10px;padding:10px 14px;font:15px 'Hanken Grotesk',sans-serif;color:#2A2E3A;background:#fff" />
+            </label>
+            <div style="display:grid;gap:6px;font-size:13px;color:#6B6660">Correo
+              <span style="font-size:15px;color:#2A2E3A">{{ email }}</span>
+            </div>
+            <div style="display:grid;gap:6px;font-size:13px;color:#6B6660">Organización
+              <span style="font-size:15px;color:#2A2E3A">{{ org }}</span>
+            </div>
+          </div>
+          <div style="background:#fff;border:1px solid #EDE7E0;border-radius:14px;overflow:hidden">
+            <p style="margin:0;padding:14px 22px;border-bottom:1px solid #EDE7E0;font:400 11px 'JetBrains Mono',monospace;letter-spacing:.08em;text-transform:uppercase;color:#C97A10">Formas de ingresar</p>
+            <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;padding:14px 22px;border-bottom:1px solid #EDE7E0"><span style="font-size:15px">Link mágico por correo</span><span style="font-size:13px;color:#1F6E4A">Activo</span></div>
+            <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;padding:14px 22px;border-bottom:1px solid #EDE7E0"><span style="font-size:15px">Passkey</span><button style="border:1px solid #E5DFD8;border-radius:999px;background:#fff;padding:6px 14px;font-size:13px">Agregar passkey</button></div>
+            <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;padding:14px 22px"><span style="font-size:15px">Google</span><span style="font-size:13px;color:#756E66">No habilitado por tu organización</span></div>
+          </div>
+          <div style="background:#fff;border:1px solid #EDE7E0;border-radius:14px;padding:14px 22px;display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:12px">
+            <span style="font-size:15px">Idioma de la interfaz</span>
+            <div role="group" style="display:flex;gap:4px;background:rgba(42,46,58,.05);border-radius:999px;padding:3px">
+              <button onClick="{{ setEs }}" style="{{ langEsStyle }}">Español</button>
+              <button onClick="{{ setEn }}" style="{{ langEnStyle }}">English</button>
+            </div>
+          </div>
+          <button onClick="{{ signOut }}" style="align-self:flex-start;border:0;border-radius:999px;background:rgba(42,46,58,.06);padding:8px 18px;font-size:14px" style-hover="background:rgba(42,46,58,.12)">Salir</button>
+        </section>
+      </sc-if>
+
+    </main>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;dataState&quot;: {&quot;editor&quot;: &quot;enum&quot;, &quot;options&quot;: [&quot;con datos&quot;, &quot;vacío&quot;, &quot;agente no activo&quot;], &quot;default&quot;: &quot;con datos&quot;, &quot;tsType&quot;: &quot;'con datos' | 'vacío' | 'agente no activo'&quot;, &quot;section&quot;: &quot;Estado de datos&quot;}}">
+// ─────────────────────────────────────────────────────────────────────────────
+// CABLES. Every piece of data below is mock with the real shape. Each block says
+// where it comes from in surus-lat/benchy-agent. ✅ = route exists today,
+// ⚠️ = no HTTP route yet (only the agent sees it via MCP), ❌ = no backend.
+// ─────────────────────────────────────────────────────────────────────────────
+
+// ✅ session (better-auth useSession) → user.name, user.email; org name from orgs table via session.orgId
+const SESSION = { name: 'María Laura', email: 'mlfernandez@filo.uba.ar', org: 'Instituto de Ciencias Antropológicas · UBA' };
+
+// ✅ GET /api/workspace/files → group by top folder; a folder with benchmark.yaml is a benchmark.
+//    name/meta: parse <slug>/benchmark.yaml (benchmark.task/domain/language).
+//    items: line count of <slug>/exam.jsonl.  best/when: newest <slug>/runs/*.json → benchmark_score, file mtime.
+//    status: ⚠️ needs benchy_validate over HTTP (today only the agent can call it).
+const BENCHES = [
+  { slug: 'etnografia-rioplatense', name: 'Corrientes teóricas en etnografía rioplatense', task: 'extract', domain: 'anthropology', lang: 'es', items: 48, best: 0.71, when: 'hace 2 h', status: 'valid' },
+  { slug: 'prestamos-guarani', name: 'Préstamos del guaraní en el español paraguayo', task: 'classify', domain: 'linguistics', lang: 'es', items: 120, best: 0.58, when: 'ayer', status: 'valid' },
+  { slug: 'citas-csjn', name: 'Citas de jurisprudencia de la CSJN', task: 'extract', domain: 'law', lang: 'es', items: 64, best: null, when: '—', status: 'error', code: 'missing_weight' },
+  { slug: 'historia-economica', name: 'Historia económica argentina 1880–1930', task: 'classify', domain: 'history', lang: 'es', items: 12, best: null, when: 'sin corridas', status: 'draft' },
+];
+
+// ✅ GET /api/conversations/:id/messages  ·  POST /api/conversations/:id/turns {message} → {reply}
+//    isAsk: ⚠️ the reply is markdown today; an "ask" needs a structured marker from the agent.
+const MESSAGES = [
+  { role: 'user', content: 'Quiero evaluar si los modelos identifican la corriente teórica de fragmentos etnográficos clásicos del Río de la Plata.' },
+  { role: 'assistant', content: 'Propongo este programa: entra un fragmento y salen tres campos — corriente, autor_clave y periodo. Si el modelo erra solo uno, ¿cuánto pesa cada error?' },
+  { role: 'user', content: 'La corriente es lo central. El autor un poco menos y el período es lo menos importante.' },
+  { role: 'assistant', content: 'Dejé los pesos en 0.5 / 0.3 / 0.2 y validé: benchy_validate ✓, 3 dimensiones.' },
+  { role: 'assistant', ask: true, content: 'autor_clave es texto libre y se corrige por coincidencia exacta: “Guber” y “Rosana Guber” cuentan como distintos. ¿Lo paso a una lista cerrada con los 12 autores del corpus?' },
+];
+
+// ✅ GET /api/workspace/file?path=<slug>/benchmark.yaml → content
+const YAML = `version: "1.0"
+ontology_version: "1.0"
+benchmark: { task: extract, domain: anthropology, language: es }
+program:
+  input:
+    fragmento: string
+  output:
+    corriente: { enum: [funcionalismo, estructuralismo, interpretativismo, materialismo_cultural] }
+    autor_clave: string
+    periodo: { enum: [pre_1950, 1950_1980, post_1980] }
+scoring:
+  weights: { corriente: 0.5, autor_clave: 0.3, periodo: 0.2 }
+  aggregator: weighted_mean
+data:
+  path: ./exam.jsonl
+ai-system:
+  type: model
+  provider: bedrock
+  model: us.moonshotai.kimi-k3
+  parameters: { temperature: 0, max_tokens: 2048 }`;
+
+// ✅ GET /api/workspace/file?path=<slug>/exam.jsonl → one {"input","expected"} per line
+//    status/code: ⚠️ per-row validation against the program has no HTTP route; expose benchy_validate rows or validate client-side from the compiled program.
+const EXAM = [
+  { fragment: 'La función de cada institución se explica por su contribución a la estabilidad del sistema social del pueblo…', expected: 'funcionalismo · Hermitte · 1950_1980', status: 'valid' },
+  { fragment: 'Interpretar es inscribir el discurso social; el etnógrafo lee la cultura como un texto…', expected: 'interpretativismo · Guber · post_1980', status: 'valid' },
+  { fragment: 'Los mitos de origen se organizan en oposiciones binarias entre lo crudo y lo cocido…', expected: 'estructuralismo · Bórmida · 1950_1980', status: 'valid' },
+  { fragment: 'La organización del parentesco responde a las condiciones ecológicas de la producción pastoril…', expected: 'materialismo_cultural · — · 1960s', status: 'rejected', code: 'invalid_schema · expected.periodo' },
+  { fragment: 'El trabajo de campo exige una reflexividad sobre la propia posición del investigador…', expected: 'interpretativismo · Guber · post_1980', status: 'valid' },
+  { fragment: 'La comunidad se describe como un organismo cuyas partes cumplen funciones…', expected: 'funcionalismo · (vacío) · pre_1950', status: 'rejected', code: 'missing_field · expected.autor_clave' },
+];
+
+// ⚠️ benchy_models (MCP) — needs GET /api/models. gpt-oss is excluded on purpose (see benchy_mcp.py).
+//    Selecting systems = the agent writes one ai-system variant per model; today this is a chat instruction.
+const MODELS = [
+  { model: 'us.moonshotai.kimi-k3', maxTokens: 2048, note: 'Sistema actual del benchmark.' },
+  { model: 'qwen.qwen3-next-80b-a3b', maxTokens: 2048, note: 'Variante: solo cambia ai-system.' },
+  { model: 'deepseek.v3.2', maxTokens: 2048, note: 'Variante: solo cambia ai-system.' },
+  { model: 'qwen.qwen3-32b-v1:0', maxTokens: 1024, note: 'Ojo: con 1024 tokens corta el JSON.' },
+];
+
+// ✅ GET /api/workspace/file?path=<slug>/runs/<stem>-<ts>.json → benchmark_score, summary{examples,valid,invalid_outputs,execution_errors}, results[]{status, field_scores, prediction, error}
+const RESULTS = [
+  { model: 'us.moonshotai.kimi-k3', score: 0.71, valid: 46, invalid: 2, errors: 0, f: [0.78, 0.62, 0.66] },
+  { model: 'qwen.qwen3-next-80b-a3b', score: 0.64, valid: 48, invalid: 0, errors: 0, f: [0.70, 0.58, 0.57] },
+  { model: 'deepseek.v3.2', score: 0.62, valid: 47, invalid: 0, errors: 1, f: [0.69, 0.54, 0.55] },
+  { model: 'qwen.qwen3-32b-v1:0', score: 0.49, valid: 40, invalid: 8, errors: 0, f: [0.55, 0.40, 0.46] },
+];
+const FAILURES = [
+  { idx: '017', model: 'qwen.qwen3-32b-v1:0', status: 'invalid_output', detail: '{"corriente": "funcionalismo", "autor_clave": "Herm', fix: 'JSON cortado: subí max_tokens en ai-system.parameters.' },
+  { idx: '031', model: 'deepseek.v3.2', status: 'execution_error', detail: 'ThrottlingException: Too many requests, please wait before trying again.', fix: 'Límite de Bedrock. Volvé a correr ese sistema en unos minutos.' },
+];
+
+// ❌ No version history exists. Options: git in the workspace volume, or snapshot benchmark.yaml on each agent write (Worker-side table).
+const VERSIONS = [
+  { id: 'v7', who: 'agente', msg: 'Pesos 0.5 / 0.3 / 0.2', when: 'hace 2 h', score: '0.71', diff: '- weights: { corriente: 1, autor_clave: 1, periodo: 1 }\n+ weights: { corriente: 0.5, autor_clave: 0.3, periodo: 0.2 }' },
+  { id: 'v6', who: 'vos', msg: 'Agregué periodo al programa', when: 'hace 3 h', score: '0.66', diff: '+     periodo: { enum: [pre_1950, 1950_1980, post_1980] }' },
+  { id: 'v5', who: 'agente', msg: 'Pasé corriente a enum cerrado', when: 'ayer', score: '0.52', diff: '-     corriente: string\n+     corriente: { enum: [funcionalismo, estructuralismo, …] }' },
+  { id: 'v4', who: 'agente', msg: 'Primer borrador validado', when: 'ayer', score: '—', diff: '+ benchmark: { task: extract, domain: anthropology, language: es }' },
+];
+
+const TABS = [['def', 'Definición'], ['exam', 'Examen'], ['sys', 'Sistemas de IA'], ['run', 'Corridas'], ['res', 'Resultados'], ['hist', 'Historial']];
+const RUN_STEP = 3; // demo seconds per model. ⚠️ Real runs are one blocking turn (≤ turn timeout); there is no per-row progress — show indeterminate bars unless the Worker adds streaming.
+
+class Component extends DCLogic {
+  state = { screen: 'home', bench: 'etnografia-rioplatense', tab: 'def', examFilter: 'all', messages: MESSAGES, draft: '', pending: false, sys: [true, true, true, true], run: 'idle', elapsed: 0, name: SESSION.name, lang: 'es' };
+
+  componentWillUnmount() { clearInterval(this.timer); clearTimeout(this.replyT); }
+
+  go(patch) { this.setState(patch); }
+
+  startRun = () => {
+    clearInterval(this.timer);
+    this.setState({ screen: 'bench', tab: 'run', run: 'running', elapsed: 0 });
+    this.timer = setInterval(() => {
+      const n = this.state.sys.filter(Boolean).length;
+      const e = this.state.elapsed + 1;
+      if (e >= n * RUN_STEP) { clearInterval(this.timer); this.setState({ elapsed: e, run: 'done' }); }
+      else this.setState({ elapsed: e });
+    }, 1000);
+  };
+
+  send = (e) => {
+    if (e && e.preventDefault) e.preventDefault();
+    const text = this.state.draft.trim();
+    if (!text || this.state.pending) return;
+    this.setState(s => ({ messages: [...s.messages, { role: 'user', content: text }], draft: '', pending: true }));
+    // WIRE: POST /api/conversations (first message only) then POST /api/conversations/:id/turns; on 409 TURN_IN_PROGRESS keep the composer locked.
+    this.replyT = setTimeout(() => this.setState(s => ({ pending: false, messages: [...s.messages, { role: 'assistant', content: 'Listo, actualicé benchmark.yaml y lo validé de nuevo.' }] })), 1400);
+  };
+
+  answer(yes) {
+    this.setState(s => ({ messages: [...s.messages, { role: 'user', content: yes ? 'Sí, pasalo a enum.' : 'Dejalo como texto.' }], pending: true }));
+    this.replyT = setTimeout(() => this.setState(s => ({ pending: false, messages: [...s.messages, { role: 'assistant', content: yes ? 'Hecho: autor_clave ahora es un enum de 12 autores. benchy_validate ✓.' : 'Queda como string. Tené en cuenta que las variantes de nombre van a contar como error.' }] })), 1400);
+  }
+
+  renderVals() {
+    const s = this.state;
+    const dataState = this.props.dataState ?? 'con datos';
+    const empty = dataState === 'vacío';
+    const navBtn = (on) => `display:flex;align-items:center;gap:8px;width:100%;border:0;text-align:left;padding:8px 10px;border-radius:8px;font-size:14px;color:${on ? '#2A2E3A' : '#3A3F4D'};background:${on ? '#F6F2EE' : 'transparent'};box-shadow:${on ? 'inset 2px 0 0 #F5A623' : 'none'}`;
+    const pill = (on) => `border:0;border-radius:999px;padding:5px 12px;font-size:13px;background:${on ? '#fff' : 'transparent'};color:${on ? '#2A2E3A' : '#6B6660'};box-shadow:${on ? '0 1px 2px rgba(42,46,58,.12)' : 'none'}`;
+    const statusMap = { valid: ['válido', '#1F6E4A', '#EEF7F2', '#CFE6D9'], error: ['con errores', '#B4342A', '#FBEDEB', '#F0CFCB'], draft: ['borrador', '#6B6660', '#F4F1EE', '#E5DFD8'] };
+    const badge = (k) => { const m = statusMap[k]; return `justify-self:start;font-size:12px;color:${m[1]};background:${m[2]};border:1px solid ${m[3]};border-radius:999px;padding:2px 9px;white-space:nowrap`; };
+    const bench = BENCHES.find(b => b.slug === s.bench) || BENCHES[0];
+    const list = empty ? [] : BENCHES;
+
+    const included = MODELS.map((m, i) => ({ ...m, on: s.sys[i] })).filter(m => m.on);
+    const runModels = included.map((m, i) => {
+      const doneAt = (i + 1) * RUN_STEP;
+      const st = s.elapsed >= doneAt || s.run === 'done' ? 'done' : s.elapsed >= i * RUN_STEP ? 'running' : 'queued';
+      const label = { done: 'terminado', running: 'en curso', queued: 'en cola' }[st];
+      const color = { done: '#1F6E4A', running: '#C97A10', queued: '#756E66' }[st];
+      const bar = st === 'done' ? 'position:absolute;inset:0;background:#2A2E3A;border-radius:999px'
+        : st === 'running' ? 'position:absolute;top:0;bottom:0;left:0;width:40%;background:#F5A623;border-radius:999px;animation:ba-indet 1.4s ease-in-out infinite'
+        : 'position:absolute;inset:0;background:transparent';
+      return { model: m.model, state: label, stateStyle: `text-align:right;font-size:12px;color:${color}`, bar };
+    });
+    const doneCount = runModels.filter(r => r.state === 'terminado').length;
+    const mm = String(Math.floor(s.elapsed / 60)).padStart(2, '0'), ss = String(s.elapsed % 60).padStart(2, '0');
+    const dot = (d) => s.run === 'done' ? 'width:7px;height:7px;border-radius:999px;background:#1F8A5B' : `width:7px;height:7px;border-radius:999px;background:#F5A623;animation:ba-march 1.1s ease-in-out infinite;animation-delay:${d}s`;
+
+    const examRows = EXAM.map((r, i) => ({ ...r, idx: String(i + 1).padStart(3, '0') }))
+      .filter(r => s.examFilter === 'all' || (s.examFilter === 'valid' ? r.status === 'valid' : r.status === 'rejected'))
+      .map(r => ({ ...r, status: r.status === 'valid' ? 'válido' : 'rechazado', statusStyle: badge(r.status === 'valid' ? 'valid' : 'error'), hasCode: !!r.code }));
+
+    const top = Math.max(...RESULTS.map(r => r.score));
+    return {
+      org: SESSION.org, email: SESSION.email, name: s.name,
+      notProvisioned: dataState === 'agente no activo',
+      isHome: s.screen === 'home', isBench: s.screen === 'bench', isAccount: s.screen === 'account',
+      goHome: (e) => { e && e.preventDefault && e.preventDefault(); this.go({ screen: 'home' }); },
+      goAccount: () => this.go({ screen: 'account' }),
+      newBench: () => this.go({ screen: 'bench', tab: 'def', bench: 'etnografia-rioplatense' }),
+      navHomeStyle: navBtn(s.screen === 'home'),
+      sideBenches: list.map(b => ({ name: b.name, slug: b.slug, open: () => this.go({ screen: 'bench', bench: b.slug, tab: 'def' }), style: navBtn(s.screen === 'bench' && s.bench === b.slug), dot: `width:7px;height:7px;flex:none;border-radius:999px;background:${b.status === 'valid' ? '#1F8A5B' : b.status === 'error' ? '#B4342A' : '#D9D2CA'}` })),
+      homeSub: empty ? 'Tu organización todavía no tiene benchmarks.' : `${list.length} benchmarks en tu organización`,
+      homeHasData: !empty, homeEmpty: empty,
+      benches: list.map(b => ({ name: b.name, meta: `${b.slug} · ${b.domain} · ${b.task} · ${b.lang}`, items: b.items, score: b.best == null ? '—' : b.best.toFixed(2), when: b.when, status: b.status === 'error' ? b.code : statusMap[b.status][0], statusStyle: badge(b.status), open: () => this.go({ screen: 'bench', bench: b.slug, tab: 'def' }) })),
+      bench: { name: bench.name, slug: bench.slug, meta: `${bench.domain} · ${bench.task} · ${bench.lang}` },
+      tabs: TABS.map(([k, label]) => ({ label, go: () => this.go({ tab: k }), style: `border:0;background:transparent;padding:9px 12px;font-size:14px;white-space:nowrap;color:${s.tab === k ? '#2A2E3A' : '#6B6660'};box-shadow:${s.tab === k ? 'inset 0 -2px 0 #F5A623' : 'none'}` })),
+      tDef: s.tab === 'def', tExam: s.tab === 'exam', tSys: s.tab === 'sys', tRun: s.tab === 'run', tRes: s.tab === 'res', tHist: s.tab === 'hist',
+      messages: s.messages.map(m => ({ content: m.content, isAsk: !!m.ask, style: m.role === 'user'
+        ? 'align-self:flex-end;max-width:min(560px,88%);background:#2A2E3A;color:#fff;border-radius:16px 16px 4px 16px;padding:10px 14px;font-size:15px;line-height:1.6'
+        : m.ask ? 'max-width:min(620px,100%);background:#FBEFD9;border:1px solid #F1D9AE;border-radius:4px 16px 16px 16px;padding:12px 16px;font-size:15px;line-height:1.6;color:#2A2E3A'
+        : 'max-width:min(620px,100%);background:#fff;border:1px solid #EDE7E0;border-radius:4px 16px 16px 16px;padding:12px 16px;font-size:15px;line-height:1.6;color:#2A2E3A' })),
+      pending: s.pending, draft: s.draft, sendDisabled: s.pending || !s.draft.trim(),
+      setDraft: (e) => this.setState({ draft: e.target.value }),
+      onKey: (e) => { if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) this.send(e); },
+      send: this.send, answerYes: () => this.answer(true), answerNo: () => this.answer(false),
+      yaml: YAML, yamlStatus: 'validado hace 2 h · 3 dimensiones',
+      exam: { total: EXAM.length, valid: EXAM.filter(r => r.status === 'valid').length, rejected: EXAM.filter(r => r.status !== 'valid').length },
+      examFilters: [['all', 'Todos'], ['valid', 'Válidos'], ['rejected', 'Rechazados']].map(([k, label]) => ({ label, go: () => this.go({ examFilter: k }), style: pill(s.examFilter === k) })),
+      examRows,
+      systems: MODELS.map((m, i) => { const on = s.sys[i]; return { ...m, on, toggle: () => this.setState(st => ({ sys: st.sys.map((v, j) => j === i ? !v : v) })),
+        cardStyle: `background:#fff;border:1px solid ${on ? '#E5DFD8' : '#EDE7E0'};border-radius:12px;padding:16px;opacity:${on ? 1 : .6}`,
+        switchStyle: `flex:none;position:relative;width:38px;height:22px;border:0;border-radius:999px;padding:0;background:${on ? '#2A2E3A' : '#D9D2CA'};transition:background .2s`,
+        knobStyle: `position:absolute;top:3px;left:${on ? 19 : 3}px;width:16px;height:16px;border-radius:999px;background:${on ? '#F5A623' : '#fff'};transition:left .2s` }; }),
+      sysSummary: `${included.length} de ${MODELS.length} sistemas en la próxima comparación`,
+      startRun: this.startRun,
+      runIdle: s.run === 'idle', runActive: s.run !== 'idle', runDone: s.run === 'done',
+      runTitle: s.run === 'done' ? 'Comparación terminada' : `Corriendo ${included.length} sistemas sobre 48 ítems`,
+      runSub: s.run === 'done' ? `${doneCount} de ${included.length} sistemas terminados` : 'Una llamada al modelo por ítem. Puede tardar unos minutos.',
+      runElapsed: `${mm}:${ss}`, runDot: dot(0), runDot2: dot(.16), runDot3: dot(.32), runModels,
+      goResults: () => this.go({ tab: 'res' }),
+      results: RESULTS.map(r => ({ ...r, score: r.score.toFixed(2), bar: `display:block;height:100%;width:${r.score * 100}%;background:${r.score === top ? '#F5A623' : '#2A2E3A'}`, invStyle: r.invalid ? 'color:#B4342A' : '', errStyle: r.errors ? 'color:#B4342A' : '' })),
+      fieldRows: [['corriente', '0.5'], ['autor_clave', '0.3'], ['periodo', '0.2']].map(([field, weight], i) => ({ field, weight, a: RESULTS[0].f[i].toFixed(2), b: RESULTS[1].f[i].toFixed(2), c: RESULTS[2].f[i].toFixed(2), d: RESULTS[3].f[i].toFixed(2) })),
+      failures: FAILURES,
+      versions: VERSIONS.map(v => ({ ...v, whoStyle: `font-size:12px;border-radius:999px;padding:2px 9px;${v.who === 'agente' ? 'background:#FBEFD9;color:#8A5208' : 'background:#F4F1EE;color:#3A3F4D'}` })),
+      setName: (e) => this.setState({ name: e.target.value }),
+      setEs: () => this.go({ lang: 'es' }), setEn: () => this.go({ lang: 'en' }),
+      langEsStyle: pill(s.lang === 'es'), langEnStyle: pill(s.lang === 'en'),
+      // WIRE: signOut() from @/lib/auth-client, then location.href = "/"
+      signOut: () => this.go({ screen: 'home' }),
+    };
+  }
+}
+</script>
+</body>
+</html>
