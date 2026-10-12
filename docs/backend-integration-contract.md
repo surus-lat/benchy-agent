@@ -4,70 +4,119 @@ Written for an engineer or agent building a new backend subsystem (the benchy
 engine, or the benchy agent) on top of the identity foundation that already
 exists in this repo. It assumes no prior context on this codebase.
 
-Status as of 2026-09-18: the identity/multi-tenancy foundation is built and
-tested. The engine and the agent are **not** built, and have no spec yet. This
-document is the contract between them and what exists.
+Status as of 2026-10-12: **the whole platform is built and deployed** for the
+first organization (SURUS). Read "As built" below first — it supersedes the
+plan-era sections it names. The rest of this document is the reasoning and
+the reference behind it; where the two disagree, "As built" and the code win.
 
-## Start here: what to build, in what order
+## As built (2026-10-12)
 
-**The stack, to begin with: Cloudflare (Pages + Workers + D1) for the web tier
-and all authorization; Railway for one Hermes container per organization;
-Together AI for inference.** Everything else in this document elaborates that.
-AWS and Bedrock appear only under "Swapping Together → Bedrock later" and are
-not part of what you build now.
+**Stack.** Cloudflare (Pages + Worker `benchy-api` + D1) for the web tier and
+every authorization decision; **one Hermes container per organization on
+Railway**; **inference on AWS Bedrock only** — Together AI was dropped.
 
-Everything below is reference. This is the path through it.
+```
+browser ──► getbenchy.lat (Pages) ──/api/*──► Worker benchy-api ──► D1
+                                                   │  (session → user → orgId → orgAgentEndpoints)
+                                                   ▼  Bearer AGENT_KEY_<ORG>
+                         agent-<org>-production.up.railway.app :8080
+                           benchy_proxy.py ── /benchy/files, /benchy/file   (read-only workspace)
+                                 └──────────► Hermes API server 127.0.0.1:8642
+                                                 ├─ Bedrock (Kimi K3)      the agent's own model
+                                                 └─ MCP stdio: benchy_mcp.py ─► benchy engine ─► Bedrock
+                                                    (benchy_validate / benchy_run / benchy_models)
+                         volume /opt/data: Hermes home, memory, org skills, workspace/
+```
 
-1. **Read** "Authenticating a request", "The identity model", "Adding tables",
-   and "Visibility rule" — that is the world you are building inside.
-2. **Add the tables** `conversations`, `conversationMessages` (shapes in "The
-   agent is user-specific and conversation-specific") and `orgAgentEndpoints`
-   (shape in "The Worker side"). Generate and commit the migration.
-3. **Build the agent image** under `apps/agent/`: `FROM` Hermes's image, core
-   skills at `/opt/benchy/skills` (root-owned, read-only), a pinned
-   `config.yaml` (Together via `custom` provider, `platform_toolsets.api_server`,
-   `skills.external_dirs`), and an entrypoint pre-step that runs the boot
-   guards and fail-fast checks. All of it is specified under "How the per-org
-   Hermes is configured".
-4. **Run one instance locally** with Docker against Together. Confirm
-   `GET /v1/toolsets` shows exactly the pinned tools and no `terminal`; do one
-   manual `POST /api/sessions` then `POST /api/sessions/{id}/chat`.
-5. **Worker routes** in `apps/api`: create conversation, send a turn, list
-   conversations, list messages — the exact request path is under "The Worker
-   side: routing a request to the right org's Hermes", including the
-   per-conversation turn lock.
-6. **Provision org #1** by hand following "Provisioning a new organization".
-7. The chat UI in `apps/web` is a separate track; it calls only the Worker.
+| Piece | Where | Notes |
+|---|---|---|
+| Agent image | `apps/agent/` | Unmodified Hermes v0.21.7, pinned by digest. Configured, not patched. |
+| Engine | `surus-lat/benchy` at a pinned commit, installed into Hermes's venv | Exposed only as the MCP server `apps/agent/mcp/benchy_mcp.py`; paths confined to `/opt/data/workspace`. |
+| Engine transport | `surus-lat/llm-client` (private) | Vendored as a wheel by `apps/agent/prepare-vendor.sh`; never committed (this repo is public). |
+| Core skills | `apps/agent/skills/benchy-*` | Root-owned, read-only in the image (`skills.external_dirs`). `.github/CODEOWNERS` gates the path. |
+| Pinned config | `apps/agent/config.yaml`, `SOUL.md` | Copied over `$HERMES_HOME` on every boot by `rootfs/etc/cont-init.d/03-benchy-setup`. |
+| Public port | `apps/agent/proxy/benchy_proxy.py` (s6 longrun) | Only thing on `0.0.0.0`; Hermes listens on loopback. Same bearer key for both. |
+| Worker routes | `apps/api/src/conversations.ts`, `hermes.ts` | `/api/conversations*` and `/api/workspace/*`, all authenticated. |
+| Tables | `packages/db` migration `0002` | `orgAgentEndpoints`, `conversations`, `conversationMessages`. |
+| UI | `apps/web/src/pages/app/` | `/app`: conversations · chat · org files. |
 
-Three things not to do, each explained later: no second Worker; the browser
-never calls Hermes; Hermes never touches D1 or makes an authorization
-decision.
+**Models.** The agent itself runs on `us.moonshotai.kimi-k3` (only invocable
+through that inference profile). Benchmarks may name, as
+`ai-system: {type: model, provider: bedrock, model: …}`, exactly
+`us.moonshotai.kimi-k3`, `qwen.qwen3-next-80b-a3b`, `qwen.qwen3-32b-v1:0`,
+`deepseek.v3.2` — enforced twice: `BENCHY_MODELS` in the MCP server and the
+IAM policy. gpt-oss is excluded (it prefixes reasoning to JSON, so every
+structured output is invalid). **Claude is not entitled on the AWS account**
+(354918377724); enabling it needs an AWS request.
 
-## What exists, and what doesn't
+**Credentials.** One secret per org container for inference:
+`AWS_BEARER_TOKEN_BEDROCK`, a long-term Bedrock API key (365 days, expires
+2027-10-12) of IAM user `benchy-agent-bedrock`, whose inline policy allows
+`bedrock:InvokeModel*` on the four models only, plus
+`bedrock:CallWithBearerToken`. botocore (Hermes) and Bedrock's
+OpenAI-compatible endpoint (the engine) both accept it. The stdio MCP child
+gets a minimal environment, so `config.yaml` passes it explicitly.
 
-Built, tested, merged to `main`:
+**Security posture, verified on a running container.** API key required on
+every route (401 otherwise); toolset exactly `file, skills, todo, memory`
+plus the `benchy` MCP server — no `terminal`, no `session_search`; core
+skill edits fail at the filesystem; `read_file` refuses `/proc/*/environ`;
+s6's per-variable environment files (world-readable by default, readable via
+`read_file`) are made root-only at boot, and the container refuses to start
+if they are not.
 
-- A pnpm monorepo: `apps/web` (Vite/React frontend), `apps/api` (Cloudflare
-  Worker, Hono), `packages/db` (Drizzle schema + D1 migrations).
-- Authentication via better-auth on Cloudflare D1: magic link + Google OAuth.
-- Invite-only signup, enforced server-side, and a CLI that mints invites.
-- One org per user (universities are the orgs).
+**Conversations.** Per user (a colleague's id is a 404); the org always comes
+from the session; turns serialized per conversation by an atomic conditional
+UPDATE (409 while one is in flight; a lock older than 15 minutes is
+reclaimable); every turn carries the researcher's name as the ephemeral
+system message and `X-Hermes-Session-Key: user:<id>`. Messages are returned
+in insertion order (`createdAt` is whole seconds). Benchmarks live in the org
+workspace on the volume and are visible to every member of the org.
 
-Not built, no spec, deliberately out of scope of the above:
+**Known limits, deliberately not solved yet.**
+- **Free-text answers are not scorable.** The engine scores by exact match;
+  the landing's rubric-graded open answers need an engine design change
+  (LLM-as-judge). Today the agent turns each rubric criterion into a closed
+  decision.
+- **The ontology's domains are narrow** (`general, finance, healthcare, legal,
+  retail`); academic fields use `general` until `extend-ontology` adds them.
+- **Turns are synchronous.** A very long benchmark run could hit the 14-minute
+  turn timeout; results still land in `runs/`. Streaming
+  (`/chat/stream`) or async runs are the next step if that bites.
+- **Users have no name** (magic-link signup collects none); the agent falls
+  back to the email.
 
-- The benchy engine (running benchmarks).
-- The benchy agent (LLM-assisted YAML editing and synthetic dataset building).
-- Any table for benchmarks, runs, datasets, or agent conversations.
-- Any deployment. Nothing has ever been deployed: no Cloudflare resources,
-  no Railway services, no Together AI key (see "Deferred" below).
+### Deploying
 
-Authoritative documents:
+```bash
+pnpm deploy:api && pnpm deploy:web                     # Cloudflare
+apps/agent/prepare-vendor.sh                            # once per llm-client bump
+cd apps/agent && railway up . --path-as-root --service agent-<org> --detach
+```
 
-- `docs/superpowers/specs/2026-09-17-identity-multitenancy-design.md` — the
-  design and the decisions it locks in.
-- `docs/superpowers/plans/2026-09-17-identity-multitenancy.md` — the
-  implementation plan, including a "Deferred: needs your Cloudflare account"
-  section listing everything not yet provisioned.
+Railway project `benchy-agent` (workspace "gradiente.sur's Projects").
+Railway's builder supports only cache mounts — no secret or bind mounts —
+which is why the build needs no secret at all.
+
+### Provisioning a new organization (runbook)
+
+1. `pnpm invite --org "<Name>" --email <first researcher>` — creates the org.
+2. Railway service `agent-<slug>` in project `benchy-agent`, with variables
+   `API_SERVER_KEY` (`openssl rand -hex 32`), `AWS_BEARER_TOKEN_BEDROCK` (the
+   shared scoped key), `PORT=8080`; a volume at `/opt/data`; deploy as above;
+   `railway domain --service agent-<slug> --port 8080`.
+3. `wrangler secret put AGENT_KEY_<SLUG>` with the same `API_SERVER_KEY`.
+4. `INSERT INTO orgAgentEndpoints (orgId, baseUrl, apiKeyRef, createdAt)`
+   with the org id, the Railway URL, and `AGENT_KEY_<SLUG>`.
+
+Until step 4, that org's `/app` shows "el agente de tu organización todavía no
+está activo" (503 `AGENT_NOT_PROVISIONED`).
+
+Sections below written before this was built and now **superseded** where
+they conflict: the Together AI parts of "Runtime topology", the terminal and
+toolset details under "How the per-org Hermes is configured" (now the MCP
+engine plus `memory`), "Provisioning a new organization", and "Deployment
+status (2026-09-18)".
 
 ## Running it
 
@@ -385,7 +434,7 @@ already established who the caller is and which org they belong to; it passes
 that down as trusted input. Hermes is a compute service, not a second security
 boundary.
 
-### Runtime topology: Cloudflare + Railway + Together AI
+### Runtime topology: Cloudflare + Railway + Together AI (superseded: Bedrock only — see "As built")
 
 This is decided. Build against it.
 
