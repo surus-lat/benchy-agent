@@ -84,18 +84,27 @@ export default function Login() {
     setStatus("sent");
   }
 
-  async function handleGoogle() {
-    // Unlike the magic-link call there is no response to inspect — the browser
-    // leaves for Google and comes back through the API's OAuth callback — so
-    // the rejection can only surface as a query parameter on the redirect.
-    // `errorCallbackURL` is what decides where that redirect goes; without it
-    // an uninvited person dead-ends on the API origin and sees nothing.
+  // Which social buttons to show: the API reports providers that have real
+  // OAuth credentials configured.
+  const [providers, setProviders] = useState<{ google: boolean; microsoft: boolean }>({
+    google: false,
+    microsoft: false,
+  });
+  useEffect(() => {
+    fetch("/api/auth-providers")
+      .then((r) => (r.ok ? r.json() : null))
+      .then((p) => p && setProviders(p))
+      .catch(() => {});
+  }, []);
+
+  async function handleSocial(provider: "google" | "microsoft") {
     await signIn.social({
-      provider: "google",
+      provider,
       callbackURL: appCallbackURL(),
       errorCallbackURL: loginErrorURL(),
     });
   }
+
 
   if (status === "sent") {
     return (
@@ -126,15 +135,18 @@ export default function Login() {
       {status === "error" && (
         <p className="mt-3 text-sm text-destructive">{errorMessage}</p>
       )}
-      {/* Google stays off until a real OAuth client exists; the API still has
-          the provider configured with placeholder credentials, so showing
-          the button would only produce an error. Flip VITE_ENABLE_GOOGLE
-          to "true" once GOOGLE_CLIENT_ID/SECRET are real. */}
-      {import.meta.env.VITE_ENABLE_GOOGLE === "true" && (
-        <div className="mt-4 border-t pt-4">
-          <Button variant="outline" className="w-full" onClick={handleGoogle}>
-            Sign in with Google
-          </Button>
+      {(providers.google || providers.microsoft) && (
+        <div className="mt-4 space-y-2 border-t pt-4">
+          {providers.google && (
+            <Button variant="outline" className="w-full" onClick={() => void handleSocial("google")}>
+              Continue with Google
+            </Button>
+          )}
+          {providers.microsoft && (
+            <Button variant="outline" className="w-full" onClick={() => void handleSocial("microsoft")}>
+              Continue with Microsoft
+            </Button>
+          )}
         </div>
       )}
     </div>

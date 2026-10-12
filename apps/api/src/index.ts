@@ -6,6 +6,7 @@ import { db } from "./db";
 import { createAccessRequestsApp } from "./access-requests";
 import { createConversationsApp } from "./conversations";
 import { hermesClient } from "./hermes";
+import { enabledProviders } from "./social-providers";
 import { eq } from "drizzle-orm";
 import { schema } from "@benchy/db";
 
@@ -22,6 +23,9 @@ app.use(
 );
 
 app.on(["GET", "POST"], "/api/auth/*", (c) => auth.handler(c.req.raw));
+
+// Which sign-in buttons to show (providers with real credentials).
+app.get("/api/auth-providers", (c) => c.json(enabledProviders(env as unknown as Record<string, unknown>)));
 
 // Public Request Access form. Turnstile-gated; never creates orgs or invites.
 app.route(

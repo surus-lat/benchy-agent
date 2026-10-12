@@ -4,6 +4,7 @@ import { drizzleAdapter } from "@better-auth/drizzle-adapter";
 import { env } from "cloudflare:workers";
 import { schema } from "@benchy/db";
 import { db } from "./db";
+import { socialProviders } from "./social-providers";
 import {
   findPendingInvite,
   markInviteAccepted,
@@ -46,11 +47,13 @@ export const auth = betterAuth({
       },
     },
   },
-  socialProviders: {
-    google: {
-      clientId: env.GOOGLE_CLIENT_ID,
-      clientSecret: env.GOOGLE_CLIENT_SECRET,
-    },
+  // Google and Microsoft, each only when its OAuth credentials are set.
+  socialProviders: socialProviders(env as unknown as Record<string, unknown>),
+  // A researcher invited by email can later use Google or Microsoft with the
+  // same address: linking requires a verified email on both sides (Microsoft's
+  // is made verifiable in social-providers.ts).
+  account: {
+    accountLinking: { enabled: true },
   },
   databaseHooks: {
     user: {
