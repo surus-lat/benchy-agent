@@ -15,6 +15,13 @@
       "when": 1790099419366,
       "tag": "0001_public_rhodey",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "6",
+      "when": 1791830122395,
+      "tag": "0002_agent_conversations",
+      "breakpoints": true
     }
   ]
 }

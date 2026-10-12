@@ -4,6 +4,10 @@ import { env } from "cloudflare:workers";
 import { auth } from "./auth";
 import { db } from "./db";
 import { createAccessRequestsApp } from "./access-requests";
+import { createConversationsApp } from "./conversations";
+import { hermesClient } from "./hermes";
+import { eq } from "drizzle-orm";
+import { schema } from "@benchy/db";
 
 const app = new Hono<{ Bindings: Env }>();
 
@@ -26,6 +30,35 @@ app.route(
     db,
     turnstileSecret: env.TURNSTILE_SECRET_KEY,
     notify: { email: env.EMAIL, to: env.OWNER_NOTIFY_EMAIL, from: env.EMAIL_FROM },
+  }),
+);
+
+// The researcher's conversations with their org's agent (one Hermes per org).
+app.route(
+  "/",
+  createConversationsApp({
+    db,
+    async currentUser(request) {
+      const session = await auth.api.getSession({ headers: request.headers });
+      if (!session) return null;
+      const u = session.user as { id: string; name?: string; email: string; orgId?: string | null };
+      return { id: u.id, name: u.name ?? "", email: u.email, orgId: u.orgId ?? null };
+    },
+    async agentFor(orgId) {
+      const [endpoint] = await db
+        .select()
+        .from(schema.orgAgentEndpoints)
+        .where(eq(schema.orgAgentEndpoints.orgId, orgId))
+        .limit(1);
+      if (!endpoint) return null;
+      // D1 holds only the secret's name; the key lives in Worker secrets.
+      const key = (env as unknown as Record<string, unknown>)[endpoint.apiKeyRef];
+      if (typeof key !== "string" || !key) {
+        console.error(`org ${orgId}: Worker secret ${endpoint.apiKeyRef} is not set`);
+        return null;
+      }
+      return hermesClient(endpoint.baseUrl, key);
+    },
   }),
 );
 

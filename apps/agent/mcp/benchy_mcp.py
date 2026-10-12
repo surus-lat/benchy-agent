@@ -32,8 +32,9 @@ MODELS = [
     m.strip()
     for m in os.environ.get(
         "BENCHY_MODELS",
-        "us.moonshotai.kimi-k3,qwen.qwen3-next-80b-a3b,qwen.qwen3-32b-v1:0,"
-        "deepseek.v3.2,openai.gpt-oss-120b-1:0,openai.gpt-oss-20b-1:0",
+        # gpt-oss is left out on purpose: it prefixes its reasoning to the
+        # JSON answer, so every structured output scores invalid_output.
+        "us.moonshotai.kimi-k3,qwen.qwen3-next-80b-a3b,qwen.qwen3-32b-v1:0,deepseek.v3.2",
     ).split(",")
     if m.strip()
 ]

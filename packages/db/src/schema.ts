@@ -90,3 +90,44 @@ export const verification = sqliteTable("verification", {
   createdAt: integer("createdAt", { mode: "timestamp" }).notNull(),
   updatedAt: integer("updatedAt", { mode: "timestamp" }).notNull(),
 });
+
+// One Hermes instance per org (Railway). The key itself is never in D1:
+// `apiKeyRef` names the Worker secret that holds this org's API_SERVER_KEY.
+export const orgAgentEndpoints = sqliteTable("orgAgentEndpoints", {
+  orgId: text("orgId")
+    .primaryKey()
+    .references(() => orgs.id),
+  baseUrl: text("baseUrl").notNull(),
+  apiKeyRef: text("apiKeyRef").notNull(),
+  createdAt: integer("createdAt", { mode: "timestamp" }).notNull(),
+});
+
+// A chat thread with the agent. Per-user: read with userId, never orgId.
+// Not keyed on the login session — sessions rotate, conversations persist.
+export const conversations = sqliteTable("conversations", {
+  id: text("id").primaryKey(),
+  userId: text("userId")
+    .notNull()
+    .references(() => user.id, { onDelete: "cascade" }),
+  orgId: text("orgId")
+    .notNull()
+    .references(() => orgs.id),
+  // The session inside the org's Hermes this conversation maps to.
+  hermesSessionId: text("hermesSessionId").notNull(),
+  title: text("title"),
+  // Set while a turn is in flight; the per-conversation lock (Hermes holds
+  // no per-session lock, so two concurrent turns would race).
+  turnStartedAt: integer("turnStartedAt", { mode: "timestamp" }),
+  createdAt: integer("createdAt", { mode: "timestamp" }).notNull(),
+  updatedAt: integer("updatedAt", { mode: "timestamp" }).notNull(),
+});
+
+export const conversationMessages = sqliteTable("conversationMessages", {
+  id: text("id").primaryKey(),
+  conversationId: text("conversationId")
+    .notNull()
+    .references(() => conversations.id, { onDelete: "cascade" }),
+  role: text("role", { enum: ["user", "assistant"] }).notNull(),
+  content: text("content").notNull(),
+  createdAt: integer("createdAt", { mode: "timestamp" }).notNull(),
+});
