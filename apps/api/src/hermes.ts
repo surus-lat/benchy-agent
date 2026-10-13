@@ -10,7 +10,7 @@ export interface HermesClient {
   createSession(userId: string): Promise<string>;
   /** One synchronous agent turn in an existing session. */
   chat(sessionId: string, userId: string, message: string, speaker: string): Promise<HermesTurn>;
-  /** The org workspace (benchmarks, exams, runs), via the container's read-only routes. */
+  /** The org workspace (benchmarks, exams, runs), via the container's /benchy routes. */
   listFiles(): Promise<{ files: WorkspaceFile[]; truncated: boolean }>;
   /** One workspace file, or null if it does not exist. */
   readFile(path: string): Promise<WorkspaceFileContent | null>;
@@ -20,7 +20,17 @@ export interface HermesClient {
   exam(path: string): Promise<unknown>;
   /** The models a benchmark may run. */
   models(): Promise<unknown>;
+  /** Write one benchmark text file; refused if it changed after `baseModified`. */
+  writeFile(path: string, content: string, baseModified?: number): Promise<WriteResult>;
+  /** Grade a rubric benchmark's expert answers with its grader (writes review.json). */
+  review(path: string): Promise<unknown>;
 }
+
+export type WriteResult =
+  | { status: "ok"; path: string; modified: number }
+  | { status: "conflict"; modified: number }
+  | { status: "forbidden" }
+  | { status: "too_large" };
 
 export class HermesError extends Error {
   constructor(
@@ -99,6 +109,38 @@ export function hermesClient(baseUrl: string, apiKey: string): HermesClient {
     },
     async models() {
       return json(await get("/benchy/models"));
+    },
+    async writeFile(path, content, baseModified) {
+      let res: Response;
+      try {
+        res = await fetch(root + "/benchy/file", {
+          method: "PUT",
+          headers: { authorization: `Bearer ${apiKey}`, "content-type": "application/json" },
+          body: JSON.stringify({ path, content, base_modified: baseModified }),
+          signal: AbortSignal.timeout(SESSION_TIMEOUT_MS),
+        });
+      } catch {
+        throw new HermesError("agent unreachable", 502);
+      }
+      if (res.status === 409) return { status: "conflict", modified: ((await res.json()) as { modified: number }).modified };
+      if (res.status === 403 || res.status === 400) return { status: "forbidden" };
+      if (res.status === 413) return { status: "too_large" };
+      const body = (await json(res)) as { path: string; modified: number };
+      return { status: "ok", ...body };
+    },
+    async review(path) {
+      let res: Response;
+      try {
+        res = await fetch(root + `/benchy/review?path=${encodeURIComponent(path)}`, {
+          method: "POST",
+          headers: { authorization: `Bearer ${apiKey}` },
+          signal: AbortSignal.timeout(TURN_TIMEOUT_MS),
+        });
+      } catch (err) {
+        const timedOut = err instanceof Error && err.name === "TimeoutError";
+        throw new HermesError(timedOut ? "agent timed out" : "agent unreachable", timedOut ? 504 : 502);
+      }
+      return json(res);
     },
     async createSession(userId) {
       const data = await call("/api/sessions", userId, {}, SESSION_TIMEOUT_MS);

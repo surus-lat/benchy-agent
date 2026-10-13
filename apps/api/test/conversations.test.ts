@@ -48,6 +48,16 @@ function fakeHermes(opts: { fail?: "chat" | "session" } = {}) {
       calls.push({ op: "models", args: [] });
       return { provider: "bedrock", models: ["us.moonshotai.kimi-k3"] };
     },
+    async writeFile(path, content, baseModified) {
+      calls.push({ op: "writeFile", args: [path, content, baseModified] });
+      if (path.includes("/runs/")) return { status: "forbidden" };
+      if (baseModified !== undefined && baseModified < 5) return { status: "conflict", modified: 5 };
+      return { status: "ok", path, modified: 6 };
+    },
+    async review(path) {
+      calls.push({ op: "review", args: [path] });
+      return { ok: true, rows: [] };
+    },
     async readFile(path) {
       calls.push({ op: "readFile", args: [path] });
       return path === "capitales/benchmark.yaml"
@@ -229,4 +239,26 @@ it("exposes engine checks, models and the caller's org to members", async () => 
   const me = await (await req(app, "GET", "/api/me", ana)).json();
   expect(me).toEqual({ user: { id: ana.id, name: ana.name, email: ana.email }, org: { id: "org_uni", name: "Uni" } });
   expect((await req(app, "GET", "/api/me", orphan)).status).toBe(403);
+});
+
+it("lets members edit benchmark files and run the answer review, never past a newer version", async () => {
+  const { client, calls } = fakeHermes();
+  const app = makeApp(client);
+  const body = { path: "qa/exam.jsonl", content: "{}\n" };
+  expect((await req(app, "PUT", "/api/workspace/file", undefined, body)).status).toBe(401);
+  expect((await req(app, "PUT", "/api/workspace/file", orphan, body)).status).toBe(403);
+
+  const ok = await req(app, "PUT", "/api/workspace/file", beto, { ...body, baseModified: 5 });
+  expect(await ok.json()).toEqual({ path: "qa/exam.jsonl", modified: 6 });
+  const stale = await req(app, "PUT", "/api/workspace/file", ana, { ...body, baseModified: 1 });
+  expect(stale.status).toBe(409);
+  expect(await stale.json()).toEqual({ error: "CONFLICT", modified: 5 });
+  expect((await req(app, "PUT", "/api/workspace/file", ana, { path: "qa/runs/x.json", content: "" })).status).toBe(403);
+  expect((await req(app, "PUT", "/api/workspace/file", ana, { path: "qa/a.yaml" })).status).toBe(400);
+  expect((await req(app, "PUT", "/api/workspace/file", ana, { ...body, baseModified: "1" })).status).toBe(400);
+
+  expect(await (await req(app, "POST", "/api/workspace/review?path=qa/benchmark.yaml", ana)).json()).toMatchObject({ ok: true });
+  expect((await req(app, "POST", "/api/workspace/review", ana)).status).toBe(400);
+  expect(calls.map((c) => c.op)).toEqual(["writeFile", "writeFile", "writeFile", "review"]);
+  expect((await req(makeApp(null), "PUT", "/api/workspace/file", ana, body)).status).toBe(503);
 });

@@ -233,6 +233,42 @@ export function createConversationsApp(deps: ConversationsDeps) {
     });
   }
 
+  // The app's editors write benchmark text files (questions, answers, rubric).
+  // Any org member may edit; the container refuses run results and anything
+  // that is not a benchmark text file, and a file changed since it was read.
+  app.put("/api/workspace/file", async (c) => {
+    const body = (await c.req.json().catch(() => null)) as { path?: unknown; content?: unknown; baseModified?: unknown } | null;
+    const path = body?.path;
+    const content = body?.content;
+    const baseModified = body?.baseModified;
+    if (typeof path !== "string" || !path || path.length > 1000) return c.json({ error: "INVALID_PATH" }, 400);
+    if (typeof content !== "string") return c.json({ error: "INVALID_CONTENT" }, 400);
+    if (baseModified !== undefined && typeof baseModified !== "number") return c.json({ error: "INVALID_CONTENT" }, 400);
+    const agent = await deps.agentFor(c.get("user").orgId);
+    if (!agent) return c.json({ error: "AGENT_NOT_PROVISIONED" }, 503);
+    try {
+      const result = await agent.writeFile(path, content, baseModified);
+      if (result.status === "conflict") return c.json({ error: "CONFLICT", modified: result.modified }, 409);
+      if (result.status === "forbidden") return c.json({ error: "FORBIDDEN_PATH" }, 403);
+      if (result.status === "too_large") return c.json({ error: "TOO_LARGE" }, 413);
+      return c.json({ path: result.path, modified: result.modified });
+    } catch (err) {
+      return agentFailure(c, err);
+    }
+  });
+
+  app.post("/api/workspace/review", async (c) => {
+    const path = c.req.query("path");
+    if (!path || path.length > 1000) return c.json({ error: "INVALID_PATH" }, 400);
+    const agent = await deps.agentFor(c.get("user").orgId);
+    if (!agent) return c.json({ error: "AGENT_NOT_PROVISIONED" }, 503);
+    try {
+      return c.json(await agent.review(path));
+    } catch (err) {
+      return agentFailure(c, err);
+    }
+  });
+
   app.get("/api/models", async (c) => {
     const agent = await deps.agentFor(c.get("user").orgId);
     if (!agent) return c.json({ error: "AGENT_NOT_PROVISIONED" }, 503);
