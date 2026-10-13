@@ -20,11 +20,11 @@ browser ──► getbenchy.lat (Pages) ──/api/*──► Worker benchy-api 
                                                    │  (session → user → orgId → orgAgentEndpoints)
                                                    ▼  Bearer AGENT_KEY_<ORG>
                          agent-<org>-production.up.railway.app :8080
-                           benchy_proxy.py ── /benchy/files, /benchy/file   (read-only workspace)
+                           benchy_proxy.py ── /benchy/* (workspace, engine checks, edits, review)
                                  └──────────► Hermes API server 127.0.0.1:8642
                                                  ├─ Bedrock (Kimi K3)      the agent's own model
                                                  └─ MCP stdio: benchy_mcp.py ─► benchy engine ─► Bedrock
-                                                    (benchy_validate / benchy_run / benchy_models)
+                                                    (benchy_validate / benchy_run / benchy_review / benchy_models)
                          volume /opt/data: Hermes home, memory, org skills, workspace/
 ```
 
@@ -36,9 +36,9 @@ browser ──► getbenchy.lat (Pages) ──/api/*──► Worker benchy-api 
 | Core skills | `apps/agent/skills/benchy-*` | Root-owned, read-only in the image (`skills.external_dirs`). `.github/CODEOWNERS` gates the path. |
 | Pinned config | `apps/agent/config.yaml`, `SOUL.md` | Copied over `$HERMES_HOME` on every boot by `rootfs/etc/cont-init.d/03-benchy-setup`. |
 | Public port | `apps/agent/proxy/benchy_proxy.py` (s6 longrun) | Only thing on `0.0.0.0`; Hermes listens on loopback. Same bearer key for both. |
-| Worker routes | `apps/api/src/conversations.ts`, `hermes.ts` | `/api/conversations*`, `/api/workspace/{files,file,validate,exam}`, `/api/models`, `/api/me`, all authenticated. |
+| Worker routes | `apps/api/src/conversations.ts`, `hermes.ts` | `/api/conversations*`, `/api/workspace/{files,file,validate,exam}`, `PUT /api/workspace/file`, `POST /api/workspace/review`, `/api/models`, `/api/me`, all authenticated. Writes are limited to benchmark text files inside a benchmark folder (never `runs/`), and refused with 409 `CONFLICT` if the file changed after the caller read it. |
 | Tables | `packages/db` migration `0002` | `orgAgentEndpoints`, `conversations`, `conversationMessages`. |
-| UI | `apps/web/src/pages/platform/` (state A), `pages/app/` (state B) | `/app`: benchmarks home, `/app/b/:slug/:tab` (definición, examen, sistemas, corridas, resultados, historial), `/app/nuevo`, `/app/cuenta`; `/app/chat` keeps the earlier chat + files view. Design: `docs/design/platform-handoff/`. |
+| UI | `apps/web/src/pages/platform/` | `/app`: benchmarks home; `/app/b/:slug/:stage` one benchmark as two windows, A · Interfaz (autoría, revisión, evaluación, publicación) and B · Agente, ⌘J swaps them (`workspace.tsx`, design "Plataforma AB v3"); `/app/nuevo`, `/app/cuenta`; `/app/v1/b/:slug/:tab` keeps the previous tabbed view and `/app/chat` the first chat + files view. |
 
 **Models.** The agent itself runs on `us.moonshotai.kimi-k3` (only invocable
 through that inference profile). Benchmarks may name, as
@@ -83,13 +83,18 @@ in insertion order (`createdAt` is whole seconds). Benchmarks live in the org
 workspace on the volume and are visible to every member of the org.
 
 **Known limits, deliberately not solved yet.**
-- **Free-text answers are not scorable.** The engine scores by exact match;
-  the landing's rubric-graded open answers need an engine design change
-  (LLM-as-judge). Today the agent turns each rubric criterion into a closed
-  decision.
-- **Academic domains** (anthropology, sociology, history, linguistics, biology,
-  public_health and 20 more) were added to ontology 1.0 in surus-lat/benchy#38;
-  the image pins that branch commit until it merges.
+- **Open questions are graded by a model.** The engine's `answer` task
+  (ontology 1.1, surus-lat/benchy branch `design/rubric-qa`, pinned by commit
+  until it merges) grades each answer against the expert answer with the
+  benchmark's rubric; the grader is `scoring.grader`, Kimi K3 on Bedrock. A
+  run costs one model call plus two grader calls per question. The app's
+  editors expect binary criteria (`levels {0, 1}`) weighted 1–5 and per-question
+  notes in `<slug>/questions.json` (the engine rejects extra keys in a row);
+  `POST /benchy/review` grades the expert answers themselves into
+  `<slug>/review.json`. Nobody has yet checked the grader against a professor.
+- **Publication is a preview.** The Publicación stage shows the public card
+  and the checks, but publishing, versions, the downloadable package and DOIs
+  have no backend yet. Likewise the batch dialog's paper library.
 - **Turns are synchronous.** A very long benchmark run could hit the 14-minute
   turn timeout; results still land in `runs/`. Streaming
   (`/chat/stream`) or async runs are the next step if that bites.

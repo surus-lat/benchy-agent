@@ -33,6 +33,17 @@ score with most fields right usually means the heavily weighted field was wrong 
 that is the weights working. If that feels wrong to the researcher, the weights
 are what to revisit, not the engine.
 
+## Rubric benchmarks
+
+An `answer` benchmark is graded by its `scoring.grader`: each valid answer's
+`field_scores` entry keeps `criteria`, every criterion's grade and
+justification. Explain a low score with those justifications, criterion by
+criterion. The result also records the grader (`grader.system`). Scores are
+only comparable under the same grader and the same rubric. A run costs one
+model call plus two grader calls per question (the grader also grades the empty
+answer, the baseline). `grader_error` aborts the run: the grader replied outside
+the rubric — run again, and if it repeats, tell the researcher.
+
 ## Common fixes
 
 - Everything `invalid_output` with cut-off JSON → raise `max_tokens` in `ai-system.parameters`.

@@ -24,7 +24,8 @@ except ImportError:  # mcp 1.x
 import sys
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from benchy_shared import MODELS, WORKSPACE, inside, model_slug  # noqa: E402
+from benchy_shared import MODELS, WORKSPACE, check_models, inside, model_slug  # noqa: E402
+from benchy_review import review  # noqa: E402
 
 from benchy import providers
 from benchy.compiler import compile_benchmark
@@ -99,19 +100,16 @@ async def benchy_run(path: str, model: str | None = None) -> dict:
     is saved under `runs/` next to the benchmark (the file name and the result
     say which model it was); this returns the score, the summary, and the
     failed examples. Read the failures before the score: invalid outputs and
-    execution errors count as 0.
+    execution errors count as 0. A rubric benchmark is graded by its
+    `scoring.grader`; each graded result keeps every criterion's grade and
+    justification.
     """
     try:
         source, ir = _compile(path)
         if model:
             ir = {**ir, "ai-system": {**ir["ai-system"], "model": model}}
         system = ir["ai-system"]
-        if system.get("type") == "model" and system.get("provider") == "bedrock" and system.get("model") not in MODELS:
-            raise BenchyError(
-                "runtime", "adapter_not_bound",
-                f"model {system.get('model')!r} is not available here; use one of: {', '.join(MODELS)}",
-                ["ai-system", "model"],
-            )
+        check_models(ir)
         workspace = source.parent
         exam = (workspace / ir["data"]["path"]).resolve()
         if exam.is_file():
@@ -120,8 +118,10 @@ async def benchy_run(path: str, model: str | None = None) -> dict:
             if rows > MAX_ROWS:
                 raise BenchyError("runtime", "dataset_too_large", f"the exam has {rows} rows; the limit here is {MAX_ROWS}")
         adapter = providers.for_system(ir, workspace)
+        # A rubric benchmark is graded by its declared grader (scoring.grader).
+        grader = providers.for_grader(ir, workspace) if ir["scoring"].get("grader") else None
         started = time.time()
-        result = await run(ir, workspace, adapter)
+        result = await run(ir, workspace, adapter, grader=grader)
     except BenchyError as exc:
         return _error(exc)
 
@@ -143,6 +143,32 @@ async def benchy_run(path: str, model: str | None = None) -> dict:
         "saved_to": str(out.relative_to(WORKSPACE)),
         "failures_shown": failures,
     }
+
+
+@mcp.tool()
+async def benchy_review(path: str) -> dict:
+    """Before running a rubric benchmark, grade every expert answer (the
+    exam's `expected` answer) against the benchmark's own rubric, with its
+    grader.
+
+    The expert answer should meet every criterion. Rows that miss one are a
+    weak answer key or a criterion worded too strictly: show the researcher
+    which, and fix it with them. Saves `review.json` next to the benchmark,
+    which the app shows in its Review stage; returns the rows that missed a
+    criterion.
+    """
+    try:
+        source, ir = _compile(path)
+        report = await review(ir, source)
+    except BenchyError as exc:
+        return _error(exc)
+    weak = [
+        {"index": r["index"], "score": r.get("score"), "error": r.get("error"),
+         "missed": r.get("missed", [])}
+        for r in report["rows"] if r.get("error") or r.get("missed")
+    ]
+    return {"ok": True, "rows": len(report["rows"]), "weak": weak[:20],
+            "saved_to": str((source.parent / "review.json").relative_to(WORKSPACE))}
 
 
 @mcp.tool()

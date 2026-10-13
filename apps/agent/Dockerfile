@@ -19,7 +19,7 @@ FROM ghcr.io/astral-sh/uv:0.11.6 AS uv
 
 FROM nousresearch/hermes-agent@sha256:444b42594e7f467425872fc35e077a227d377f0fe0726bc818706d62175fad8b
 
-ARG BENCHY_ENGINE_REF=b5ed252c5e357466e43bc3e50e8a90ace7ea8440
+ARG BENCHY_ENGINE_REF=21aeab19ff390ef76c1b97ce5f573e047f7542ea
 
 USER root
 # Railway's builder supports only cache mounts, so uv is copied in and removed.

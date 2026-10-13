@@ -46,8 +46,8 @@ When the researcher wants help generating rows, draft them, show a few, and let
 them correct before writing many.
 
 **4. Task, domain, language.** Closed vocabularies — anything else fails to compile:
-`task` is `extract`, `classify` or `translate` (`classify` needs exactly one enum
-output leaf); `language` is `es`, `pt` or `en`; `domain` is one of `general`,
+`task` is `answer`, `extract`, `classify` or `translate` (`classify` needs exactly
+one enum output leaf; `answer` needs `ontology_version: "1.1"`); `language` is `es`, `pt` or `en`; `domain` is one of `general`,
 `finance`, `healthcare`, `legal`, `retail`, or an academic field: `anthropology`,
 `archaeology`, `sociology`, `history`, `linguistics`, `literature`, `philosophy`,
 `political_science`, `economics`, `psychology`, `education`, `geography`,
@@ -56,15 +56,70 @@ output leaf); `language` is `es`, `pt` or `en`; `domain` is one of `general`,
 `agriculture`, `engineering`, `medicine`, `public_health`. Pick the closest;
 use `general` only when none fits.
 
-## Exact match is the scoring rule
+## Open questions: the `answer` task with a rubric (the default for exams)
 
-Field correctness is exact match. A free-text `string` answer is right or wrong
-with nothing in between — so prefer `enum`, numbers, dates and short canonical
-strings. If the researcher's real question has a paragraph as its answer, say so
-plainly and help them reframe it as decisions the model must get right (e.g. one
-`enum` or `bool` per rubric criterion).
+Most university exams are open questions whose answers a professor grades
+against criteria. That is the `answer` task: input `question: string`, output
+`answer: string`, and the `answer` field scored by a **rubric** that a grader
+model applies to every answer, comparing it with the expert answer in the exam.
 
-## The skeleton
+Use this shape exactly — the app's question editor and rubric editor read it:
+
+```yaml
+# Etnografía andina: reciprocidad y trabajo
+version: "1.0"
+ontology_version: "1.1"
+benchmark: { task: answer, domain: anthropology, language: es }
+program:
+  input:  { question: string }
+  output: { answer: string }
+scoring:
+  weights: { answer: 1 }
+  aggregator: weighted_mean
+  field_metrics:
+    answer:
+      metric: rubric
+      params:
+        criteria:
+          c1:
+            weight: 5
+            description: Identifica las posiciones o elementos centrales de la respuesta experta.
+            levels: { 0: No lo cumple, 1: Lo cumple }
+          c2:
+            weight: 3
+            description: Sitúa el caso en su contexto histórico y regional.
+            levels: { 0: No lo cumple, 1: Lo cumple }
+  grader: { type: model, provider: bedrock, model: us.moonshotai.kimi-k3 }
+data:
+  path: ./exam.jsonl
+ai-system:
+  type: model
+  provider: bedrock
+  model: us.moonshotai.kimi-k3
+  parameters: { temperature: 0, max_tokens: 2048 }
+```
+
+- **Criteria** are named `c1`, `c2`, … in order, each with `levels {0: No lo
+  cumple, 1: Lo cumple}` and a `weight` from 1 to 5: how important it is. Write
+  each `description` as one checkable sentence. Three to six criteria; the same
+  rubric applies to every question.
+- **Exam rows** are `{"input": {"question": "..."}, "expected": {"answer": "..."}}`:
+  the expected answer is the expert answer — the key the grader compares with.
+- **Question notes** go in `<slug>/questions.json`, never in the exam (the
+  engine rejects extra keys in a row): `{"rows": [{"why": "...", "sources":
+  ["..."], "tags": ["..."], "status": "draft", "by": "agente"}]}`, one entry per
+  exam row, **in the same order**. `why` says what the question tests; `sources`
+  are citations; `status` is `draft` until the researcher approves it in the app
+  (`approved`) — never set `approved` yourself. When you add, remove or reorder
+  rows, update both files together.
+- After writing, call `benchy_review("<slug>/benchmark.yaml")`: the grader grades
+  every expert answer with the rubric. An expert answer that misses a criterion is
+  a weak key or a criterion worded too strictly; tell the researcher which.
+
+## Closed answers: exact match
+
+For the other tasks, a field is right or wrong by exact match, so prefer `enum`,
+numbers, dates and short canonical strings:
 
 ```yaml
 # Conceptos de antropología andina

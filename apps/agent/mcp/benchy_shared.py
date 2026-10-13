@@ -30,3 +30,21 @@ def model_slug(model: str) -> str:
     """A model id made safe for a file name: us.moonshotai.kimi-k3 → us.moonshotai.kimi-k3,
     qwen.qwen3-32b-v1:0 → qwen.qwen3-32b-v1-0."""
     return "".join(c if c.isalnum() or c in ".-_" else "-" for c in model)
+
+
+def check_models(ir: dict) -> None:
+    """Refuse a Bedrock model this deployment cannot call — for the AI-system
+    and, when the benchmark has a rubric, for its grader."""
+    from benchy.errors import BenchyError
+
+    seats = [(ir.get("ai-system") or {}, ["ai-system", "model"])]
+    grader = (ir.get("scoring") or {}).get("grader")
+    if grader:
+        seats.append((grader, ["scoring", "grader", "model"]))
+    for system, path in seats:
+        if system.get("type") == "model" and system.get("provider") == "bedrock" and system.get("model") not in MODELS:
+            raise BenchyError(
+                "runtime", "adapter_not_bound",
+                f"model {system.get('model')!r} is not available here; use one of: {', '.join(MODELS)}",
+                path,
+            )

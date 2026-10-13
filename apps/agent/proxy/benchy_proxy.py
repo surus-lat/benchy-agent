@@ -7,11 +7,15 @@ Hermes's API server listens on 127.0.0.1 only; this process fronts it:
   GET /benchy/validate?path=...  compile a benchmark.yaml: valid, or the exact error
   GET /benchy/exam?path=...      every exam row checked against the program
   GET /benchy/models             the models a benchmark may run
+  PUT /benchy/file               write one benchmark text file (the app's editors)
+  POST /benchy/review?path=...   grade the expert answers against the rubric
   everything else                reverse-proxied to Hermes, streamed, unmodified
 
 The /benchy routes check the same bearer key Hermes does (API_SERVER_KEY), so
 the Worker — the only caller — uses one credential for both. Paths are
-confined to the workspace; nothing here writes.
+confined to the workspace. Writes are limited to benchmark text files, never
+run results, and refuse to overwrite a file that changed since the caller read
+it (the agent may have written it meanwhile).
 """
 
 from __future__ import annotations
@@ -20,11 +24,13 @@ import hmac
 import json
 import os
 import sys
+import tempfile
 from pathlib import Path
 
 from aiohttp import ClientSession, ClientTimeout, web
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "mcp"))  # /opt/benchy/mcp in the image
+from benchy_review import review as review_answers  # noqa: E402
 from benchy_shared import MODELS  # noqa: E402
 
 from benchy import types  # noqa: E402
@@ -36,6 +42,7 @@ UPSTREAM = f"http://127.0.0.1:{os.environ.get('API_SERVER_PORT', '8642')}"
 KEY = os.environ["API_SERVER_KEY"]
 MAX_FILE_BYTES = 1_000_000
 MAX_ENTRIES = 2000
+WRITABLE = {".yaml", ".yml", ".jsonl", ".json", ".md", ".txt"}
 HOP_BY_HOP = {
     "connection", "keep-alive", "proxy-authenticate", "proxy-authorization", "te",
     "trailers", "transfer-encoding", "upgrade", "host", "content-length",
@@ -162,6 +169,56 @@ async def models(request: web.Request) -> web.Response:
     return web.json_response({"provider": "bedrock", "models": MODELS})
 
 
+async def write_file(request: web.Request) -> web.Response:
+    """Body: {path, content, base_modified?}. `base_modified` is the `modified`
+    the caller last saw; if the file is newer, nothing is written (409)."""
+    if not _authorized(request):
+        return web.json_response({"error": "unauthorized"}, status=401)
+    try:
+        body = await request.json()
+        rel, content = body["path"], body["content"]
+        base = body.get("base_modified")
+        if not isinstance(rel, str) or not isinstance(content, str):
+            raise TypeError
+    except (ValueError, KeyError, TypeError):
+        return web.json_response({"error": "bad_request"}, status=400)
+    target = _inside(rel)
+    parts = target.relative_to(WORKSPACE).parts if target is not None and target != WORKSPACE else ()
+    if (
+        not parts
+        or len(parts) < 2  # files live in a benchmark folder
+        or target.suffix not in WRITABLE
+        or any(p.startswith(".") for p in parts)
+        or "runs" in parts[:-1]
+        or target.is_symlink()
+    ):
+        return web.json_response({"error": "forbidden_path"}, status=403)
+    raw = content.encode("utf-8")
+    if len(raw) > MAX_FILE_BYTES:
+        return web.json_response({"error": "too_large"}, status=413)
+    if target.exists():
+        current = int(target.stat().st_mtime)
+        if isinstance(base, int) and current > base:
+            return web.json_response({"error": "conflict", "modified": current}, status=409)
+    target.parent.mkdir(parents=True, exist_ok=True)
+    fd, tmp = tempfile.mkstemp(dir=target.parent, prefix=".write-")
+    with os.fdopen(fd, "wb") as fh:
+        fh.write(raw)
+    os.replace(tmp, target)
+    return web.json_response({"path": str(target.relative_to(WORKSPACE)), "modified": int(target.stat().st_mtime)})
+
+
+async def review(request: web.Request) -> web.Response:
+    if not _authorized(request):
+        return web.json_response({"error": "unauthorized"}, status=401)
+    try:
+        source, ir = _compile(request.query.get("path", ""))
+        report = await review_answers(ir, source)
+    except BenchyError as exc:
+        return web.json_response({"ok": False, "error": exc.to_dict()})
+    return web.json_response({"ok": True, **report})
+
+
 async def proxy(request: web.Request) -> web.StreamResponse:
     session: ClientSession = request.app["client"]
     headers = {k: v for k, v in request.headers.items() if k.lower() not in HOP_BY_HOP}
@@ -198,6 +255,8 @@ def main() -> None:
     app.router.add_get("/benchy/validate", validate)
     app.router.add_get("/benchy/exam", exam)
     app.router.add_get("/benchy/models", models)
+    app.router.add_put("/benchy/file", write_file)
+    app.router.add_post("/benchy/review", review)
     app.router.add_route("*", "/{tail:.*}", proxy)
     port = int(os.environ.get("PORT", "8080"))
     print(f"[benchy-proxy] :{port} -> {UPSTREAM}, workspace {WORKSPACE}", flush=True)
