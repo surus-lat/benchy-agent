@@ -35,7 +35,7 @@ export type RunResult = {
   ai_system?: AiSystem;
   benchmark_score: number;
   summary: { examples: number; valid: number; invalid_outputs: number; execution_errors: number };
-  results: { index: number; status: string; prediction: unknown; field_scores: { path: string[]; score: number; weight: number }[] | null; error: EngineError | null }[];
+  results: { index: number; status: string; prediction: unknown; field_scores: { path: string[]; score: number; weight: number; criteria?: Record<string, { grade: number; justification: string }> }[] | null; error: EngineError | null }[];
 };
 export type Me = { user: { id: string; name: string; email: string }; org: { id: string; name: string } | null };
 
@@ -46,6 +46,20 @@ export const api = {
   validate: (path: string) => get<Validation>(`/api/workspace/validate?path=${encodeURIComponent(path)}`),
   exam: (path: string) => get<ExamCheck>(`/api/workspace/exam?path=${encodeURIComponent(path)}`),
   text: async (path: string) => (await chatApi.file(path)).content,
+  /** The grader grades every expert answer against the rubric; writes review.json. */
+  review: async (path: string) => {
+    let res: Response;
+    try {
+      res = await fetch(`/api/workspace/review?path=${encodeURIComponent(path)}`, { method: "POST", credentials: "same-origin" });
+    } catch {
+      throw new ApiError("NETWORK", 0);
+    }
+    if (!res.ok) {
+      const body = (await res.json().catch(() => ({}))) as { error?: string };
+      throw new ApiError(body.error ?? `HTTP_${res.status}`, res.status);
+    }
+    return (await res.json()) as { ok: true } | { ok: false; error: EngineError };
+  },
 };
 
 // ---- Benchmarks from the workspace listing --------------------------------
@@ -94,6 +108,8 @@ export type BenchDoc = {
   examPath?: string;
   model?: string;
   parameters?: Record<string, unknown>;
+  /** The rubric grader's model, for rubric benchmarks. */
+  grader?: string;
 };
 
 export function readBenchYaml(text: string, slug: string): BenchDoc {
@@ -107,6 +123,7 @@ export function readBenchYaml(text: string, slug: string): BenchDoc {
     if (typeof dp === "string") doc.examPath = `${slug}/${dp.replace(/^\.\//, "")}`;
     doc.model = y?.["ai-system"]?.model;
     doc.parameters = y?.["ai-system"]?.parameters;
+    doc.grader = y?.scoring?.grader?.model;
   } catch {
     // Unparseable YAML still shows, with its title; validate says what is wrong.
   }

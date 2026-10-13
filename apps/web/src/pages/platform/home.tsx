@@ -61,7 +61,7 @@ export default function Home() {
             const st = statusOf(b.validation);
             const meta = [b.slug, b.doc?.domain, b.doc?.task, b.doc?.language].filter(Boolean).join(" · ");
             return (
-              <button key={b.slug} className="bp-row" onClick={() => navigate(`/app/b/${encodeURIComponent(b.slug)}/definicion`)}>
+              <button key={b.slug} className="bp-row" onClick={() => navigate(`/app/b/${encodeURIComponent(b.slug)}/autoria`)}>
                 <span style={{ minWidth: 0 }}>
                   <span className="t">{b.doc?.title ?? b.slug}</span>
                   <span className="m">{meta}</span>

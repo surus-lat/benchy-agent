@@ -4,23 +4,26 @@ import { PlatformProvider, usePlatform } from "./store";
 import Home from "./home";
 import BenchPage, { NewBench } from "./bench";
 import Account from "./account";
+import Workspace from "./workspace";
 import "./platform.css";
 
-// /app — state A of the platform (benchmarks first), with state B (the plain
-// chat + files view, pages/app/agent-app.tsx) kept at /app/chat while the
-// product settles. Routes:
-//   /app                 benchmarks home
-//   /app/nuevo           a new benchmark, started with the agent
-//   /app/b/:slug/:tab?   one benchmark (definicion|examen|sistemas|corridas|resultados|historial)
-//   /app/cuenta          account
-//   /app/chat            state B
+// /app — the platform. Routes:
+//   /app                    benchmarks home
+//   /app/nuevo              a new benchmark, started with the agent
+//   /app/b/:slug/:stage?    one benchmark as two windows, A · Interfaz and
+//                           B · Agente (autoria|revision|evaluacion|publicacion)
+//   /app/cuenta             account
+//   /app/v1/b/:slug/:tab?   the previous benchmark view (tabs), kept while the
+//                           new one settles
+//   /app/chat               the first view: plain chat + files
 
 export default function PlatformApp() {
   const [isChat] = useRoute("/app/chat");
+  const [isWorkspace, ws] = useRoute("/app/b/:slug/:stage?");
   if (isChat) return <AgentApp />;
   return (
     <PlatformProvider>
-      <Shell />
+      {isWorkspace ? <Workspace key={ws!.slug} slug={decodeURIComponent(ws!.slug)} stage={ws!.stage} /> : <Shell />}
     </PlatformProvider>
   );
 }
@@ -28,7 +31,7 @@ export default function PlatformApp() {
 function Shell() {
   const { me, benches, notProvisioned } = usePlatform();
   const [location, navigate] = useLocation();
-  const [, benchParams] = useRoute("/app/b/:slug/:tab?");
+  const [, benchParams] = useRoute("/app/v1/b/:slug/:tab?");
   const [isNew] = useRoute("/app/nuevo");
   const [isAccount] = useRoute("/app/cuenta");
   const activeSlug = benchParams?.slug ? decodeURIComponent(benchParams.slug) : null;
@@ -79,7 +82,7 @@ function Shell() {
               key={b.slug}
               title={b.slug}
               className={`bp-nav${activeSlug === b.slug ? " on" : ""}`}
-              onClick={() => navigate(`/app/b/${encodeURIComponent(b.slug)}/definicion`)}
+              onClick={() => navigate(`/app/b/${encodeURIComponent(b.slug)}/autoria`)}
             >
               <span className={`dot ${statusOf(b.validation)}`} />
               <span>{b.doc?.title ?? b.slug}</span>

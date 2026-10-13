@@ -30,7 +30,7 @@ type Tab = (typeof TABS)[number][0];
 
 // ---- The agent chat (Definición, and Nuevo benchmark) -----------------------
 
-function useAgentChat(convKey: string) {
+export function useAgentChat(convKey: string) {
   const [convId, setConvId] = useState<string | null>(() => conversationFor(convKey));
   const [messages, setMessages] = useState<Message[]>([]);
   const [pending, setPending] = useState(false);
@@ -201,7 +201,7 @@ export function NewBench() {
     if (created) {
       rememberConversation(created.slug, chat.convId);
       rememberConversation("new", null);
-      navigate(`/app/b/${encodeURIComponent(created.slug)}/definicion`);
+      navigate(`/app/b/${encodeURIComponent(created.slug)}/autoria`);
     }
   }, [benches, chat.convId, chat.pending, navigate]);
 
@@ -247,7 +247,7 @@ export default function BenchPage({ slug, tab }: { slug: string; tab?: string })
   const bench = benches.find((b) => b.slug === slug);
   const current = (TABS.some(([k]) => k === tab) ? tab : "definicion") as Tab;
   const chat = useAgentChat(slug);
-  const go = (t: Tab) => navigate(`/app/b/${encodeURIComponent(slug)}/${t}`);
+  const go = (t: Tab) => navigate(`/app/v1/b/${encodeURIComponent(slug)}/${t}`);
 
   const [models, setModels] = useState<string[]>([]);
   useEffect(() => {
@@ -322,7 +322,7 @@ export default function BenchPage({ slug, tab }: { slug: string; tab?: string })
   );
 }
 
-function useSelectedModels(slug: string, models: string[]): [Set<string>, (s: Set<string>) => void] {
+export function useSelectedModels(slug: string, models: string[]): [Set<string>, (s: Set<string>) => void] {
   const key = `benchy-sys:${slug}`;
   const [sel, setSel] = useState<Set<string> | null>(() => {
     try {

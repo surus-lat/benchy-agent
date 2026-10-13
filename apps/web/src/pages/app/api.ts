@@ -38,6 +38,12 @@ export const api = {
     call<{ reply: string }>(`/api/conversations/${id}/turns`, { method: "POST", body: JSON.stringify({ message }) }),
   files: () => call<{ files: WorkspaceFile[]; truncated: boolean }>("/api/workspace/files"),
   file: (path: string) => call<FileContent>(`/api/workspace/file?path=${encodeURIComponent(path)}`),
+  /** Write a benchmark text file; CONFLICT if it changed after `baseModified`. */
+  write: (path: string, content: string, baseModified?: number) =>
+    call<{ path: string; modified: number }>("/api/workspace/file", {
+      method: "PUT",
+      body: JSON.stringify({ path, content, baseModified }),
+    }),
 };
 
 /** What to tell the researcher for each failure the Worker can return. */
@@ -54,6 +60,11 @@ export function errorText(err: unknown): string {
       return "El agente todavía está respondiendo en esta conversación.";
     case "UNAUTHENTICATED":
       return "Tu sesión expiró. Volvé a ingresar.";
+    case "CONFLICT":
+      return "El examen cambió mientras editabas (quizás lo tocó el agente). Cargamos la última versión.";
+    case "FORBIDDEN_PATH":
+    case "TOO_LARGE":
+      return "No se pudo guardar ese archivo.";
     case "NETWORK":
       return "Sin conexión. Revisá tu red y probá de nuevo.";
     default:

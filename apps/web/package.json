@@ -7,7 +7,8 @@
     "dev": "vite --config vite.config.ts --host 0.0.0.0",
     "build": "vite build --config vite.config.ts",
     "serve": "vite preview --config vite.config.ts --host 0.0.0.0",
-    "typecheck": "tsc -p tsconfig.json --noEmit"
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run"
   },
   "devDependencies": {
     "@esbuild/darwin-arm64": "0.27.3",
@@ -73,6 +74,7 @@
     "typescript": "~5.9.2",
     "vaul": "^1.1.2",
     "vite": "^7.3.0",
+    "vitest": "^4.1.11",
     "wouter": "^3.3.5",
     "zod": "^3.25.76"
   },

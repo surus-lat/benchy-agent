@@ -1,0 +1,112 @@
+import { describe, expect, it } from "vitest";
+import {
+  criterionMet,
+  groupsOf,
+  parseBenchDoc,
+  parseExam,
+  parseMeta,
+  questionsFrom,
+  readCriteria,
+  serializeExam,
+  serializeMeta,
+  setCriterion,
+  shareOf,
+  type Review,
+} from "./exam-model";
+
+const YAML = `# Etnografía andina
+version: "1.0"
+ontology_version: "1.1"
+benchmark: { task: answer, domain: anthropology, language: es }
+program:
+  input: { question: string }
+  output: { answer: string }
+scoring:
+  weights: { answer: 1 }
+  aggregator: weighted_mean
+  field_metrics:
+    answer:
+      metric: rubric
+      params:
+        criteria:
+          c1:
+            weight: 5 # la más importante
+            description: Identifica las posiciones centrales.
+            levels: { 0: No lo cumple, 1: Lo cumple }
+          c2:
+            weight: 3
+            description: Sitúa el caso.
+            levels: { 0: No lo cumple, 1: Lo cumple }
+  grader: { type: model, provider: bedrock, model: us.moonshotai.kimi-k3 }
+data: { path: ./exam.jsonl }
+`;
+
+const row = (q: string, a: string) => JSON.stringify({ input: { question: q }, expected: { answer: a } });
+
+describe("exam rows", () => {
+  it("round-trips the exam and keeps lines it cannot parse", () => {
+    const text = [row("¿Ayni?", "Reciprocidad."), "{not json", row("¿Minka?", "")].join("\n") + "\n";
+    const rows = parseExam(text);
+    expect(rows).toHaveLength(3);
+    expect(serializeExam(rows)).toBe(text);
+    expect(serializeExam([])).toBe("");
+  });
+
+  it("derives each question's status from its text, answer, notes and review", () => {
+    const rows = parseExam([row("a?", "A"), row("b?", ""), row("", ""), row("d?", "D"), row("e?", "E"), row("f?", "F")].join("\n"));
+    const meta = parseMeta(serializeMeta([{ status: "approved" }, {}, {}, { by: "agente" }, { status: "approved" }, { status: "approved" }]));
+    const review: Review = {
+      created: 1,
+      grader: {},
+      criteria: ["c1"],
+      rows: [
+        { index: 4, input: { question: "e?" }, answer: "E", missed: ["c1"] },
+        { index: 5, input: { question: "f?" }, answer: "old", missed: ["c1"] },
+      ],
+    };
+    const qs = questionsFrom(rows, meta, review);
+    expect(qs.map((q) => q.status)).toEqual(["done", "error", "empty", "new", "attention", "done"]);
+    expect(qs[5].stale).toBe(true);
+    expect(qs[5].review).toBeNull();
+    expect(qs[4].review?.missed).toEqual(["c1"]);
+    expect(qs[0].num).toBe("01");
+  });
+
+  it("groups questions by their topic, in exam order", () => {
+    const qs = questionsFrom(parseExam([row("a", "A"), row("b", "B"), row("c", "C")].join("\n")), [{ group: "X" }, {}, { group: "X" }], null);
+    expect(groupsOf(qs).map((g) => [g.title, g.items.length])).toEqual([["X", 2], ["Preguntas", 1]]);
+  });
+
+  it("treats unreadable notes as none", () => {
+    expect(parseMeta("nope")).toEqual([]);
+    expect(parseMeta(undefined)).toEqual([]);
+  });
+});
+
+describe("rubric in benchmark.yaml", () => {
+  it("reads the criteria with weights, descriptions and levels", () => {
+    const cs = readCriteria(parseBenchDoc(YAML))!;
+    expect(cs).toEqual([
+      { key: "c1", weight: 5, description: "Identifica las posiciones centrales.", levels: [0, 1] },
+      { key: "c2", weight: 3, description: "Sitúa el caso.", levels: [0, 1] },
+    ]);
+    expect(shareOf(cs[0], cs)).toBe("63%");
+    expect(readCriteria(parseBenchDoc("benchmark: { task: extract }"))).toBeNull();
+  });
+
+  it("edits one criterion and keeps the rest of the file, comments included", () => {
+    const out = setCriterion(setCriterion(YAML, "c2", { weight: 4 }), "c1", { description: "Nueva." });
+    const cs = readCriteria(parseBenchDoc(out))!;
+    expect(cs.map((c) => [c.weight, c.description])).toEqual([[5, "Nueva."], [4, "Sitúa el caso."]]);
+    expect(out.startsWith("# Etnografía andina\n")).toBe(true);
+    expect(out).toContain("# la más importante");
+    expect(out).toContain("grader: { type: model, provider: bedrock, model: us.moonshotai.kimi-k3 }");
+  });
+
+  it("knows whether a review row met a criterion", () => {
+    const [c1] = readCriteria(parseBenchDoc(YAML))!;
+    expect(criterionMet({ index: 0, input: {}, answer: "", criteria: { c1: { grade: 1, justification: "" } } }, c1)).toBe(true);
+    expect(criterionMet({ index: 0, input: {}, answer: "", criteria: { c1: { grade: 0, justification: "" } } }, c1)).toBe(false);
+    expect(criterionMet({ index: 0, input: {}, answer: "" }, c1)).toBeNull();
+  });
+});
