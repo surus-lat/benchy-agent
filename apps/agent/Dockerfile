@@ -26,9 +26,10 @@ USER root
 COPY --from=uv /uv /usr/local/bin/uv
 COPY vendor/ /tmp/vendor/
 # pypdfium2: text from the papers researchers add to a benchmark (mcp/benchy_sources.py).
+# 5.13.0, not 5.14.0: the image's uv refuses releases newer than its cutoff.
 RUN uv pip install --python /opt/hermes/.venv/bin/python --no-cache /tmp/vendor/llm_client-*.whl \
       "benchy @ git+https://github.com/surus-lat/benchy.git@${BENCHY_ENGINE_REF}" \
-      pypdfium2==5.14.0 \
+      pypdfium2==5.13.0 \
  && rm -rf /tmp/vendor /usr/local/bin/uv
 
 COPY --chown=root:root config.yaml SOUL.md /opt/benchy/
