@@ -96,7 +96,7 @@ ai-system:
   type: model
   provider: bedrock
   model: us.moonshotai.kimi-k3
-  parameters: { temperature: 0, max_tokens: 2048 }
+  parameters: { temperature: 0, max_tokens: 4096 }
 ```
 
 - **Criteria** are named `c1`, `c2`, … in order, each with `levels {0: No lo
@@ -168,7 +168,7 @@ ai-system:
   type: model
   provider: bedrock
   model: us.moonshotai.kimi-k3
-  parameters: { temperature: 0, max_tokens: 2048 }
+  parameters: { temperature: 0, max_tokens: 4096 }
 ```
 
 `benchy_models` lists the models an AI-system may name. To compare models, keep
