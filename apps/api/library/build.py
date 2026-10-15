@@ -3,6 +3,8 @@
     uv run --with duckdb apps/api/library/build.py metadata.parquet library.sql
     npx wrangler d1 execute benchy-library --remote --file library.sql
 
+    uv run --with duckdb apps/api/library/build.py --external external.sql
+
 The snapshot is UNRN/ri-conicet's data/metadata.parquet on Hugging Face
 (https://huggingface.co/datasets/UNRN/ri-conicet/resolve/main/data/metadata.parquet).
 By default the output replaces the whole library. With --since, it only
@@ -10,6 +12,9 @@ carries records fetched after that moment (the dataset grows in incremental
 commits): each is deleted and inserted again, and records the repository
 deleted are only deleted. The full-text index is written next to every insert
 and delete (see schema.sql).
+
+A full build also carries the papers in external.json (BICyT records added
+with bicyt.py); --external writes only those, replacing any earlier copy.
 """
 
 from __future__ import annotations
@@ -22,6 +27,7 @@ from pathlib import Path
 import duckdb
 
 SCHEMA = Path(__file__).with_name("schema.sql")
+EXTERNAL = Path(__file__).with_name("external.json")
 # D1 refuses statements over 100 KB; rows are grouped below that.
 MAX_STATEMENT = 90_000
 MAX_DESCRIPTION = 12_000
@@ -32,6 +38,7 @@ TYPES = {
     "info:eu-repo/semantics/book": "book",
     "dataset": "dataset",
 }
+KINDS = {*TYPES.values(), "other"}  # already normalized (external.json)
 COLUMNS = "id, title, creators, subjects, description, date, year, type, language, publisher, rights, pdf"
 INDEXED = "title, creators, subjects, description"
 META = """INSERT OR REPLACE INTO library_meta (key, value) SELECT 'papers', count(*) FROM papers;
@@ -60,7 +67,7 @@ def row_values(r: dict) -> str:
         sql_text(description),
         sql_text(date),
         "NULL" if year is None else str(year),
-        sql_text(TYPES.get(r["type"] or "", "other")),
+        sql_text(r["type"] if r["type"] in KINDS else TYPES.get(r["type"] or "", "other")),
         sql_text(r["language"] or ""),
         sql_text(r["publisher"] or ""),
         sql_text(r["rights"] or ""),
@@ -69,12 +76,35 @@ def row_values(r: dict) -> str:
     return "(" + ", ".join(values) + ")"
 
 
+def external_sql(replace: bool) -> str:
+    """INSERTs for external.json's papers (origin and url set), with their index rows."""
+    out = []
+    for r in json.loads(EXTERNAL.read_text(encoding="utf-8")) if EXTERNAL.exists() else []:
+        pid = int(r["id"])
+        if replace:
+            out.append(
+                f"INSERT INTO papers_fts(papers_fts, rowid, {INDEXED}) SELECT 'delete', id, {INDEXED} FROM papers WHERE id = {pid};\n"
+                f"DELETE FROM papers WHERE id = {pid};\n"
+            )
+        values = row_values({**r, "item_id": pid})[:-1] + f", {sql_text(r['origin'])}, {sql_text(r.get('url'))})"
+        out.append(f"INSERT INTO papers ({COLUMNS}, origin, url) VALUES {values};\n")
+        out.append(f"INSERT INTO papers_fts(rowid, {INDEXED}) SELECT id, {INDEXED} FROM papers WHERE id = {pid};\n")
+    return "".join(out)
+
+
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("parquet", type=Path)
+    ap.add_argument("parquet", type=Path, nargs="?")
     ap.add_argument("out", type=Path)
     ap.add_argument("--since", help="only records fetched after this ISO timestamp (an incremental refresh)")
+    ap.add_argument("--external", action="store_true", help="only external.json's papers, replacing earlier copies")
     args = ap.parse_args()
+    if args.external:
+        args.out.write_text(external_sql(replace=True) + META.replace("{snapshot}", "(SELECT value FROM library_meta WHERE key = 'snapshot')"), encoding="utf-8")
+        print(f"{args.out}: external papers")
+        return
+    if args.parquet is None:
+        ap.error("a full or incremental build needs the parquet")
 
     con = duckdb.connect()
     where = "true"
@@ -130,6 +160,8 @@ def main() -> None:
                 size += len(values.encode()) + 2
                 written += 1
         flush()
+        if not args.since:
+            out.write(external_sql(replace=False))
         snapshot = con.execute("select max(fetched_at)::date::varchar from read_parquet(?)", [str(args.parquet)]).fetchone()[0]
         out.write(META.replace("{snapshot}", sql_text(snapshot)))
     print(f"{args.out}: {written} papers" + (f", {deleted} deleted" if deleted else ""))

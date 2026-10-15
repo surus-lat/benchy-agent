@@ -23,6 +23,9 @@
       "database_id": "b8e87ad8-f756-4afb-bfc3-424ba1e37303"
     }
   ],
+  // PDFs of library papers that are not in the Hugging Face dataset (KV:
+  // up to 25 MB a value; R2 is not enabled on the account).
+  "kv_namespaces": [{ "binding": "LIBRARY_FILES", "id": "7000c21ad11b40748c95938799468136" }],
   "send_email": [{ "name": "EMAIL" }],
   "vars": {
     "BETTER_AUTH_URL": "https://getbenchy.lat",

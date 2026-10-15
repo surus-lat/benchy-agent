@@ -137,9 +137,14 @@ write every question from them:
   `["conicet-179477 p. 4"]` (`pdf-...` ids for uploads). `why` says what error
   of a model the question exposes. Spread questions across the papers, and
   across groups (`group`) by topic.
-- If you are asked to use papers that are not in `sources.json`, ask the
-  researcher to add them from the app's Biblioteca or upload the PDF; do not
-  write questions from memory of a paper you have not read here.
+- To find papers, search the library with `benchy_library_search` (CONICET
+  Digital plus researchers' BICyT records): by `author` for "my papers"
+  ("Chávez Martín"), by `query` for a topic. Show the researcher what you
+  found (title, year, whether it has an open PDF) and add the ones they pick
+  with `benchy_add_paper(bench, id)`. A paper that is not in the library can
+  still be uploaded as a PDF from the app's Papers panel.
+- Never write questions from memory of a paper you have not read here: if it
+  is not in `sources.json`, find and add it first, or ask for the PDF.
 
 ## Closed answers: exact match
 

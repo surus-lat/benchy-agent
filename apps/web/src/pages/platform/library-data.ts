@@ -6,6 +6,8 @@ import { ApiError } from "../app/api";
 
 export type LibraryHit = {
   id: number;
+  /** "conicet" (CONICET Digital) or "bicyt" (a BICyT record not in the repository). */
+  origin: string;
   title: string;
   creators: string[];
   year: number | null;
@@ -19,6 +21,7 @@ export type SearchResult = { total: number; more: boolean; page: number; pageSiz
 
 export type Paper = {
   id: number;
+  origin: string;
   title: string;
   creators: string[];
   subjects: string[];
@@ -38,7 +41,7 @@ export type LibraryStats = { papers: number; withPdf: number; snapshot: string |
 /** A paper in a benchmark (sources.json). */
 export type Source = {
   id: string;
-  origin: "conicet" | "upload";
+  origin: "conicet" | "bicyt" | "upload";
   title: string;
   authors: string[];
   year: number | null;
@@ -106,7 +109,7 @@ export function parseSources(text: string | null | undefined): Source[] {
 
 /** "conicet-179477 p. 4" → the paper it cites and the page, if the benchmark has that paper. */
 export function citation(text: string, list: Source[]): { source: Source; page: string | null } | null {
-  const m = text.trim().match(/^((?:conicet|pdf)-[a-z0-9-]+?)(?:[\s,;:]+(?:p(?:ág)?\.?|pp?\.)\s*([\d–-]+))?\s*$/i);
+  const m = text.trim().match(/^((?:conicet|bicyt|pdf)-[a-z0-9-]+?)(?:[\s,;:]+(?:p(?:ág)?\.?|pp?\.)\s*([\d–-]+))?\s*$/i);
   if (!m) return null;
   const source = list.find((s) => s.id === m[1].toLowerCase());
   return source ? { source, page: m[2] ?? null } : null;

@@ -91,7 +91,7 @@
 .lib .lib-source .m { font-size: 12px; color: var(--muted); }
 .lib .lib-source .warn { color: var(--amber-ink); }
 .lib .lib-tag { flex: none; margin-top: 1px; font: 500 10px var(--mono); letter-spacing: 0.04em; border-radius: 5px; padding: 2px 6px; color: var(--ink-soft); background: var(--lib-chip); }
-.lib .lib-tag.conicet { color: var(--lib-amber-deep); background: var(--amber-wash); }
+.lib .lib-tag.conicet, .lib .lib-tag.bicyt { color: var(--lib-amber-deep); background: var(--amber-wash); }
 
 @media (max-width: 900px) {
   .lib .lib-split.has-detail { grid-template-columns: minmax(0, 1fr); }

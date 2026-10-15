@@ -6,7 +6,7 @@
 -- writes this schema followed by the data; apps/api/src/library.ts reads it.
 
 CREATE TABLE IF NOT EXISTS papers (
-  id INTEGER PRIMARY KEY,        -- DSpace item id; handle http://hdl.handle.net/11336/<id>
+  id INTEGER PRIMARY KEY,        -- DSpace item id (handle 11336/<id>), or the BICyT production id
   title TEXT NOT NULL,
   creators TEXT NOT NULL,        -- JSON array of "Surname, Name"
   subjects TEXT NOT NULL,        -- JSON array
@@ -17,7 +17,9 @@ CREATE TABLE IF NOT EXISTS papers (
   language TEXT NOT NULL,        -- ISO 639-2 (spa, eng, por, ...)
   publisher TEXT NOT NULL,
   rights TEXT NOT NULL,
-  pdf TEXT                       -- papers/<shard>/<id>.pdf in the dataset, or NULL
+  pdf TEXT,                      -- papers/<shard>/<id>.pdf in the dataset, files/<key> in KV, or NULL
+  origin TEXT NOT NULL DEFAULT 'conicet', -- conicet (CONICET Digital) | bicyt (BICyT record, external.json)
+  url TEXT                       -- the record's page when it is not CONICET Digital's handle
 );
 
 CREATE VIRTUAL TABLE IF NOT EXISTS papers_fts USING fts5(

@@ -24,6 +24,8 @@ describe("citations in questions.json", () => {
     expect(citation("CONICET-179477 pág. 12", [paper])).toEqual({ source: paper, page: "12" });
     expect(citation("conicet-179477", [paper])).toEqual({ source: paper, page: null });
     expect(citation("pdf-mi-paper-6d7fd460 p. 2", [paper, upload])).toEqual({ source: upload, page: "2" });
+    const bicyt: Source = { ...paper, id: "bicyt-12599897", origin: "bicyt" };
+    expect(citation("bicyt-12599897 p. 18", [paper, bicyt])).toEqual({ source: bicyt, page: "18" });
   });
 
   it("leaves anything else as a plain reference", () => {

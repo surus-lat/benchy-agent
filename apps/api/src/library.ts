@@ -1,15 +1,21 @@
 import { Hono } from "hono";
 
-// The paper library: CONICET Digital's publications (UNRN/ri-conicet), in
-// their own D1 database (schema and import: apps/api/library/). Anyone signed
-// in may search it; the papers are public. Adding one to a benchmark goes
-// through the org's agent (conversations.ts), which fetches the PDF.
-
-export type LibraryUser = { id: string };
+// The paper library: CONICET Digital's publications (UNRN/ri-conicet), plus
+// papers from CONICET's BICyT/SIGEVA records that are not in the repository,
+// in their own D1 database (schema and import: apps/api/library/). Their PDFs
+// are either in the Hugging Face dataset or in our KV namespace. Anyone signed
+// in may search it, and so may an org's agent with its key; the papers are
+// public. Adding one to a benchmark goes through the org's agent, which
+// fetches the PDF.
 
 export type LibraryDeps = {
   library: D1Database;
-  currentUser: (request: Request) => Promise<LibraryUser | null>;
+  /** PDFs of papers that are not in the dataset (keys like bicyt/<id>.pdf). */
+  files: KVNamespace;
+  /** A signed-in researcher, or an org's agent with its key. */
+  authorize: (request: Request) => Promise<boolean>;
+  /** This site's origin, for links to PDFs the Worker serves. */
+  publicUrl: string;
 };
 
 export const PAGE_SIZE = 20;
@@ -20,6 +26,8 @@ const DATASET = "https://huggingface.co/datasets/UNRN/ri-conicet/resolve/main/";
 
 export type PaperRow = {
   id: number;
+  origin: string;
+  url: string | null;
   title: string;
   creators: string;
   subjects: string;
@@ -35,6 +43,8 @@ export type PaperRow = {
 
 export type Paper = {
   id: number;
+  /** "conicet" (CONICET Digital) or "bicyt" (a BICyT/SIGEVA record not in the repository). */
+  origin: string;
   title: string;
   creators: string[];
   subjects: string[];
@@ -45,9 +55,9 @@ export type Paper = {
   language: string;
   publisher: string;
   rights: string;
-  /** The open-access PDF, served by Hugging Face; null when the paper has none. */
+  /** The open-access PDF (Hugging Face, or this Worker for the files we keep); null when the paper has none. */
   pdfUrl: string | null;
-  /** The record in CONICET Digital. */
+  /** The paper's record: CONICET Digital, or its BICyT page. */
   url: string;
 };
 
@@ -89,9 +99,19 @@ function list(json: string): string[] {
   }
 }
 
-export function toPaper(r: PaperRow): Paper {
+const FILE_KEY = /^[a-z]+\/\d+\.pdf$/;
+
+function pdfUrl(pdf: string | null, publicUrl: string): string | null {
+  if (!pdf) return null;
+  if (/^papers\/\d{3}\/\d+\.pdf$/.test(pdf)) return DATASET + pdf;
+  const key = pdf.replace(/^files\//, "");
+  return pdf.startsWith("files/") && FILE_KEY.test(key) ? `${publicUrl}/api/library/files/${key}` : null;
+}
+
+export function toPaper(r: PaperRow, publicUrl: string): Paper {
   return {
     id: r.id,
+    origin: r.origin ?? "conicet",
     title: r.title,
     creators: list(r.creators),
     subjects: list(r.subjects),
@@ -102,22 +122,22 @@ export function toPaper(r: PaperRow): Paper {
     language: r.language,
     publisher: r.publisher,
     rights: r.rights,
-    pdfUrl: r.pdf && /^papers\/\d{3}\/\d+\.pdf$/.test(r.pdf) ? DATASET + r.pdf : null,
-    url: `https://ri.conicet.gov.ar/handle/11336/${r.id}`,
+    pdfUrl: pdfUrl(r.pdf, publicUrl),
+    url: r.url ?? `https://ri.conicet.gov.ar/handle/11336/${r.id}`,
   };
 }
 
 /** One paper, or null. Shared with the route that adds a paper to a benchmark. */
-export async function getPaper(library: D1Database, id: number): Promise<Paper | null> {
+export async function getPaper(library: D1Database, id: number, publicUrl: string): Promise<Paper | null> {
   const row = await library.prepare("SELECT * FROM papers WHERE id = ?").bind(id).first<PaperRow>();
-  return row ? toPaper(row) : null;
+  return row ? toPaper(row, publicUrl) : null;
 }
 
 export function createLibraryApp(deps: LibraryDeps) {
   const app = new Hono();
 
   app.use("/api/library/*", async (c, next) => {
-    if (!(await deps.currentUser(c.req.raw))) return c.json({ error: "UNAUTHENTICATED" }, 401);
+    if (!(await deps.authorize(c.req.raw))) return c.json({ error: "UNAUTHENTICATED" }, 401);
     await next();
   });
 
@@ -137,7 +157,7 @@ export function createLibraryApp(deps: LibraryDeps) {
              FROM papers_fts WHERE papers_fts MATCH ?1
              ORDER BY rowid DESC LIMIT ${CANDIDATES}
            )
-           SELECT p.id, p.title, p.creators, p.year, p.type, p.language, p.pdf IS NOT NULL AS has_pdf,
+           SELECT p.id, p.origin, p.title, p.creators, p.year, p.type, p.language, p.pdf IS NOT NULL AS has_pdf,
                   substr(p.description, 1, 320) AS excerpt
            FROM hits JOIN papers p ON p.id = hits.id
            WHERE ?2 = 0 OR p.pdf IS NOT NULL
@@ -155,7 +175,7 @@ export function createLibraryApp(deps: LibraryDeps) {
             .bind(match)
         : deps.library.prepare("SELECT count(*) AS n FROM papers_fts WHERE papers_fts MATCH ?1").bind(match),
     ]);
-    type Hit = { id: number; title: string; creators: string; year: number | null; type: string; language: string; has_pdf: number; excerpt: string };
+    type Hit = { id: number; origin: string; title: string; creators: string; year: number | null; type: string; language: string; has_pdf: number; excerpt: string };
     const total = (count.results[0] as { n: number } | undefined)?.n ?? 0;
     return c.json({
       // With the PDF filter the count stops at COUNT_CAP: "more than 1.000".
@@ -165,6 +185,7 @@ export function createLibraryApp(deps: LibraryDeps) {
       pageSize: PAGE_SIZE,
       papers: (hits.results as Hit[]).map((h) => ({
         id: h.id,
+        origin: h.origin,
         title: h.title,
         creators: list(h.creators),
         year: h.year,
@@ -186,8 +207,23 @@ export function createLibraryApp(deps: LibraryDeps) {
   app.get("/api/library/papers/:id", async (c) => {
     const id = Number(c.req.param("id"));
     if (!Number.isSafeInteger(id) || id <= 0) return c.json({ error: "NOT_FOUND" }, 404);
-    const paper = await getPaper(deps.library, id);
+    const paper = await getPaper(deps.library, id, deps.publicUrl);
     return paper ? c.json(paper) : c.json({ error: "NOT_FOUND" }, 404);
+  });
+
+  // PDFs we keep ourselves (papers not in the dataset), for the reader and the agent.
+  app.get("/api/library/files/:folder/:name", async (c) => {
+    const key = `${c.req.param("folder")}/${c.req.param("name")}`;
+    if (!FILE_KEY.test(key)) return c.json({ error: "NOT_FOUND" }, 404);
+    const body = await deps.files.get(key, "stream");
+    if (!body) return c.json({ error: "NOT_FOUND" }, 404);
+    return new Response(body, {
+      headers: {
+        "content-type": "application/pdf",
+        "content-disposition": `inline; filename="${c.req.param("name")}"`,
+        "cache-control": "private, max-age=3600",
+      },
+    });
   });
 
   return app;

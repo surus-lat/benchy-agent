@@ -6,6 +6,7 @@ import { db } from "./db";
 import { createAccessRequestsApp } from "./access-requests";
 import { createConversationsApp } from "./conversations";
 import { createLibraryApp, getPaper } from "./library";
+import { agentOrgFor } from "./agent-auth";
 import { hermesClient } from "./hermes";
 import { enabledProviders } from "./social-providers";
 import { eq } from "drizzle-orm";
@@ -45,8 +46,27 @@ async function currentUser(request: Request) {
   return { id: u.id, name: u.name ?? "", email: u.email, orgId: u.orgId ?? null };
 }
 
-// The paper library (CONICET Digital), for anyone signed in.
-app.route("/", createLibraryApp({ library: env.LIBRARY, currentUser }));
+const publicUrl = env.BETTER_AUTH_URL.replace(/\/+$/, "");
+
+/** The org whose agent container is calling, by its key; null for anything else. */
+async function callingAgentOrg(request: Request): Promise<string | null> {
+  if (!request.headers.get("authorization")?.startsWith("Bearer ")) return null;
+  const endpoints = await db
+    .select({ orgId: schema.orgAgentEndpoints.orgId, apiKeyRef: schema.orgAgentEndpoints.apiKeyRef })
+    .from(schema.orgAgentEndpoints);
+  return agentOrgFor(request, endpoints, env as unknown as Record<string, unknown>);
+}
+
+// The paper library, for anyone signed in and for each org's agent.
+app.route(
+  "/",
+  createLibraryApp({
+    library: env.LIBRARY,
+    files: env.LIBRARY_FILES,
+    publicUrl,
+    authorize: async (request) => !!(await currentUser(request)) || !!(await callingAgentOrg(request)),
+  }),
+);
 
 // The researcher's conversations with their org's agent (one Hermes per org).
 app.route(
@@ -54,7 +74,7 @@ app.route(
   createConversationsApp({
     db,
     currentUser,
-    paper: (id) => getPaper(env.LIBRARY, id),
+    paper: (id) => getPaper(env.LIBRARY, id, publicUrl),
     async agentFor(orgId) {
       const [endpoint] = await db
         .select()

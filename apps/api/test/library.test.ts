@@ -2,14 +2,17 @@ import { env } from "cloudflare:workers";
 import { beforeAll, expect, it } from "vitest";
 import schema from "../library/schema.sql?raw";
 import { createLibraryApp, ftsQuery } from "../src/library";
+import { agentOrgFor } from "../src/agent-auth";
 
 // The paper library: the query a search box becomes, and the routes over the
 // real schema (apps/api/library/schema.sql) with three papers in it.
 
 const app = createLibraryApp({
   library: env.LIBRARY,
-  async currentUser(request) {
-    return request.headers.get("x-test-user") ? { id: "user_ana" } : null;
+  files: env.LIBRARY_FILES,
+  publicUrl: "https://getbenchy.lat",
+  async authorize(request) {
+    return !!request.headers.get("x-test-user");
   },
 });
 
@@ -35,6 +38,11 @@ beforeAll(async () => {
       .bind(id, title, JSON.stringify(creators), JSON.stringify(subjects), description, date, year, pdf)
       .run();
   }
+  // A BICyT record that is not in CONICET Digital, its PDF kept by us.
+  await env.LIBRARY.prepare(
+    "INSERT INTO papers (id, title, creators, subjects, description, date, year, type, language, publisher, rights, pdf, origin, url) VALUES (12599897, 'Mucho más que palabras', '[\"Chávez, Martín Nicolás\"]', '[\"Bariloche\"]', 'Tesis de sociolingüística.', '2025', 2025, 'article', 'spa', '', '', 'files/bicyt/12599897.pdf', 'bicyt', 'https://bicyt.conicet.gov.ar/fichas/produccion/12599897')",
+  ).run();
+  await env.LIBRARY_FILES.put("bicyt/12599897.pdf", "%PDF-1.4 test");
   await env.LIBRARY.prepare(
     "INSERT INTO papers_fts(rowid, title, creators, subjects, description) SELECT id, title, creators, subjects, description FROM papers",
   ).run();
@@ -69,6 +77,37 @@ it("searches signed-in only, ignoring accents, by words, authors and PDF", async
   expect(both.papers.map((p) => p.id)).toEqual([179477]);
   const withPdf = (await (await get("/api/library/search?author=nunez&pdf=1")).json()) as { total: number; papers: unknown[] };
   expect(withPdf).toMatchObject({ total: 0, papers: [] });
+});
+
+it("serves papers that are not in CONICET Digital, with the PDF we keep", async () => {
+  const mine = (await (await get("/api/library/search?author=chavez%20martin")).json()) as { papers: { id: number; origin: string; hasPdf: boolean }[] };
+  expect(mine.papers).toEqual([expect.objectContaining({ id: 12599897, origin: "bicyt", hasPdf: true })]);
+  expect(await (await get("/api/library/papers/12599897")).json()).toMatchObject({
+    origin: "bicyt",
+    url: "https://bicyt.conicet.gov.ar/fichas/produccion/12599897",
+    pdfUrl: "https://getbenchy.lat/api/library/files/bicyt/12599897.pdf",
+  });
+  const pdf = await get("/api/library/files/bicyt/12599897.pdf");
+  expect(pdf.headers.get("content-type")).toBe("application/pdf");
+  expect(await pdf.text()).toBe("%PDF-1.4 test");
+  expect((await get("/api/library/files/bicyt/12599897.pdf", false)).status).toBe(401);
+  expect((await get("/api/library/files/bicyt/999.pdf")).status).toBe(404);
+  expect((await get("/api/library/files/bicyt/..%2Fx.pdf")).status).toBe(404);
+});
+
+it("knows an org's agent by its key, and nothing else", () => {
+  const endpoints = [
+    { orgId: "org_surus", apiKeyRef: "AGENT_KEY_SURUS" },
+    { orgId: "org_uni", apiKeyRef: "AGENT_KEY_UNI" },
+    { orgId: "org_new", apiKeyRef: "AGENT_KEY_UNSET" },
+  ];
+  const secrets = { AGENT_KEY_SURUS: "s".repeat(64), AGENT_KEY_UNI: "u".repeat(64) };
+  const call = (auth?: string) => new Request("https://x/api/library/stats", { headers: auth ? { authorization: auth } : {} });
+  expect(agentOrgFor(call(`Bearer ${"u".repeat(64)}`), endpoints, secrets)).toBe("org_uni");
+  expect(agentOrgFor(call(`Bearer ${"s".repeat(64)}`), endpoints, secrets)).toBe("org_surus");
+  expect(agentOrgFor(call(`Bearer ${"s".repeat(63)}`), endpoints, secrets)).toBeNull();
+  expect(agentOrgFor(call("Bearer short"), endpoints, secrets)).toBeNull();
+  expect(agentOrgFor(call(), endpoints, secrets)).toBeNull();
 });
 
 it("says how big and how fresh the library is", async () => {

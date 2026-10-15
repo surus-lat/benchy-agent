@@ -37,6 +37,9 @@ mcp_servers:
       AWS_REGION: ${AWS_REGION}
       AWS_BEARER_TOKEN_BEDROCK: ${AWS_BEARER_TOKEN_BEDROCK}
       BENCHY_WORKSPACE: ${BENCHY_WORKSPACE}
+      # The paper library, read from the Worker with this container's own key.
+      BENCHY_API_URL: ${BENCHY_API_URL}
+      API_SERVER_KEY: ${API_SERVER_KEY}
     timeout: 900          # a run makes one model call per exam row
     connect_timeout: 30
 

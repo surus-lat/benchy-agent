@@ -2,8 +2,10 @@
 
 Hermes has no terminal (see config.yaml), so these tools are the engine's whole
 surface inside the agent: validate a benchmark, run it, list the models an
-AI-system may name. Every path is resolved inside the org's workspace; nothing
-here can read or write outside it.
+AI-system may name, and search the paper library and add papers to a
+benchmark. Every path is resolved inside the org's workspace; nothing here can
+read or write outside it. The library is read from the Worker with this
+container's own key.
 
 Runs as a stdio subprocess of the Hermes gateway, with Hermes's own Python.
 """
@@ -26,6 +28,9 @@ import sys
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from benchy_shared import MODELS, WORKSPACE, check_models, inside, model_slug  # noqa: E402
 from benchy_review import review  # noqa: E402
+import benchy_sources  # noqa: E402
+
+from aiohttp import ClientError, ClientSession, ClientTimeout
 
 from benchy import providers
 from benchy.compiler import compile_benchmark
@@ -169,6 +174,63 @@ async def benchy_review(path: str) -> dict:
     ]
     return {"ok": True, "rows": len(report["rows"]), "weak": weak[:20],
             "saved_to": str((source.parent / "review.json").relative_to(WORKSPACE))}
+
+
+async def _library(path: str, params: dict | None = None) -> dict:
+    headers = {"Authorization": f"Bearer {benchy_sources.API_KEY}"}
+    try:
+        async with ClientSession(timeout=ClientTimeout(total=30)) as http:
+            async with http.get(benchy_sources.API_URL + path, params=params, headers=headers) as res:
+                if res.status == 404:
+                    return {"ok": False, "error": {"code": "not_found", "message": "no such paper in the library"}}
+                if res.status != 200:
+                    return {"ok": False, "error": {"code": "library_unavailable", "message": f"the library answered HTTP {res.status}"}}
+                return {"ok": True, **(await res.json())}
+    except (ClientError, asyncio.TimeoutError) as exc:
+        return {"ok": False, "error": {"code": "library_unavailable", "message": str(exc)}}
+
+
+@mcp.tool()
+async def benchy_library_search(query: str = "", author: str = "", pdf_only: bool = False, page: int = 0) -> dict:
+    """Search the paper library: CONICET Digital's 263,000 publications plus
+    researchers' BICyT records, by topic, title or keywords (`query`) and/or
+    by `author` (surname and given name, e.g. "Chávez Martín"). Accents and
+    word endings do not matter. 20 papers per `page`, newest-matching first
+    when the query is broad.
+
+    Each paper has its `id`, title, authors, year, whether it has an open
+    PDF (`hasPdf`; without one, only the abstract can be used) and the start
+    of its abstract. To use one for a benchmark, add it with
+    benchy_add_paper. Never invent papers or ids: only what this returns.
+    """
+    if not query.strip() and not author.strip():
+        return {"ok": False, "error": {"code": "empty_query", "message": "give a query or an author"}}
+    params = {"q": query, "author": author, "page": str(max(0, page))}
+    if pdf_only:
+        params["pdf"] = "1"
+    return await _library("/api/library/search", params)
+
+
+@mcp.tool()
+async def benchy_add_paper(bench: str, paper_id: int) -> dict:
+    """Add a library paper (an `id` from benchy_library_search) to a
+    benchmark, by the benchmark's folder name. Fetches its open PDF and keeps
+    the text, with [p. N] page markers, in `<bench>/sources/<id>.md`, listed
+    in `<bench>/sources.json` — where the app shows it as one of the
+    benchmark's papers. Without an open PDF only the abstract is kept.
+
+    Add papers the researcher asked for or agreed to; do not fill a benchmark
+    with papers on your own. Adding one that is already there changes nothing.
+    """
+    found = await _library(f"/api/library/papers/{int(paper_id)}")
+    if not found.pop("ok"):
+        return {"ok": False, **found}
+    try:
+        async with ClientSession() as http:
+            source = await benchy_sources.add_paper(bench, found, http)
+    except benchy_sources.SourceError as exc:
+        return {"ok": False, "error": exc.to_dict()}
+    return {"ok": True, "source": source}
 
 
 @mcp.tool()

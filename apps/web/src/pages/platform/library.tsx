@@ -197,8 +197,8 @@ export default function LibraryPage() {
         <h1 className="bp-h1">Biblioteca</h1>
         <p className="lib-sub">
           {stats
-            ? `${fmt(stats.papers)} publicaciones de CONICET Digital · ${fmt(stats.withPdf)} con PDF de acceso abierto`
-            : "Las publicaciones de CONICET Digital"}
+            ? `${fmt(stats.papers)} publicaciones de CONICET Digital y BICyT · ${fmt(stats.withPdf)} con PDF de acceso abierto`
+            : "Las publicaciones de CONICET Digital y BICyT"}
         </p>
       </div>
       <SearchForm query={query} setQuery={setQuery} onSubmit={submit} myName={me?.user.name || undefined} />
@@ -307,7 +307,7 @@ function PaperDetail({ id, onClose }: { id: number; onClose: () => void }) {
               </a>
             )}
             <a className="lib-btn-line" href={paper.url} target="_blank" rel="noreferrer">
-              Ver en CONICET Digital ↗
+              {paper.origin === "bicyt" ? "Ver en BICyT ↗" : "Ver en CONICET Digital ↗"}
             </a>
           </div>
 
@@ -450,7 +450,7 @@ export function SourceRow({ s, action }: { s: Source; action?: ReactNode }) {
   const href = s.pdf_url ?? s.url;
   return (
     <div className="lib-source">
-      <span className={`lib-tag ${s.origin}`}>{s.origin === "conicet" ? "CONICET" : "PDF"}</span>
+      <span className={`lib-tag ${s.origin}`}>{s.origin === "conicet" ? "CONICET" : s.origin === "bicyt" ? "BICyT" : "PDF"}</span>
       <span className="b">
         {href ? (
           <a className="t" href={href} target="_blank" rel="noreferrer">

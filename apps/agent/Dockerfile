@@ -44,6 +44,7 @@ RUN chmod -R a-w,a+rX /opt/benchy \
 # The engine's Bedrock provider builds its endpoint from AWS_REGION.
 ENV AWS_REGION=us-east-1 \
     BENCHY_WORKSPACE=/opt/data/workspace \
+    BENCHY_API_URL=https://getbenchy.lat \
     API_SERVER_ENABLED=true \
     API_SERVER_HOST=127.0.0.1 \
     API_SERVER_PORT=8642 \
