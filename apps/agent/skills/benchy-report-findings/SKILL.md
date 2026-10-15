@@ -47,10 +47,10 @@ letterhead with the organization's name and appends the result tables itself,
 so do not paste full tables of every number; cite the ones a finding rests on.
 
 ```markdown
-# <the main finding, as a sentence — not "Informe de resultados">
+# <the main finding, 12 words or fewer — not "Informe de resultados">
 
 ## Resumen
-Three findings, one sentence each, each with its number.
+- Three bullets: one finding each, one sentence, each with its number.
 
 ## Qué se evaluó
 The exam (how many questions, from which papers, by whom), the rubric
@@ -74,8 +74,10 @@ The angle for a paper and the angle for a news piece, and what to add before
 publishing (more questions, more models, a professor grading a sample).
 ```
 
-Cite questions by number ("pregunta 03") and papers by title. Do not invent
-quotes: copy them from the analysis.
+The title is a headline, not a summary: it goes in large type on the
+letterhead, so keep it to one line or two. Cite questions by number
+("pregunta 03") and papers by title. Do not invent quotes: copy them from
+the analysis.
 
 ## Changing the report
 
