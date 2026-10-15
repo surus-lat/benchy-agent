@@ -9,6 +9,9 @@ Hermes's API server listens on 127.0.0.1 only; this process fronts it:
   GET /benchy/models             the models a benchmark may run
   PUT /benchy/file               write one benchmark text file (the app's editors)
   POST /benchy/review?path=...   grade the expert answers against the rubric
+  POST /benchy/sources           add a library paper to a benchmark (fetches its PDF)
+  POST /benchy/sources/upload?bench=...&name=...   add an uploaded PDF to a benchmark
+  DELETE /benchy/sources?bench=...&id=...          take a paper out of a benchmark
   everything else                reverse-proxied to Hermes, streamed, unmodified
 
 The /benchy routes check the same bearer key Hermes does (API_SERVER_KEY), so
@@ -23,6 +26,7 @@ from __future__ import annotations
 import hmac
 import json
 import os
+import re
 import sys
 import tempfile
 from pathlib import Path
@@ -30,6 +34,7 @@ from pathlib import Path
 from aiohttp import ClientSession, ClientTimeout, web
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "mcp"))  # /opt/benchy/mcp in the image
+import benchy_sources  # noqa: E402
 from benchy_review import review as review_answers  # noqa: E402
 from benchy_shared import MODELS  # noqa: E402
 
@@ -219,6 +224,51 @@ async def review(request: web.Request) -> web.Response:
     return web.json_response({"ok": True, **report})
 
 
+async def add_source(request: web.Request) -> web.Response:
+    """Body: {bench, paper} with the Worker's library Paper. Domain failures
+    (no such benchmark, PDF unavailable) are {ok: false, error}, not HTTP errors."""
+    if not _authorized(request):
+        return web.json_response({"error": "unauthorized"}, status=401)
+    try:
+        body = await request.json()
+        bench, paper = body["bench"], body["paper"]
+        if not isinstance(bench, str) or not isinstance(paper, dict):
+            raise TypeError
+    except (ValueError, KeyError, TypeError):
+        return web.json_response({"error": "bad_request"}, status=400)
+    try:
+        source = await benchy_sources.add_paper(bench, paper, request.app["client"])
+    except benchy_sources.SourceError as exc:
+        return web.json_response({"ok": False, "error": exc.to_dict()})
+    return web.json_response({"ok": True, "source": source})
+
+
+async def upload_source(request: web.Request) -> web.Response:
+    if not _authorized(request):
+        return web.json_response({"error": "unauthorized"}, status=401)
+    bench, name = request.query.get("bench", ""), request.query.get("name", "").strip()
+    if not bench or not name or len(name) > 200:
+        return web.json_response({"error": "bad_request"}, status=400)
+    try:
+        source = await benchy_sources.add_upload(bench, name, await request.read())
+    except benchy_sources.SourceError as exc:
+        return web.json_response({"ok": False, "error": exc.to_dict()})
+    return web.json_response({"ok": True, "source": source})
+
+
+async def remove_source(request: web.Request) -> web.Response:
+    if not _authorized(request):
+        return web.json_response({"error": "unauthorized"}, status=401)
+    bench, sid = request.query.get("bench", ""), request.query.get("id", "")
+    if not bench or not re.fullmatch(r"[a-z0-9-]{1,120}", sid):
+        return web.json_response({"error": "bad_request"}, status=400)
+    try:
+        removed = await benchy_sources.remove(bench, sid)
+    except benchy_sources.SourceError as exc:
+        return web.json_response({"ok": False, "error": exc.to_dict()})
+    return web.json_response({"ok": removed})
+
+
 async def proxy(request: web.Request) -> web.StreamResponse:
     session: ClientSession = request.app["client"]
     headers = {k: v for k, v in request.headers.items() if k.lower() not in HOP_BY_HOP}
@@ -257,6 +307,9 @@ def main() -> None:
     app.router.add_get("/benchy/models", models)
     app.router.add_put("/benchy/file", write_file)
     app.router.add_post("/benchy/review", review)
+    app.router.add_post("/benchy/sources", add_source)
+    app.router.add_post("/benchy/sources/upload", upload_source)
+    app.router.add_delete("/benchy/sources", remove_source)
     app.router.add_route("*", "/{tail:.*}", proxy)
     port = int(os.environ.get("PORT", "8080"))
     print(f"[benchy-proxy] :{port} -> {UPSTREAM}, workspace {WORKSPACE}", flush=True)

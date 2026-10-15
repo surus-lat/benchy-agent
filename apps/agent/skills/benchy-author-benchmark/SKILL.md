@@ -116,6 +116,31 @@ ai-system:
   every expert answer with the rubric. An expert answer that misses a criterion is
   a weak key or a criterion worded too strictly; tell the researcher which.
 
+## Questions from the researcher's papers
+
+Researchers add papers to a benchmark from the app (the CONICET library or a PDF
+they upload). They are listed in `<slug>/sources.json` — `{"sources": [{"id",
+"title", "authors", "year", "file", "pages", "text", ...}]}` — and each one's
+text is in `<slug>/<file>` (`sources/<id>.md`): metadata, the abstract, then the
+full text with `[p. N]` page markers. `text: "abstract"` means only the abstract
+is there (no open PDF, or a scanned one): say so if you use it.
+
+When asked for questions and the benchmark has papers, read the papers first and
+write every question from them:
+
+- Each question tests something a specialist would know **from that paper** —
+  a finding, an argument, a method and why it was chosen — not trivia (a date,
+  a sample size alone) and not something answerable from the title.
+- The expert answer is what the paper supports, in your own words, complete
+  enough that the grader can check every rubric criterion against it.
+- In `questions.json`, `sources` cites the paper by id and page:
+  `["conicet-179477 p. 4"]` (`pdf-...` ids for uploads). `why` says what error
+  of a model the question exposes. Spread questions across the papers, and
+  across groups (`group`) by topic.
+- If you are asked to use papers that are not in `sources.json`, ask the
+  researcher to add them from the app's Biblioteca or upload the PDF; do not
+  write questions from memory of a paper you have not read here.
+
 ## Closed answers: exact match
 
 For the other tasks, a field is right or wrong by exact match, so prefer `enum`,

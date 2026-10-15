@@ -19,14 +19,16 @@ FROM ghcr.io/astral-sh/uv:0.11.6 AS uv
 
 FROM nousresearch/hermes-agent@sha256:444b42594e7f467425872fc35e077a227d377f0fe0726bc818706d62175fad8b
 
-ARG BENCHY_ENGINE_REF=21aeab19ff390ef76c1b97ce5f573e047f7542ea
+ARG BENCHY_ENGINE_REF=543104f744732a3e39e5799c9db1996cc6e4aad5
 
 USER root
 # Railway's builder supports only cache mounts, so uv is copied in and removed.
 COPY --from=uv /uv /usr/local/bin/uv
 COPY vendor/ /tmp/vendor/
+# pypdfium2: text from the papers researchers add to a benchmark (mcp/benchy_sources.py).
 RUN uv pip install --python /opt/hermes/.venv/bin/python --no-cache /tmp/vendor/llm_client-*.whl \
       "benchy @ git+https://github.com/surus-lat/benchy.git@${BENCHY_ENGINE_REF}" \
+      pypdfium2==5.14.0 \
  && rm -rf /tmp/vendor /usr/local/bin/uv
 
 COPY --chown=root:root config.yaml SOUL.md /opt/benchy/
@@ -36,7 +38,7 @@ COPY --chown=root:root skills/ /opt/benchy/skills/
 COPY --chown=root:root rootfs/ /
 RUN chmod -R a-w,a+rX /opt/benchy \
  && chmod 0755 /etc/cont-init.d/03-benchy-setup /etc/s6-overlay/s6-rc.d/benchy-proxy/run \
- && /opt/hermes/.venv/bin/python -c "import benchy, llm_client, mcp.server.mcpserver; print('engine', benchy.__file__)"
+ && /opt/hermes/.venv/bin/python -c "import benchy, llm_client, mcp.server.mcpserver, pypdfium2; print('engine', benchy.__file__)"
 
 # The engine's Bedrock provider builds its endpoint from AWS_REGION.
 ENV AWS_REGION=us-east-1 \
