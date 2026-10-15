@@ -19,6 +19,9 @@ import {
   type Question,
   type QStatus,
 } from "./exam-model";
+import { LibraryPicker, SourceRow } from "./library";
+import { citation, sources as sourcesApi, libraryErrorText, type Source } from "./library-data";
+import { ApiError } from "./data";
 import "./workspace.css";
 
 // One benchmark as two windows over the same exam (design: Plataforma AB v3).
@@ -49,6 +52,14 @@ type Event = { id: string; at: number; who: "Vos" | "Juez"; path: string; change
 /** First message of a conversation tells the agent which benchmark is open. Hidden in the thread. */
 const CONTEXT = /^\(Benchmark abierto en la app: [^)]*\)\n\n/;
 
+/** What the agent is asked for a batch: from the benchmark's papers when it has them. */
+function batchPrompt(n: number, slug: string, fromPapers: boolean): string {
+  const tail = `Agregalas al final de exam.jsonl y de questions.json (status draft, by agente, con su group). No toques las preguntas existentes.`;
+  return fromPapers
+    ? `Generá ${n} preguntas nuevas para este examen a partir de los papers del benchmark (${slug}/sources.json): leé los papers primero y escribí cada pregunta desde lo que el paper sostiene, con su respuesta experta y por qué la pregunta importa. En questions.json, sources lleva el id del paper y la página (por ejemplo "conicet-179477 p. 4"). ${tail}`
+    : `Generá ${n} preguntas nuevas para este examen, cada una con su respuesta experta, por qué la pregunta importa y sus fuentes. ${tail}`;
+}
+
 export default function Workspace({ slug, stage: stageParam }: { slug: string; stage?: string }) {
   const { me, benches, files, runs, setRun, refresh } = usePlatform();
   const [, navigate] = useLocation();
@@ -64,6 +75,7 @@ export default function Workspace({ slug, stage: stageParam }: { slug: string; s
   const [events, setEvents] = useState<Event[]>([]);
   const [qIndex, setQIndex] = useState(0);
   const [rubricOpen, setRubricOpen] = useState(false);
+  const [papersOpen, setPapersOpen] = useState(false);
   const [reviewing, setReviewing] = useState(false);
   const [generating, setGenerating] = useState<number | null>(null);
   // "Ejecutar evaluación" from the toolbar or B: Evaluation starts it once mounted.
@@ -93,7 +105,10 @@ export default function Workspace({ slug, stage: stageParam }: { slug: string; s
           return next;
         });
       }
-      if (e.key === "Escape") setRubricOpen(false);
+      if (e.key === "Escape") {
+        setRubricOpen(false);
+        setPapersOpen(false);
+      }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
@@ -149,6 +164,10 @@ export default function Workspace({ slug, stage: stageParam }: { slug: string; s
   const qs = exam.questions;
   const q = qs[Math.min(qIndex, Math.max(qs.length - 1, 0))];
   const approved = qs.filter((x) => x.status === "done").length;
+  const papers = exam.sources;
+  // The exam is "concretado" when the grader has reviewed every question as it
+  // stands, the researcher approved each one, and it compiles.
+  const ready = openExam && qs.length > 0 && qs.every((x) => x.status === "done" && x.review) && !!bench.validation?.ok;
   const run = runs[slug];
   const running = run?.state === "running";
   const busy = chat.pending || reviewing;
@@ -180,7 +199,13 @@ export default function Workspace({ slug, stage: stageParam }: { slug: string; s
             <span className="ws-crumb">
               <Link href="/app">{me?.org?.name ?? "benchmarks"}</Link> / <span title={exam.doc?.title}>{slug}</span>
             </span>
-            <ValidationBadge bench={bench} />
+            {ready ? (
+              <span className="ws-ver ok" title="Compila, y el juez revisó todas las preguntas y las aprobaste">
+                ✓ EXAMEN LISTO
+              </span>
+            ) : (
+              <ValidationBadge bench={bench} />
+            )}
             <nav aria-label="Etapas" className="ws-stages">
               {STAGES.map(([k, num, label]) => (
                 <button key={k} className={stage === k ? "on" : ""} onClick={() => go(k)}>
@@ -192,8 +217,13 @@ export default function Workspace({ slug, stage: stageParam }: { slug: string; s
             <div className="ws-toolbar-right">
               <span className="ws-saved">{savedLabel(exam.save, exam.savedAt)}</span>
               {openExam && (
+                <button className="ws-btn-line" onClick={() => setPapersOpen(true)}>
+                  <span className="mono amber">{papers.length}</span>Papers
+                </button>
+              )}
+              {openExam && (
                 <button className="ws-btn-line" onClick={() => setRubricOpen(true)}>
-                  <span className="mono amber">{exam.criteria!.length}</span>Rúbrica del examen
+                  <span className="mono amber">{exam.criteria!.length}</span>Rúbrica
                 </button>
               )}
               <button
@@ -228,12 +258,12 @@ export default function Workspace({ slug, stage: stageParam }: { slug: string; s
                 generating={generating}
                 pushEvent={pushEvent}
                 onRubric={() => setRubricOpen(true)}
-                onBatch={async (n) => {
+                papers={papers}
+                onPapers={() => setPapersOpen(true)}
+                onBatch={async (n, fromPapers) => {
                   setGenerating(n);
                   const before = qs.length;
-                  await ask(
-                    `Generá ${n} preguntas nuevas para este examen, cada una con su respuesta experta, por qué la pregunta importa y sus fuentes. Agregalas al final de exam.jsonl y de questions.json (status draft, by agente, con su group). No toques las preguntas existentes.`,
-                  );
+                  await ask(batchPrompt(n, slug, fromPapers));
                   setGenerating(null);
                   setQIndex(before);
                 }}
@@ -248,6 +278,8 @@ export default function Workspace({ slug, stage: stageParam }: { slug: string; s
                 exam={exam}
                 openExam={openExam}
                 busy={busy}
+                ready={ready}
+                onNext={() => go("evaluacion")}
                 onReview={async () => {
                   setReviewing(true);
                   try {
@@ -273,9 +305,32 @@ export default function Workspace({ slug, stage: stageParam }: { slug: string; s
                 }}
               />
             ) : stage === "evaluacion" ? (
-              <EvaluationStage bench={bench} ask={ask} setRun={setRun} running={running} busy={busy} runRequest={runRequest} />
+              <EvaluationStage
+                bench={bench}
+                ask={ask}
+                setRun={setRun}
+                running={running}
+                busy={busy}
+                runRequest={runRequest}
+                unapproved={openExam ? qs.length - approved : 0}
+                onReview={() => go("revision")}
+              />
             ) : (
               <PublicationStage bench={bench} exam={exam} openExam={openExam} go={go} />
+            )}
+
+            {openExam && (
+              <PapersDrawer
+                open={papersOpen}
+                onClose={() => setPapersOpen(false)}
+                bench={slug}
+                list={papers}
+                locked={chat.pending}
+                onChange={(change) => {
+                  pushEvent({ who: "Vos", path: "papers", change, open: () => setPapersOpen(true) });
+                  void exam.reload();
+                }}
+              />
             )}
 
             {openExam && (
@@ -319,6 +374,7 @@ export default function Workspace({ slug, stage: stageParam }: { slug: string; s
           ask={ask}
           openExam={openExam}
           onRun={requestRun}
+          generatePrompt={batchPrompt(5, slug, papers.length > 0)}
         />
       </main>
     </div>
@@ -381,6 +437,8 @@ function Authoring({
   generating,
   pushEvent,
   onRubric,
+  papers,
+  onPapers,
   onBatch,
   onDraft,
 }: {
@@ -393,13 +451,17 @@ function Authoring({
   generating: number | null;
   pushEvent: (e: Omit<Event, "id" | "at">) => void;
   onRubric: () => void;
-  onBatch: (n: number) => void;
+  papers: Source[];
+  onPapers: () => void;
+  onBatch: (n: number, fromPapers: boolean) => void;
   onDraft: (q: Question) => void;
 }) {
   const [search, setSearch] = useState("");
   const [filter, setFilter] = useState<"all" | "pend" | "issues">("all");
   const [batchOpen, setBatchOpen] = useState(false);
   const [batchN, setBatchN] = useState(5);
+  const [batchFrom, setBatchFrom] = useState<"papers" | "none">("papers");
+  const fromPapers = batchFrom === "papers" && papers.length > 0;
   const [writing, setWriting] = useState<number | null>(null);
   const listRef = useRef<HTMLDivElement>(null);
   const qs = exam.questions;
@@ -527,18 +589,37 @@ function Authoring({
               </label>
               <label>
                 Fuente
-                <select disabled title="La biblioteca de papers del grupo llega pronto">
-                  <option>Biblioteca del grupo · pronto</option>
+                <select value={fromPapers ? "papers" : "none"} onChange={(e) => setBatchFrom(e.target.value as "papers" | "none")}>
+                  {papers.length > 0 && (
+                    <option value="papers">
+                      {papers.length === 1 ? "El paper del benchmark" : `Los ${papers.length} papers del benchmark`}
+                    </option>
+                  )}
+                  <option value="none">Sin papers: lo que sabe el agente</option>
                 </select>
               </label>
             </div>
+            {papers.length === 0 && (
+              <p className="ws-batch-note">
+                Sin papers, el agente escribe de lo que sabe y no puede citar.{" "}
+                <button
+                  className="ws-link"
+                  onClick={() => {
+                    setBatchOpen(false);
+                    onPapers();
+                  }}
+                >
+                  Agregar papers ↗
+                </button>
+              </p>
+            )}
             <div className="ws-batch-foot">
               <button
                 className="ws-btn-dark sm"
                 disabled={locked || !openExam}
                 onClick={() => {
                   setBatchOpen(false);
-                  onBatch(batchN);
+                  onBatch(batchN, fromPapers);
                 }}
               >
                 Generar {batchN}
@@ -570,14 +651,25 @@ function Authoring({
         {!openExam ? (
           <ClosedExamNote exam={exam} q={q} />
         ) : !q ? (
-          <EmptyCard
-            title="Todavía no hay preguntas"
-            text="Escribí la primera vos o pedile un lote al agente: redacta cada pregunta con su respuesta experta para que la revises."
-            onAgent={() => onBatch(5)}
-            agentLabel="Pedile 5 preguntas al agente"
-            onSelf={addQuestion}
-            locked={locked}
-          />
+          papers.length === 0 ? (
+            <EmptyCard
+              title="Empezá por los papers"
+              text="Agregá los papers de los que salen las preguntas, de la biblioteca de CONICET o subiendo el PDF. El agente los lee y escribe cada pregunta con su respuesta experta y la página que la respalda."
+              onAgent={onPapers}
+              agentLabel="Agregar papers"
+              onSelf={addQuestion}
+              locked={false}
+            />
+          ) : (
+            <EmptyCard
+              title="Todavía no hay preguntas"
+              text={`El agente puede escribir un primer lote a partir de ${papers.length === 1 ? "tu paper" : `tus ${papers.length} papers`}, cada pregunta con su respuesta experta y la página que la respalda. O escribí la primera vos.`}
+              onAgent={() => onBatch(5, true)}
+              agentLabel="Pedile 5 preguntas al agente"
+              onSelf={addQuestion}
+              locked={locked}
+            />
+          )
         ) : q.status === "empty" && writing !== q.index ? (
           <EmptyCard
             title="Pregunta vacía"
@@ -588,7 +680,7 @@ function Authoring({
             locked={locked}
           />
         ) : (
-          <QuestionEditor q={q} criteria={exam.criteria!} total={qs.length} locked={locked} edit={edit} onRubric={onRubric} />
+          <QuestionEditor q={q} criteria={exam.criteria!} total={qs.length} locked={locked} edit={edit} onRubric={onRubric} papers={papers} />
         )}
       </div>
     </div>
@@ -702,6 +794,7 @@ function QuestionEditor({
   locked,
   edit,
   onRubric,
+  papers,
 }: {
   q: Question;
   criteria: Criterion[];
@@ -709,6 +802,7 @@ function QuestionEditor({
   locked: boolean;
   edit: (field: "text" | "answer" | "why", value: string) => void;
   onRubric: () => void;
+  papers: Source[];
 }) {
   const byAgent = q.meta.by && q.meta.by !== "vos";
   return (
@@ -732,15 +826,35 @@ function QuestionEditor({
             <p className="ws-eyebrow">Fuentes</p>
             {(q.meta.sources ?? []).length ? (
               <div className="ws-sources">
-                {q.meta.sources!.map((s) => (
-                  <div key={s} className="ws-source">
-                    <span className={`tag ${/^10\.\d+\//.test(s) || /doi/i.test(s) ? "doi" : ""}`}>{/^10\.\d+\//.test(s) || /doi/i.test(s) ? "DOI" : "REF"}</span>
-                    <span className="t">{s}</span>
-                  </div>
-                ))}
+                {q.meta.sources!.map((s) => {
+                  const cited = citation(s, papers);
+                  if (cited) {
+                    const href = cited.source.pdf_url ?? cited.source.url;
+                    return (
+                      <div key={s} className="ws-source">
+                        <span className="tag doi">PAPER</span>
+                        {href ? (
+                          <a className="t" href={href} target="_blank" rel="noreferrer" title={cited.source.title}>
+                            {cited.source.title}
+                          </a>
+                        ) : (
+                          <span className="t">{cited.source.title}</span>
+                        )}
+                        {cited.page && <span className="pg">p. {cited.page}</span>}
+                      </div>
+                    );
+                  }
+                  const doi = /^10\.\d+\//.test(s) || /doi/i.test(s);
+                  return (
+                    <div key={s} className="ws-source">
+                      <span className={`tag ${doi ? "doi" : ""}`}>{doi ? "DOI" : "REF"}</span>
+                      <span className="t">{s}</span>
+                    </div>
+                  );
+                })}
               </div>
             ) : (
-              <p className="ws-note">Sin fuentes. Pedile al agente que las agregue.</p>
+              <p className="ws-note">{papers.length ? "Sin fuentes. Pedile al agente que cite el paper y la página." : "Sin fuentes. Agregá papers al benchmark para que el agente cite de dónde sale cada pregunta."}</p>
             )}
           </div>
           <div className="ws-byline">
@@ -870,12 +984,151 @@ function RubricDrawer({
   );
 }
 
+const MAX_UPLOAD = 24 * 1024 * 1024;
+
+type Upload = { name: string; state: "waiting" | "reading" | "ok" | "error"; note?: string };
+
+/** The benchmark's papers: what the agent writes the questions from. */
+function PapersDrawer({
+  open,
+  onClose,
+  bench,
+  list,
+  locked,
+  onChange,
+}: {
+  open: boolean;
+  onClose: () => void;
+  bench: string;
+  list: Source[];
+  locked: boolean;
+  onChange: (change: string) => void;
+}) {
+  const [tab, setTab] = useState<"library" | "upload">("library");
+  const [uploads, setUploads] = useState<Upload[]>([]);
+  const [removing, setRemoving] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const added = useMemo(() => new Set(list.filter((s) => s.origin === "conicet").map((s) => Number(s.id.replace("conicet-", "")))), [list]);
+  const uploading = uploads.some((u) => u.state === "waiting" || u.state === "reading");
+
+  const upload = async (files: File[]) => {
+    const queue: Upload[] = files.map((f) => ({ name: f.name, state: "waiting" }));
+    setUploads(queue);
+    const set = (i: number, u: Partial<Upload>) => setUploads((all) => all.map((x, j) => (j === i ? { ...x, ...u } : x)));
+    for (const [i, file] of files.entries()) {
+      if (file.size > MAX_UPLOAD) {
+        set(i, { state: "error", note: libraryErrorText("TOO_LARGE") });
+        continue;
+      }
+      set(i, { state: "reading" });
+      try {
+        const r = await sourcesApi.upload(bench, file);
+        if (r.ok) {
+          set(i, { state: "ok", note: `${r.source.pages} páginas` });
+          onChange(`+ ${r.source.title}`);
+        } else set(i, { state: "error", note: libraryErrorText(r.error.code) });
+      } catch (err) {
+        set(i, { state: "error", note: err instanceof ApiError && !err.code.startsWith("AGENT") && err.code !== "NETWORK" ? libraryErrorText(err.code) : errorText(err) });
+      }
+    }
+  };
+
+  const remove = async (s: Source) => {
+    setRemoving(s.id);
+    setError(null);
+    try {
+      await sourcesApi.remove(bench, s.id);
+      onChange(`− ${s.title}`);
+    } catch (err) {
+      setError(errorText(err));
+    } finally {
+      setRemoving(null);
+    }
+  };
+
+  return (
+    <>
+      <div className={`ws-drawer-overlay${open ? " open" : ""}`} onClick={onClose} />
+      <aside className={`ws-drawer wide${open ? " open" : ""}`} role="dialog" aria-label="Papers del benchmark" aria-hidden={!open}>
+        <div className="ws-drawer-head">
+          <span className="t">Papers del benchmark</span>
+          <span className="mono muted">{list.length === 1 ? "1 paper" : `${list.length} papers`}</span>
+          <button onClick={onClose} aria-label="Cerrar">✕</button>
+        </div>
+        <div className="ws-drawer-body">
+          <p className="ws-note">
+            Las preguntas salen de estos papers: el agente los lee y en cada pregunta cita el paper y la página. Si un paper no tiene PDF abierto,
+            el agente solo tiene su resumen.
+          </p>
+          <div className="lib ws-papers">
+            {list.map((s) => (
+              <SourceRow
+                key={s.id}
+                s={s}
+                action={
+                  <button className="lib-btn-line sm" disabled={locked || removing !== null} onClick={() => void remove(s)}>
+                    {removing === s.id ? "Quitando…" : "Quitar"}
+                  </button>
+                }
+              />
+            ))}
+            {list.length === 0 && <p className="ws-note muted">Todavía no hay papers en este benchmark.</p>}
+            {error && <p className="lib-error">{error}</p>}
+          </div>
+
+          <p className="ws-eyebrow" style={{ marginTop: 10 }}>Agregar papers</p>
+          <div role="tablist" aria-label="De dónde" className="ws-pills">
+            <button role="tab" aria-selected={tab === "library"} className={tab === "library" ? "on" : ""} onClick={() => setTab("library")}>
+              Biblioteca CONICET
+            </button>
+            <button role="tab" aria-selected={tab === "upload"} className={tab === "upload" ? "on" : ""} onClick={() => setTab("upload")}>
+              Subir PDF
+            </button>
+          </div>
+          {tab === "library" ? (
+            <LibraryPicker bench={bench} added={added} disabled={locked} onAdded={(src) => onChange(`+ ${src.title}`)} />
+          ) : (
+            <div className="ws-upload">
+              <label className={`ws-drop${locked || uploading ? " off" : ""}`}>
+                <input
+                  type="file"
+                  accept="application/pdf,.pdf"
+                  multiple
+                  disabled={locked || uploading}
+                  onChange={(e) => {
+                    const files = Array.from(e.target.files ?? []);
+                    e.target.value = "";
+                    if (files.length) void upload(files);
+                  }}
+                />
+                <span className="t">Elegí uno o más PDFs</span>
+                <span className="d">Hasta 24 MB cada uno. Se guarda el texto para el agente; un PDF escaneado sin texto no sirve.</span>
+              </label>
+              {uploads.map((u, i) => (
+                <div key={i} className="ws-up-row">
+                  <span className="n">{u.name}</span>
+                  <span className={`s ${u.state}`}>
+                    {u.state === "waiting" ? "en cola" : u.state === "reading" ? "leyendo…" : u.state === "ok" ? `✓ ${u.note}` : u.note}
+                  </span>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+        <p className="ws-drawer-foot">→ en el workspace: {bench}/sources.json · el texto de cada paper en sources/</p>
+      </aside>
+    </>
+  );
+}
+
 // ---- 02 · Revisión -------------------------------------------------------------
 
 function ReviewStage({
   exam,
   openExam,
   busy,
+  ready,
+  onNext,
   onReview,
   onApprove,
   onOpen,
@@ -883,6 +1136,8 @@ function ReviewStage({
   exam: ExamState;
   openExam: boolean;
   busy: boolean;
+  ready: boolean;
+  onNext: () => void;
   onReview: () => void;
   onApprove: (q: Question) => void;
   onOpen: (q: Question) => void;
@@ -910,6 +1165,23 @@ function ReviewStage({
             </button>
           </div>
         </div>
+        {qs.length > 0 && qs.every((q) => q.status === "done") && qs.some((q) => !q.review) && (
+          <p className="ws-note" style={{ margin: "0 0 10px" }}>
+            Todas están aprobadas, pero {qs.filter((q) => !q.review).length === 1 ? "una no tiene" : "algunas no tienen"} la revisión del juez de su
+            versión actual. Volvé a revisar para concretar el examen.
+          </p>
+        )}
+        {ready && (
+          <div className="ws-ready" role="status">
+            <span className="mono ok">[✓]</span>
+            <span>
+              <strong>Examen listo.</strong> El juez revisó las {qs.length} preguntas y las aprobaste todas. El siguiente paso es elegir los modelos y evaluarlos.
+            </span>
+            <button className="ws-btn-dark sm" onClick={onNext}>
+              Ir a Evaluación →
+            </button>
+          </div>
+        )}
         {exam.review && (
           <p className="ws-note" style={{ margin: "0 0 10px" }}>
             Última revisión: {new Date(exam.review.created * 1000).toLocaleString("es-AR", { dateStyle: "short", timeStyle: "short" })} · juez{" "}
@@ -931,7 +1203,8 @@ function ReviewStage({
                     : q.status === "empty"
                       ? ["vacía", "n"]
                       : [q.stale ? "editada · revisar" : r ? "por aprobar" : "sin revisar", "a"];
-            const canApprove = q.status === "progress" || q.status === "new";
+            // Approval comes after the grader's review of the question as it stands.
+            const canApprove = (q.status === "progress" || q.status === "new") && !!q.review;
             return (
               <div key={q.index} className="ws-rev-row">
                 <button className={`ws-rev-toggle${open ? " open" : ""}`} aria-expanded={open} onClick={() => setOpenRow(open ? null : q.index)}>
@@ -992,6 +1265,9 @@ function ReviewStage({
                           {q.status === "empty" ? "Pregunta vacía: escribila en Autoría o pedile un borrador al agente." : "Sin respuesta experta el juez no tiene contra qué comparar."}
                         </p>
                       )}
+                      {!r && (q.status === "progress" || q.status === "new") && (
+                        <p className="ws-note">Para aprobarla, primero la revisa el juez: «{reviewed ? "Volver a revisar" : "Revisar respuestas expertas"}».</p>
+                      )}
                       <div className="ws-row-btns">
                         {canApprove && (
                           <button className="ws-btn-dark sm" onClick={() => onApprove(q)}>
@@ -1024,6 +1300,8 @@ function EvaluationStage({
   running,
   busy,
   runRequest,
+  unapproved,
+  onReview,
 }: {
   bench: BenchSummary;
   ask: (t: string) => Promise<void>;
@@ -1031,6 +1309,9 @@ function EvaluationStage({
   running: boolean;
   busy: boolean;
   runRequest: number;
+  /** Questions not yet approved: the exam is not "concretado" until they are. */
+  unapproved: number;
+  onReview: () => void;
 }) {
   const { runs } = usePlatform();
   const [models, setModels] = useState<string[]>([]);
@@ -1116,6 +1397,15 @@ function EvaluationStage({
           })}
           {models.length === 0 && <p className="ws-note" style={{ padding: "11px 0" }}>Cargando modelos…</p>}
         </div>
+        {unapproved > 0 && (
+          <p className="ws-eval-warn">
+            {unapproved === 1 ? "Falta aprobar 1 pregunta" : `Faltan aprobar ${unapproved} preguntas`}: el examen todavía no está listo. Podés evaluar igual
+            para probar, pero el resultado para publicar sale del examen aprobado.{" "}
+            <button className="ws-link" onClick={onReview}>
+              Revisión ↗
+            </button>
+          </p>
+        )}
         <div className="ws-sysfoot">
           <span>
             {models.filter((m) => selected.has(m)).length} de {models.length} modelos en la próxima evaluación
@@ -1314,6 +1604,7 @@ function AgentWindow({
   ask,
   openExam,
   onRun,
+  generatePrompt,
 }: {
   front: "A" | "B";
   instant: boolean;
@@ -1324,6 +1615,7 @@ function AgentWindow({
   ask: (t: string) => Promise<void>;
   openExam: boolean;
   onRun: () => void;
+  generatePrompt: string;
 }) {
   const [draft, setDraft] = useState("");
   const thread = useRef<HTMLDivElement>(null);
@@ -1432,7 +1724,7 @@ function AgentWindow({
         <div className="ws-b-foot">
           <div className="ws-chips">
             {openExam && (
-              <button disabled={chat.pending} onClick={() => void ask("Generá 5 preguntas nuevas para este examen, con su respuesta experta, el porqué y las fuentes. Agregalas al final de exam.jsonl y questions.json (status draft, by agente).")}>
+              <button disabled={chat.pending} onClick={() => void ask(generatePrompt)}>
                 Generá 5 preguntas nuevas
               </button>
             )}

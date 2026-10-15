@@ -414,6 +414,32 @@
 .ws-b.front .ws-strip { display: none; }
 
 /* ---- responsive ---- */
+/* ---- papers ---- */
+.ws-drawer.wide { width: min(640px, 96%); }
+.ws-papers { display: flex; flex-direction: column; gap: 6px; }
+.ws-batch-note { margin: 0; padding: 0 12px 8px; font-size: 12.5px; line-height: 1.5; color: var(--body); }
+.ws-source a.t:hover { text-decoration: underline; text-underline-offset: 2px; }
+.ws-source .pg { flex: none; margin-left: auto; font: 400 11.5px var(--mono); color: var(--muted); }
+.ws-upload { display: flex; flex-direction: column; gap: 6px; }
+.ws-drop { position: relative; display: flex; flex-direction: column; gap: 4px; align-items: center; text-align: center; border: 1px dashed var(--line-strong); border-radius: 12px; padding: 22px 16px; background: var(--paper-2); cursor: pointer; transition: border-color 150ms ease; }
+.ws-drop:hover { border-color: var(--ink-soft); }
+.ws-drop.off { opacity: 0.55; cursor: default; }
+.ws-drop input { position: absolute; inset: 0; opacity: 0; cursor: pointer; }
+.ws-drop.off input { cursor: default; }
+.ws-drop .t { font-size: 14px; font-weight: 500; }
+.ws-drop .d { font-size: 12.5px; color: var(--body); max-width: 30rem; line-height: 1.5; }
+.ws-up-row { display: flex; align-items: baseline; gap: 10px; font-size: 13px; padding: 6px 2px; border-bottom: 1px solid var(--line-soft); }
+.ws-up-row .n { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ws-up-row .s { flex: none; font: 400 11.5px var(--mono); color: var(--muted); max-width: 55%; text-align: right; }
+.ws-up-row .s.reading { color: var(--amber-ink); }
+.ws-up-row .s.ok { color: var(--ok); }
+.ws-up-row .s.error { color: var(--fail); white-space: normal; }
+
+/* ---- exam ready / not yet ---- */
+.ws-ready { display: flex; align-items: center; gap: 10px; margin: 0 0 12px; padding: 10px 12px; border: 1px solid var(--ok-line); border-radius: 12px; background: var(--ok-bg); font-size: 13.5px; line-height: 1.5; color: var(--ink-soft); animation: ws-fade 200ms ease both; }
+.ws-ready > span:nth-child(2) { flex: 1; min-width: 0; }
+.ws-eval-warn { margin: 0; padding: 10px 14px; border-top: 1px solid var(--amber-line); background: var(--amber-soft); font-size: 12.5px; line-height: 1.5; color: var(--amber-deep); }
+
 @media (max-width: 900px) {
   .ws-win { left: 8px !important; right: 8px !important; width: auto !important; top: 56px !important; bottom: 8px !important; transform: none !important; }
   .ws-win:not(.front) { visibility: hidden; }
@@ -427,6 +453,7 @@
   .ws-rev-body { padding-left: 16px; }
 }
 @media (max-width: 640px) {
+  .ws-ready { flex-wrap: wrap; }
   .ws-org, .ws-saved, .ws-engine, .ws-head-right .ws-seg { display: none; }
   .ws-toolbar { padding: 8px 10px; gap: 8px; }
   .ws-stages { margin-left: 0; width: 100%; overflow-x: auto; flex-wrap: nowrap; }

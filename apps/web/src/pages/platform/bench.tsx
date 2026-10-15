@@ -17,6 +17,7 @@ import {
 } from "./data";
 import { conversationFor, rememberConversation, usePlatform, type BenchSummary } from "./store";
 import { Pip } from "./home";
+import { authorsLine, library, sources, type Paper } from "./library-data";
 
 const TABS = [
   ["definicion", "Definición"],
@@ -185,10 +186,25 @@ export function NewBench() {
   // appears beyond them was created by the agent here. Taken at the first
   // message, once the workspace list has loaded.
   const known = useRef<Set<string> | null>(null);
+  // Started from a paper in the library (/app/nuevo?paper=<id>): the app adds
+  // it to the benchmark as soon as the agent creates the folder.
+  const paperId = useMemo(() => {
+    const id = Number(new URLSearchParams(window.location.search).get("paper"));
+    return Number.isSafeInteger(id) && id > 0 ? id : null;
+  }, []);
+  const [paper, setPaper] = useState<Paper | null>(null);
+  useEffect(() => {
+    if (paperId) void library.paper(paperId).then(setPaper, () => {});
+  }, [paperId]);
 
   const send = (text: string) => {
+    const first = !known.current;
     if (!known.current) known.current = new Set(benches.map((b) => b.slug));
-    void chat.send(text).then(afterTurn, () => {});
+    const message =
+      first && paper
+        ? `${text}\n\n(Paper de partida, que la app agrega al benchmark apenas crees la carpeta: «${paper.title}», conicet-${paper.id}.)`
+        : text;
+    void chat.send(message).then(afterTurn, () => {});
   };
   const afterTurn = useCallback(async () => {
     await refresh();
@@ -201,9 +217,11 @@ export function NewBench() {
     if (created) {
       rememberConversation(created.slug, chat.convId);
       rememberConversation("new", null);
-      navigate(`/app/b/${encodeURIComponent(created.slug)}/autoria`);
+      const open = () => navigate(`/app/b/${encodeURIComponent(created.slug)}/autoria`);
+      if (paperId) void sources.add(created.slug, paperId).then(open, open);
+      else open();
     }
-  }, [benches, chat.convId, chat.pending, navigate]);
+  }, [benches, chat.convId, chat.pending, navigate, paperId]);
 
   return (
     <div className="bp-bench">
@@ -221,6 +239,14 @@ export function NewBench() {
                 Contale al agente qué sabe tu campo que los modelos deberían saber. Diseña el programa, los pesos y el examen
                 con vos, y valida todo con el motor.
               </p>
+              {paper && (
+                <div className="bp-start-paper">
+                  <span className="eyebrow">Paper de partida</span>
+                  <span className="t">{paper.title}</span>
+                  <span className="body">{authorsLine(paper.creators, 3)}{paper.year ? ` · ${paper.year}` : ""}</span>
+                  <span className="muted">Se agrega al benchmark apenas el agente lo cree; las preguntas salen de él.</span>
+                </div>
+              )}
             </div>
           ) : (
             <Thread chat={chat} onAnswered={afterTurn} />

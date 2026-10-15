@@ -14,6 +14,7 @@ import {
   type Review,
 } from "./exam-model";
 import type { BenchSummary } from "./store";
+import { parseSources, type Source } from "./library-data";
 
 // One benchmark's files, loaded and kept in sync for the workspace window:
 // edits apply locally at once and are saved shortly after, never over a
@@ -43,6 +44,7 @@ export function useExam(bench: BenchSummary | undefined) {
   const [rows, setRows] = useState<Versioned<(ExamRow | { raw: string })[]>>({ value: [] });
   const [meta, setMeta] = useState<Versioned<QuestionMeta[]>>({ value: [] });
   const [review, setReview] = useState<Review | null>(null);
+  const [sources, setSources] = useState<Source[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [save, setSave] = useState<SaveState>("idle");
@@ -69,11 +71,13 @@ export function useExam(bench: BenchSummary | undefined) {
         .files()
         .then((r) => new Set(r.files.map((f) => f.path)))
         .catch(() => null);
-      const [e, m, r] = await Promise.all([
+      const [e, m, r, src] = await Promise.all([
         readOptional(ePath, known),
         readOptional(`${bench.slug}/questions.json`, known),
         readOptional(`${bench.slug}/review.json`, known),
+        readOptional(`${bench.slug}/sources.json`, known),
       ]);
+      setSources(parseSources(src?.content));
       setYaml({ value: y.content, modified: y.modified });
       setRows({ value: e ? parseExam(e.content) : [], modified: e?.modified });
       setMeta({ value: parseMeta(m?.content), modified: m?.modified });
@@ -196,6 +200,8 @@ export function useExam(bench: BenchSummary | undefined) {
     meta: meta.value,
     review,
     questions,
+    /** The benchmark's papers (sources.json). */
+    sources,
     examPath,
     reload,
     update,

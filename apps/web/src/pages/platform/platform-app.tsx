@@ -5,6 +5,7 @@ import Home from "./home";
 import BenchPage, { NewBench } from "./bench";
 import Account from "./account";
 import Workspace from "./workspace";
+import LibraryPage from "./library";
 import "./platform.css";
 
 // /app — the platform. Routes:
@@ -12,6 +13,8 @@ import "./platform.css";
 //   /app/nuevo              a new benchmark, started with the agent
 //   /app/b/:slug/:stage?    one benchmark as two windows, A · Interfaz and
 //                           B · Agente (autoria|revision|evaluacion|publicacion)
+//   /app/biblioteca         the paper library (CONICET Digital): search, read,
+//                           add a paper to a benchmark
 //   /app/cuenta             account
 //   /app/v1/b/:slug/:tab?   the previous benchmark view (tabs), kept while the
 //                           new one settles
@@ -34,8 +37,9 @@ function Shell() {
   const [, benchParams] = useRoute("/app/v1/b/:slug/:tab?");
   const [isNew] = useRoute("/app/nuevo");
   const [isAccount] = useRoute("/app/cuenta");
+  const [isLibrary] = useRoute("/app/biblioteca");
   const activeSlug = benchParams?.slug ? decodeURIComponent(benchParams.slug) : null;
-  const isHome = !activeSlug && !isNew && !isAccount;
+  const isHome = !activeSlug && !isNew && !isAccount && !isLibrary;
 
   return (
     <div className="bp">
@@ -50,7 +54,10 @@ function Shell() {
         </Link>
         {me?.org && <span className="bp-org">{me.org.name}</span>}
         <div className="bp-top-right">
-          <Link href="/app/chat" className="bp-viewswitch" title="Vista anterior: chat y archivos">
+          <Link href="/app/biblioteca" className={`bp-viewswitch${isLibrary ? " on" : ""}`}>
+            Biblioteca
+          </Link>
+          <Link href="/app/chat" className="bp-viewswitch legacy" title="Vista anterior: chat y archivos">
             Vista chat
           </Link>
           <span className="bp-email">{me?.user.email}</span>
@@ -76,6 +83,9 @@ function Shell() {
           <button className={`bp-nav${isHome ? " on" : ""}`} onClick={() => navigate("/app")}>
             <span>Todos los benchmarks</span>
           </button>
+          <button className={`bp-nav${isLibrary ? " on" : ""}`} onClick={() => navigate("/app/biblioteca")}>
+            <span>Biblioteca de papers</span>
+          </button>
           <p className="eyebrow">Tu organización</p>
           {benches.map((b) => (
             <button
@@ -92,7 +102,17 @@ function Shell() {
         </aside>
 
         <main className="bp-main" key={location.split("/").slice(0, 4).join("/")}>
-          {isAccount ? <Account /> : isNew ? <NewBench /> : activeSlug ? <BenchPage slug={activeSlug} tab={benchParams?.tab} /> : <Home />}
+          {isAccount ? (
+            <Account />
+          ) : isLibrary ? (
+            <LibraryPage />
+          ) : isNew ? (
+            <NewBench />
+          ) : activeSlug ? (
+            <BenchPage slug={activeSlug} tab={benchParams?.tab} />
+          ) : (
+            <Home />
+          )}
         </main>
       </div>
     </div>
