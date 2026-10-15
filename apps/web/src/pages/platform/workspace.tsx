@@ -818,6 +818,7 @@ function QuestionEditor({
   const writer = !agent && q.meta.by && q.meta.by !== "vos" ? q.meta.by : null;
   return (
     <div className="ws-twocol">
+      {/* The question and, right below it, its answer: read one, write the other. */}
       <div className="ws-col">
         <div className="ws-col-head">
           <span className="ws-eyebrow">Pregunta {q.num}</span>
@@ -826,14 +827,33 @@ function QuestionEditor({
           ))}
           {q.status === "new" && <span className="ws-flag amber">propuesta del agente · revisala</span>}
           {q.stale && <span className="ws-flag">editada · vuelve a revisión</span>}
+          {q.status === "done" && (
+            <span className="ws-flag ok" title={q.meta.approved_at ? new Date(q.meta.approved_at).toLocaleString("es-AR") : undefined}>
+              ● aprobada{q.meta.approved_by ? ` por ${q.meta.approved_by}` : ""}
+            </span>
+          )}
         </div>
         <div className="ws-card ws-qcard">
           <AutoText className="big" value={q.text} onChange={(v) => edit("text", v)} label="Texto de la pregunta" disabled={locked} placeholder="Escribí la pregunta…" />
-          <div className="ws-sep">
-            <p className="ws-eyebrow">Por qué esta pregunta</p>
-            <AutoText className="soft" value={q.meta.why ?? ""} onChange={(v) => edit("why", v)} label="Por qué esta pregunta" disabled={locked} placeholder="Qué error de los modelos busca exponer…" />
+          <div className="ws-sep ws-answer">
+            <p className="ws-eyebrow">Respuesta experta</p>
+            <AutoText className="answer" value={q.answer} onChange={(v) => edit("answer", v)} label="Respuesta experta" disabled={locked} placeholder="La respuesta contra la que el juez compara…" />
           </div>
-          <div>
+          <div className="ws-byline">
+            <span className="av">{agent ? "[·]" : (writer ?? "Vos").slice(0, 1).toUpperCase()}</span>
+            <span>{agent ? "Propuesta del agente" : writer ? `Escrita por ${writer}` : "Escrita en la interfaz"}</span>
+          </div>
+        </div>
+      </div>
+
+      {/* Why it is asked, where it comes from, and what the grader checks. */}
+      <div className="ws-col">
+        <div className="ws-col-head">
+          <span className="ws-eyebrow">Por qué esta pregunta</span>
+        </div>
+        <div className="ws-card ws-pad ws-why">
+          <AutoText className="soft" value={q.meta.why ?? ""} onChange={(v) => edit("why", v)} label="Por qué esta pregunta" disabled={locked} placeholder="Qué error de los modelos busca exponer…" />
+          <div className="ws-sep">
             <p className="ws-eyebrow">Fuentes</p>
             {(q.meta.sources ?? []).length ? (
               <div className="ws-sources">
@@ -868,28 +888,8 @@ function QuestionEditor({
               <p className="ws-note">{papers.length ? "Sin fuentes. Pedile al agente que cite el paper y la página." : "Sin fuentes. Agregá papers al benchmark para que el agente cite de dónde sale cada pregunta."}</p>
             )}
           </div>
-          <div className="ws-byline">
-            <span className="av">{agent ? "[·]" : (writer ?? "Vos").slice(0, 1).toUpperCase()}</span>
-            <span>{agent ? "Propuesta del agente" : writer ? `Escrita por ${writer}` : "Escrita en la interfaz"}</span>
-          </div>
         </div>
-      </div>
-
-      <div className="ws-col">
-        <div className="ws-col-head">
-          <span className="ws-eyebrow">Respuesta de referencia</span>
-          {q.status === "done" && (
-            <span className="ws-flag ok" title={q.meta.approved_at ? new Date(q.meta.approved_at).toLocaleString("es-AR") : undefined}>
-              ● aprobada{q.meta.approved_by ? ` por ${q.meta.approved_by}` : ""}
-            </span>
-          )}
-        </div>
-        <div className="ws-card">
-          <div className="ws-pad ws-bb">
-            <p className="ws-eyebrow">Respuesta experta</p>
-            <AutoText className="answer" value={q.answer} onChange={(v) => edit("answer", v)} label="Respuesta experta" disabled={locked} placeholder="La respuesta contra la que el juez compara…" />
-          </div>
-          <div className="ws-pad ws-rubric-mini">
+        <div className="ws-card ws-pad ws-rubric-mini">
             <div className="ws-eyebrow-row">
               <span>Rúbrica · {criteria.length} criterios</span>
               <button className="ws-link" onClick={onRubric}>configurar ↗</button>
@@ -911,7 +911,6 @@ function QuestionEditor({
               → en el motor: un campo answer juzgado con {criteria.length} criterios · pesos {criteria.map((c) => c.weight).join(" / ")} · {total} filas en exam.jsonl
             </p>
           </div>
-        </div>
       </div>
     </div>
   );

@@ -195,6 +195,8 @@
 .ws-col-head .ws-eyebrow { margin: 0 !important; }
 .ws-qcard { padding: 18px 20px; display: flex; flex-direction: column; gap: 18px; }
 .ws-sep { border-top: 1px solid var(--line-soft); padding-top: 14px; }
+.ws-answer .ws-eyebrow { margin-bottom: 6px !important; }
+.ws-why { display: flex; flex-direction: column; gap: 14px; }
 .ws-edit { display: block; border: 1px solid transparent; border-radius: 8px; background: transparent; resize: none; margin: -6px -8px; padding: 6px 8px; width: calc(100% + 16px); outline: none; overflow: hidden; transition: border-color 150ms ease, background-color 150ms ease; color: var(--ink); }
 .ws-edit:hover:not([readonly]) { border-color: var(--line-soft); }
 .ws-edit:focus:not([readonly]) { border-color: var(--ink-soft); background: var(--paper-2); }
