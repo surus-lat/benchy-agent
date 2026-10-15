@@ -80,13 +80,17 @@ function fold(text: string): string {
  * authors as one text, so "Chávez Martín" also finds a paper by Martín X and
  * Chávez Y; those go after the papers by Chávez, Martín.
  */
-export function byThatAuthor(creators: string[], author: string): boolean {
+export function byThatAuthor(creators: string[], author: string): 0 | 1 | 2 {
   const wanted = terms(fold(author));
-  if (!wanted.length) return false;
-  return creators.some((c) => {
+  if (!wanted.length) return 0;
+  let best: 0 | 1 | 2 = 0;
+  for (const c of creators) {
     const words = terms(fold(c));
-    return wanted.every((w) => words.some((x) => (w.length >= 3 ? x.startsWith(w) : x === w)));
-  });
+    // 2: every word is one of theirs (Martín); 1: a start of one (Martínez).
+    if (wanted.every((w) => words.includes(w))) return 2;
+    if (wanted.every((w) => words.some((x) => (w.length >= 3 ? x.startsWith(w) : x === w)))) best = 1;
+  }
+  return best;
 }
 
 function terms(text: string): string[] {
@@ -202,9 +206,9 @@ export function createLibraryApp(deps: LibraryDeps) {
     const total = (count.results[0] as { n: number } | undefined)?.n ?? 0;
     let rows = hits.results as Hit[];
     if (author) {
-      const mine = rows.filter((h) => byThatAuthor(list(h.creators), author));
-      const rest = rows.filter((h) => !byThatAuthor(list(h.creators), author));
-      rows = [...mine, ...rest].slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE);
+      // A stable sort keeps the FTS rank within each tier.
+      const tier = new Map(rows.map((h) => [h.id, byThatAuthor(list(h.creators), author)]));
+      rows = [...rows].sort((a, b) => tier.get(b.id)! - tier.get(a.id)!).slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE);
     }
     return c.json({
       // With the PDF filter the count stops at COUNT_CAP: "more than 1.000".

@@ -59,11 +59,12 @@ it("turns what a researcher types into a quoted FTS query, never raw syntax", ()
 });
 
 it("puts the papers of the author typed before papers by two people with those names", () => {
-  expect(byThatAuthor(["Chavez, Martín Nicolás"], "Chávez Martín")).toBe(true);
-  expect(byThatAuthor(["Misischia Bibiana", "Chavez, Martín Nicolás"], "martin chavez")).toBe(true);
-  expect(byThatAuthor(["Martin, Gabriel Mario", "González Chávez, Baltazar"], "Chávez Martín")).toBe(false);
-  expect(byThatAuthor(["Nuñez, Paula Gabriela"], "nunez")).toBe(true);
-  expect(byThatAuthor(["Nuñez, Paula Gabriela"], "")).toBe(false);
+  expect(byThatAuthor(["Chavez, Martín Nicolás"], "Chávez Martín")).toBe(2);
+  expect(byThatAuthor(["Misischia Bibiana", "Chavez, Martín Nicolás"], "martin chavez")).toBe(2);
+  expect(byThatAuthor(["Martínez Chávez, Ana"], "Chávez Martín")).toBe(1);
+  expect(byThatAuthor(["Martin, Gabriel Mario", "González Chávez, Baltazar"], "Chávez Martín")).toBe(0);
+  expect(byThatAuthor(["Nuñez, Paula Gabriela"], "nunez")).toBe(2);
+  expect(byThatAuthor(["Nuñez, Paula Gabriela"], "")).toBe(0);
 });
 
 it("searches signed-in only, ignoring accents, by words, authors and PDF", async () => {
