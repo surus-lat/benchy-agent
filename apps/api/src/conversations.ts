@@ -4,6 +4,7 @@ import { and, asc, desc, eq, isNull, lt, or, sql } from "drizzle-orm";
 import type { DrizzleD1Database } from "drizzle-orm/d1";
 import { schema } from "@benchy/db";
 import { HermesError, type HermesClient } from "./hermes";
+import type { Paper } from "./library";
 
 // Browser ↔ Worker routes for talking to the org's agent. Every route is
 // authenticated; conversations are per-user (read with userId, never orgId);
@@ -18,7 +19,14 @@ export type ConversationsDeps = {
   currentUser: (request: Request) => Promise<CurrentUser | null>;
   /** The org's Hermes, or null when the org has not been provisioned. */
   agentFor: (orgId: string) => Promise<HermesClient | null>;
+  /** A paper from the library, to add to a benchmark. */
+  paper: (id: number) => Promise<Paper | null>;
 };
+
+/** A benchmark is a top-level workspace folder; the container checks it has a benchmark.yaml. */
+const BENCH = /^[^./\\][^/\\]{0,99}$/;
+/** The container accepts up to 25 MB per request. */
+const MAX_PDF_BYTES = 24 * 1024 * 1024;
 
 /** A turn older than this is presumed dead (Worker evicted mid-turn) and its lock is reclaimable. */
 const STALE_TURN_MS = 15 * 60 * 1000;
@@ -264,6 +272,58 @@ export function createConversationsApp(deps: ConversationsDeps) {
     if (!agent) return c.json({ error: "AGENT_NOT_PROVISIONED" }, 503);
     try {
       return c.json(await agent.review(path));
+    } catch (err) {
+      return agentFailure(c, err);
+    }
+  });
+
+  // A benchmark's papers: the sources the agent writes its questions from.
+  // Any org member may add or remove one; the container fetches and keeps the text.
+  app.post("/api/workspace/sources", async (c) => {
+    const body = (await c.req.json().catch(() => null)) as { bench?: unknown; paperId?: unknown } | null;
+    if (typeof body?.bench !== "string" || !BENCH.test(body.bench)) return c.json({ error: "INVALID_BENCH" }, 400);
+    if (typeof body.paperId !== "number" || !Number.isSafeInteger(body.paperId)) return c.json({ error: "INVALID_BODY" }, 400);
+    const paper = await deps.paper(body.paperId);
+    if (!paper) return c.json({ error: "PAPER_NOT_FOUND" }, 404);
+    const agent = await deps.agentFor(c.get("user").orgId);
+    if (!agent) return c.json({ error: "AGENT_NOT_PROVISIONED" }, 503);
+    try {
+      return c.json(await agent.addSource(body.bench, paper));
+    } catch (err) {
+      return agentFailure(c, err);
+    }
+  });
+
+  app.post("/api/workspace/sources/upload", async (c) => {
+    const bench = c.req.query("bench") ?? "";
+    const name = (c.req.query("name") ?? "").trim();
+    if (!BENCH.test(bench)) return c.json({ error: "INVALID_BENCH" }, 400);
+    if (!name || name.length > 200) return c.json({ error: "INVALID_BODY" }, 400);
+    const declared = Number(c.req.header("content-length") ?? 0);
+    if (declared > MAX_PDF_BYTES) return c.json({ error: "TOO_LARGE" }, 413);
+    const pdf = await c.req.arrayBuffer();
+    if (pdf.byteLength > MAX_PDF_BYTES) return c.json({ error: "TOO_LARGE" }, 413);
+    // The header may follow some junk, within the first 1024 bytes (PDF 1.7, 7.5.2).
+    const head = new Uint8Array(pdf, 0, Math.min(1024, pdf.byteLength));
+    if (!String.fromCharCode(...head).includes("%PDF-")) return c.json({ error: "NOT_PDF" }, 415);
+    const agent = await deps.agentFor(c.get("user").orgId);
+    if (!agent) return c.json({ error: "AGENT_NOT_PROVISIONED" }, 503);
+    try {
+      return c.json(await agent.uploadSource(bench, name, pdf));
+    } catch (err) {
+      return agentFailure(c, err);
+    }
+  });
+
+  app.delete("/api/workspace/sources", async (c) => {
+    const bench = c.req.query("bench") ?? "";
+    const id = c.req.query("id") ?? "";
+    if (!BENCH.test(bench)) return c.json({ error: "INVALID_BENCH" }, 400);
+    if (!/^[a-z0-9-]{1,120}$/.test(id)) return c.json({ error: "INVALID_BODY" }, 400);
+    const agent = await deps.agentFor(c.get("user").orgId);
+    if (!agent) return c.json({ error: "AGENT_NOT_PROVISIONED" }, 503);
+    try {
+      return c.json(await agent.removeSource(bench, id));
     } catch (err) {
       return agentFailure(c, err);
     }

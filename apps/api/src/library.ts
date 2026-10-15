@@ -1,0 +1,194 @@
+import { Hono } from "hono";
+
+// The paper library: CONICET Digital's publications (UNRN/ri-conicet), in
+// their own D1 database (schema and import: apps/api/library/). Anyone signed
+// in may search it; the papers are public. Adding one to a benchmark goes
+// through the org's agent (conversations.ts), which fetches the PDF.
+
+export type LibraryUser = { id: string };
+
+export type LibraryDeps = {
+  library: D1Database;
+  currentUser: (request: Request) => Promise<LibraryUser | null>;
+};
+
+export const PAGE_SIZE = 20;
+/** Broad queries rank only their newest matches; ranking 70k rows per keystroke is not worth it. */
+const CANDIDATES = 4000;
+const COUNT_CAP = 1000;
+const DATASET = "https://huggingface.co/datasets/UNRN/ri-conicet/resolve/main/";
+
+export type PaperRow = {
+  id: number;
+  title: string;
+  creators: string;
+  subjects: string;
+  description: string;
+  date: string;
+  year: number | null;
+  type: string;
+  language: string;
+  publisher: string;
+  rights: string;
+  pdf: string | null;
+};
+
+export type Paper = {
+  id: number;
+  title: string;
+  creators: string[];
+  subjects: string[];
+  description: string;
+  date: string;
+  year: number | null;
+  type: string;
+  language: string;
+  publisher: string;
+  rights: string;
+  /** The open-access PDF, served by Hugging Face; null when the paper has none. */
+  pdfUrl: string | null;
+  /** The record in CONICET Digital. */
+  url: string;
+};
+
+// Too common to narrow anything; dropped unless they are all the query has.
+const STOPWORDS = new Set(
+  (
+    "a al and as at by con de del el en for from in is la las los of on or para por the to un una y with " +
+    "e o u da do das dos em no na nos nas le les des du et"
+  ).split(" "),
+);
+
+function terms(text: string): string[] {
+  return (text.normalize("NFC").toLowerCase().match(/[\p{L}\p{N}]+/gu) ?? []).slice(0, 12);
+}
+
+/**
+ * The FTS5 query for a search box and an optional author box, or null if
+ * neither has a usable word. Words are quoted (no FTS syntax gets through);
+ * longer words also match as prefixes (glaciar → glaciares).
+ */
+export function ftsQuery(q: string, author = ""): string | null {
+  const words = terms(q);
+  const useful = words.filter((w) => !STOPWORDS.has(w));
+  const parts = (useful.length ? useful : words).slice(0, 8).map((w) => (w.length >= 4 ? `"${w}"*` : `"${w}"`));
+  const names = terms(author)
+    .slice(0, 6)
+    .map((w) => (w.length >= 3 ? `"${w}"*` : `"${w}"`));
+  if (names.length) parts.push(`creators : (${names.join(" AND ")})`);
+  // Explicit AND: FTS5 rejects an implicit one before a column filter.
+  return parts.length ? parts.join(" AND ") : null;
+}
+
+function list(json: string): string[] {
+  try {
+    const v = JSON.parse(json) as unknown;
+    return Array.isArray(v) ? v.filter((x): x is string => typeof x === "string") : [];
+  } catch {
+    return [];
+  }
+}
+
+export function toPaper(r: PaperRow): Paper {
+  return {
+    id: r.id,
+    title: r.title,
+    creators: list(r.creators),
+    subjects: list(r.subjects),
+    description: r.description,
+    date: r.date,
+    year: r.year,
+    type: r.type,
+    language: r.language,
+    publisher: r.publisher,
+    rights: r.rights,
+    pdfUrl: r.pdf && /^papers\/\d{3}\/\d+\.pdf$/.test(r.pdf) ? DATASET + r.pdf : null,
+    url: `https://ri.conicet.gov.ar/handle/11336/${r.id}`,
+  };
+}
+
+/** One paper, or null. Shared with the route that adds a paper to a benchmark. */
+export async function getPaper(library: D1Database, id: number): Promise<Paper | null> {
+  const row = await library.prepare("SELECT * FROM papers WHERE id = ?").bind(id).first<PaperRow>();
+  return row ? toPaper(row) : null;
+}
+
+export function createLibraryApp(deps: LibraryDeps) {
+  const app = new Hono();
+
+  app.use("/api/library/*", async (c, next) => {
+    if (!(await deps.currentUser(c.req.raw))) return c.json({ error: "UNAUTHENTICATED" }, 401);
+    await next();
+  });
+
+  app.get("/api/library/search", async (c) => {
+    const match = ftsQuery(c.req.query("q") ?? "", c.req.query("author") ?? "");
+    if (!match) return c.json({ error: "EMPTY_QUERY" }, 400);
+    const pdfOnly = c.req.query("pdf") === "1" ? 1 : 0;
+    const page = Math.max(0, Math.min(Number.parseInt(c.req.query("page") ?? "0", 10) || 0, CANDIDATES / PAGE_SIZE - 1));
+
+    // Rank the newest matches, then keep those with a PDF if asked: a join
+    // inside the ranking makes broad queries several times slower.
+    const [hits, count] = await deps.library.batch([
+      deps.library
+        .prepare(
+          `WITH hits AS (
+             SELECT rowid AS id, bm25(papers_fts, 10.0, 6.0, 3.0, 1.0) AS score
+             FROM papers_fts WHERE papers_fts MATCH ?1
+             ORDER BY rowid DESC LIMIT ${CANDIDATES}
+           )
+           SELECT p.id, p.title, p.creators, p.year, p.type, p.language, p.pdf IS NOT NULL AS has_pdf,
+                  substr(p.description, 1, 320) AS excerpt
+           FROM hits JOIN papers p ON p.id = hits.id
+           WHERE ?2 = 0 OR p.pdf IS NOT NULL
+           ORDER BY hits.score LIMIT ?3 OFFSET ?4`,
+        )
+        .bind(match, pdfOnly, PAGE_SIZE, page * PAGE_SIZE),
+      pdfOnly
+        ? deps.library
+            .prepare(
+              `SELECT count(*) AS n FROM (
+                 SELECT 1 FROM papers_fts f JOIN papers p ON p.id = f.rowid
+                 WHERE papers_fts MATCH ?1 AND p.pdf IS NOT NULL LIMIT ${COUNT_CAP + 1}
+               )`,
+            )
+            .bind(match)
+        : deps.library.prepare("SELECT count(*) AS n FROM papers_fts WHERE papers_fts MATCH ?1").bind(match),
+    ]);
+    type Hit = { id: number; title: string; creators: string; year: number | null; type: string; language: string; has_pdf: number; excerpt: string };
+    const total = (count.results[0] as { n: number } | undefined)?.n ?? 0;
+    return c.json({
+      // With the PDF filter the count stops at COUNT_CAP: "more than 1.000".
+      total: pdfOnly ? Math.min(total, COUNT_CAP) : total,
+      more: pdfOnly === 1 && total > COUNT_CAP,
+      page,
+      pageSize: PAGE_SIZE,
+      papers: (hits.results as Hit[]).map((h) => ({
+        id: h.id,
+        title: h.title,
+        creators: list(h.creators),
+        year: h.year,
+        type: h.type,
+        language: h.language,
+        hasPdf: h.has_pdf === 1,
+        excerpt: h.excerpt,
+      })),
+    });
+  });
+
+  // How big the library is and how fresh, as of its last import (no table scan).
+  app.get("/api/library/stats", async (c) => {
+    const { results } = await deps.library.prepare("SELECT key, value FROM library_meta").all<{ key: string; value: string }>();
+    const meta = new Map(results.map((r) => [r.key, r.value]));
+    return c.json({ papers: Number(meta.get("papers") ?? 0), withPdf: Number(meta.get("with_pdf") ?? 0), snapshot: meta.get("snapshot") ?? null });
+  });
+
+  app.get("/api/library/papers/:id", async (c) => {
+    const id = Number(c.req.param("id"));
+    if (!Number.isSafeInteger(id) || id <= 0) return c.json({ error: "NOT_FOUND" }, 404);
+    const paper = await getPaper(deps.library, id);
+    return paper ? c.json(paper) : c.json({ error: "NOT_FOUND" }, 404);
+  });
+
+  return app;
+}

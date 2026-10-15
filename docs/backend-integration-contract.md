@@ -9,18 +9,20 @@ first organization (SURUS). Read "As built" below first — it supersedes the
 plan-era sections it names. The rest of this document is the reasoning and
 the reference behind it; where the two disagree, "As built" and the code win.
 
-## As built (2026-10-12)
+## As built (2026-10-15)
 
 **Stack.** Cloudflare (Pages + Worker `benchy-api` + D1) for the web tier and
 every authorization decision; **one Hermes container per organization on
 Railway**; **inference on AWS Bedrock only** — Together AI was dropped.
 
 ```
-browser ──► getbenchy.lat (Pages) ──/api/*──► Worker benchy-api ──► D1
-                                                   │  (session → user → orgId → orgAgentEndpoints)
+browser ──► getbenchy.lat (Pages) ──/api/*──► Worker benchy-api ──► D1 benchy-db
+                                                   │  │                (session → user → orgId → orgAgentEndpoints)
+                                                   │  └──► D1 benchy-library (CONICET Digital, full-text search)
                                                    ▼  Bearer AGENT_KEY_<ORG>
                          agent-<org>-production.up.railway.app :8080
-                           benchy_proxy.py ── /benchy/* (workspace, engine checks, edits, review)
+                           benchy_proxy.py ── /benchy/* (workspace, engine checks, edits, review, papers)
+                                 │                  papers: PDF from huggingface.co (UNRN/ri-conicet) → text
                                  └──────────► Hermes API server 127.0.0.1:8642
                                                  ├─ Bedrock (Kimi K3)      the agent's own model
                                                  └─ MCP stdio: benchy_mcp.py ─► benchy engine ─► Bedrock
@@ -31,14 +33,16 @@ browser ──► getbenchy.lat (Pages) ──/api/*──► Worker benchy-api 
 | Piece | Where | Notes |
 |---|---|---|
 | Agent image | `apps/agent/` | Unmodified Hermes v0.21.7, pinned by digest. Configured, not patched. |
-| Engine | `surus-lat/benchy` at a pinned commit, installed into Hermes's venv | Exposed only as the MCP server `apps/agent/mcp/benchy_mcp.py`; paths confined to `/opt/data/workspace`. |
+| Engine | `surus-lat/benchy` main at a pinned commit (`BENCHY_ENGINE_REF`), installed into Hermes's venv | Exposed only as the MCP server `apps/agent/mcp/benchy_mcp.py`; paths confined to `/opt/data/workspace`. |
 | Engine transport | `surus-lat/llm-client` (private) | Vendored as a wheel by `apps/agent/prepare-vendor.sh`; never committed (this repo is public). |
 | Core skills | `apps/agent/skills/benchy-*` | Root-owned, read-only in the image (`skills.external_dirs`). `.github/CODEOWNERS` gates the path. |
 | Pinned config | `apps/agent/config.yaml`, `SOUL.md` | Copied over `$HERMES_HOME` on every boot by `rootfs/etc/cont-init.d/03-benchy-setup`. |
 | Public port | `apps/agent/proxy/benchy_proxy.py` (s6 longrun) | Only thing on `0.0.0.0`; Hermes listens on loopback. Same bearer key for both. |
-| Worker routes | `apps/api/src/conversations.ts`, `hermes.ts` | `/api/conversations*`, `/api/workspace/{files,file,validate,exam}`, `PUT /api/workspace/file`, `POST /api/workspace/review`, `/api/models`, `/api/me`, all authenticated. Writes are limited to benchmark text files inside a benchmark folder (never `runs/`), and refused with 409 `CONFLICT` if the file changed after the caller read it. |
+| Worker routes | `apps/api/src/conversations.ts`, `hermes.ts` | `/api/conversations*`, `/api/workspace/{files,file,validate,exam}`, `PUT /api/workspace/file`, `POST /api/workspace/review`, `POST/DELETE /api/workspace/sources`, `POST /api/workspace/sources/upload`, `/api/models`, `/api/me`, all authenticated. Writes are limited to benchmark text files inside a benchmark folder (never `runs/`), and refused with 409 `CONFLICT` if the file changed after the caller read it. |
+| Paper library | `apps/api/src/library.ts`, `apps/api/library/` | D1 `benchy-library`: CONICET Digital's 263k publications from the `UNRN/ri-conicet` dataset (SURUS + CITA-UNRN), FTS5 over title, authors, subjects and abstract. `GET /api/library/{search,papers/:id,stats}` for anyone signed in. Refresh: `uv run --with duckdb apps/api/library/build.py metadata.parquet out.sql [--since <ISO>]`, then `wrangler d1 execute benchy-library --remote --file out.sql` (a full import is ~10,600 statements, under 2 minutes). |
+| A benchmark's papers | `apps/agent/mcp/benchy_sources.py` | `<slug>/sources.json` plus `<slug>/sources/<id>.md`: metadata, abstract and the PDF's text with `[p. N]` markers (pypdfium2), written by the container when the app adds a library paper (it fetches the open PDF from Hugging Face) or an uploaded PDF. No open PDF, or a scan: the abstract only. The agent writes questions from them and cites `<id> p. N` in `questions.json`. |
 | Tables | `packages/db` migration `0002` | `orgAgentEndpoints`, `conversations`, `conversationMessages`. |
-| UI | `apps/web/src/pages/platform/` | `/app`: benchmarks home; `/app/b/:slug/:stage` one benchmark as two windows, A · Interfaz (autoría, revisión, evaluación, publicación) and B · Agente, ⌘J swaps them (`workspace.tsx`, design "Plataforma AB v3"); `/app/nuevo`, `/app/cuenta`; `/app/v1/b/:slug/:tab` keeps the previous tabbed view and `/app/chat` the first chat + files view. |
+| UI | `apps/web/src/pages/platform/` | `/app`: benchmarks home; `/app/b/:slug/:stage` one benchmark as two windows, A · Interfaz (autoría, revisión, evaluación, publicación) and B · Agente, ⌘J swaps them (`workspace.tsx`, design "Plataforma AB v3"); `/app/biblioteca` the paper library (`library.tsx`), also inside each benchmark as its Papers drawer; `/app/nuevo` (`?paper=<id>` starts from a library paper), `/app/cuenta`; `/app/v1/b/:slug/:tab` keeps the previous tabbed view and `/app/chat` the first chat + files view. An exam is "listo" when it compiles and every question has the grader's review of its current text and the researcher's approval. |
 
 **Models.** The agent itself runs on `us.moonshotai.kimi-k3` (only invocable
 through that inference profile). Benchmarks may name, as
@@ -84,8 +88,7 @@ workspace on the volume and are visible to every member of the org.
 
 **Known limits, deliberately not solved yet.**
 - **Open questions are graded by a model.** The engine's `answer` task
-  (ontology 1.1, surus-lat/benchy branch `design/rubric-qa`, pinned by commit
-  until it merges) grades each answer against the expert answer with the
+  (ontology 1.1, merged into surus-lat/benchy main) grades each answer against the expert answer with the
   benchmark's rubric; the grader is `scoring.grader`, Kimi K3 on Bedrock. A
   run costs one model call plus two grader calls per question. The app's
   editors expect binary criteria (`levels {0, 1}`) weighted 1–5 and per-question
@@ -94,7 +97,12 @@ workspace on the volume and are visible to every member of the org.
   `<slug>/review.json`. Nobody has yet checked the grader against a professor.
 - **Publication is a preview.** The Publicación stage shows the public card
   and the checks, but publishing, versions, the downloadable package and DOIs
-  have no backend yet. Likewise the batch dialog's paper library.
+  have no backend yet. What "listo para publicar" means is still to be decided.
+- **The library is CONICET's open repository only.** 52% of its records have
+  no open PDF (the agent then has only the abstract; researchers can upload
+  the PDF). Search is lexical (FTS5); the dataset's embeddings cover too few
+  papers for semantic search yet. The agent cannot search the library itself:
+  papers are added from the app.
 - **Turns are synchronous.** A very long benchmark run could hit the 14-minute
   turn timeout; results still land in `runs/`. Streaming
   (`/chat/stream`) or async runs are the next step if that bites.

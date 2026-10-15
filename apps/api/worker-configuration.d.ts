@@ -3,6 +3,7 @@
 // Runtime types generated with workerd@1.20260917.1 2026-09-17 nodejs_compat
 interface __BaseEnv_Env {
 	DB: D1Database;
+	LIBRARY: D1Database;
 	EMAIL: SendEmail;
 	BETTER_AUTH_URL: "https://getbenchy.lat";
 	EMAIL_FROM: "auth@getbenchy.lat";

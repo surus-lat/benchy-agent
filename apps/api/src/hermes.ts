@@ -1,6 +1,8 @@
 // Client for one org's Hermes API server (apps/agent, on Railway). The Worker
 // is its only caller: the browser never sees a Hermes URL, session id or key.
 
+import type { Paper } from "./library";
+
 export type HermesTurn = { reply: string; usage: unknown };
 export type WorkspaceFile = { path: string; size: number; modified: number };
 export type WorkspaceFileContent = WorkspaceFile & { truncated: boolean; content: string };
@@ -24,7 +26,32 @@ export interface HermesClient {
   writeFile(path: string, content: string, baseModified?: number): Promise<WriteResult>;
   /** Grade a rubric benchmark's expert answers with its grader (writes review.json). */
   review(path: string): Promise<unknown>;
+  /** Add a library paper to a benchmark: the container fetches its PDF and keeps the text. */
+  addSource(bench: string, paper: Paper): Promise<SourceResult>;
+  /** Add a PDF the researcher uploaded to a benchmark. */
+  uploadSource(bench: string, filename: string, pdf: ArrayBuffer): Promise<SourceResult>;
+  /** Take a paper out of a benchmark (questions that cite it keep the citation). */
+  removeSource(bench: string, id: string): Promise<{ ok: boolean }>;
 }
+
+/** A paper in a benchmark, as the container lists it in <bench>/sources.json. */
+export type Source = {
+  id: string;
+  origin: "conicet" | "upload";
+  title: string;
+  authors: string[];
+  year: number | null;
+  url: string | null;
+  pdf_url: string | null;
+  file: string;
+  pages: number;
+  chars: number;
+  /** "abstract" when there was no PDF or no text in it: only the abstract is kept. */
+  text: "full" | "abstract";
+  added: number;
+};
+
+export type SourceResult = { ok: true; source: Source } | { ok: false; error: { code: string; message: string } };
 
 export type WriteResult =
   | { status: "ok"; path: string; modified: number }
@@ -44,6 +71,8 @@ export class HermesError extends Error {
 /** A turn may run a whole benchmark (one model call per exam row). */
 const TURN_TIMEOUT_MS = 14 * 60 * 1000;
 const SESSION_TIMEOUT_MS = 30 * 1000;
+/** Fetching a PDF and extracting its text. */
+const SOURCE_TIMEOUT_MS = 2 * 60 * 1000;
 
 export function hermesClient(baseUrl: string, apiKey: string): HermesClient {
   const root = baseUrl.replace(/\/+$/, "");
@@ -87,6 +116,17 @@ export function hermesClient(baseUrl: string, apiKey: string): HermesClient {
   async function json(res: Response): Promise<unknown> {
     if (!res.ok) throw new HermesError(`agent returned ${res.status}`, 502);
     return res.json();
+  }
+
+  async function send(method: string, path: string, init: { body?: BodyInit; type?: string }, timeoutMs: number): Promise<Response> {
+    const headers: Record<string, string> = { authorization: `Bearer ${apiKey}` };
+    if (init.type) headers["content-type"] = init.type;
+    try {
+      return await fetch(root + path, { method, headers, body: init.body, signal: AbortSignal.timeout(timeoutMs) });
+    } catch (err) {
+      const timedOut = err instanceof Error && err.name === "TimeoutError";
+      throw new HermesError(timedOut ? "agent timed out" : "agent unreachable", timedOut ? 504 : 502);
+    }
   }
 
   return {
@@ -141,6 +181,19 @@ export function hermesClient(baseUrl: string, apiKey: string): HermesClient {
         throw new HermesError(timedOut ? "agent timed out" : "agent unreachable", timedOut ? 504 : 502);
       }
       return json(res);
+    },
+    async addSource(bench, paper) {
+      const res = await send("POST", "/benchy/sources", { body: JSON.stringify({ bench, paper }), type: "application/json" }, SOURCE_TIMEOUT_MS);
+      return (await json(res)) as SourceResult;
+    },
+    async uploadSource(bench, filename, pdf) {
+      const q = `bench=${encodeURIComponent(bench)}&name=${encodeURIComponent(filename)}`;
+      const res = await send("POST", `/benchy/sources/upload?${q}`, { body: pdf, type: "application/pdf" }, SOURCE_TIMEOUT_MS);
+      return (await json(res)) as SourceResult;
+    },
+    async removeSource(bench, id) {
+      const res = await send("DELETE", `/benchy/sources?bench=${encodeURIComponent(bench)}&id=${encodeURIComponent(id)}`, {}, SESSION_TIMEOUT_MS);
+      return (await json(res)) as { ok: boolean };
     },
     async createSession(userId) {
       const data = await call("/api/sessions", userId, {}, SESSION_TIMEOUT_MS);

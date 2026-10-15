@@ -5,6 +5,7 @@ import { auth } from "./auth";
 import { db } from "./db";
 import { createAccessRequestsApp } from "./access-requests";
 import { createConversationsApp } from "./conversations";
+import { createLibraryApp, getPaper } from "./library";
 import { hermesClient } from "./hermes";
 import { enabledProviders } from "./social-providers";
 import { eq } from "drizzle-orm";
@@ -37,17 +38,23 @@ app.route(
   }),
 );
 
+async function currentUser(request: Request) {
+  const session = await auth.api.getSession({ headers: request.headers });
+  if (!session) return null;
+  const u = session.user as { id: string; name?: string; email: string; orgId?: string | null };
+  return { id: u.id, name: u.name ?? "", email: u.email, orgId: u.orgId ?? null };
+}
+
+// The paper library (CONICET Digital), for anyone signed in.
+app.route("/", createLibraryApp({ library: env.LIBRARY, currentUser }));
+
 // The researcher's conversations with their org's agent (one Hermes per org).
 app.route(
   "/",
   createConversationsApp({
     db,
-    async currentUser(request) {
-      const session = await auth.api.getSession({ headers: request.headers });
-      if (!session) return null;
-      const u = session.user as { id: string; name?: string; email: string; orgId?: string | null };
-      return { id: u.id, name: u.name ?? "", email: u.email, orgId: u.orgId ?? null };
-    },
+    currentUser,
+    paper: (id) => getPaper(env.LIBRARY, id),
     async agentFor(orgId) {
       const [endpoint] = await db
         .select()

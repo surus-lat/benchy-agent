@@ -14,6 +14,13 @@
       "database_name": "benchy-db",
       "database_id": "20b0613c-7ce4-4131-9c38-e69c524773e1",
       "migrations_dir": "../../packages/db/migrations"
+    },
+    {
+      // The paper library (CONICET Digital), read-only from the Worker.
+      // Built and refreshed with apps/api/library/build.py.
+      "binding": "LIBRARY",
+      "database_name": "benchy-library",
+      "database_id": "b8e87ad8-f756-4afb-bfc3-424ba1e37303"
     }
   ],
   "send_email": [{ "name": "EMAIL" }],

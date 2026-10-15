@@ -5,6 +5,7 @@ import { eq } from "drizzle-orm";
 import { schema } from "@benchy/db";
 import { createConversationsApp, type CurrentUser } from "../src/conversations";
 import { HermesError, type HermesClient } from "../src/hermes";
+import type { Paper } from "../src/library";
 
 // The Worker side of the agent: auth, per-user scoping, org routing from the
 // session, the per-conversation turn lock, and persistence. Hermes is a fake
@@ -58,6 +59,18 @@ function fakeHermes(opts: { fail?: "chat" | "session" } = {}) {
       calls.push({ op: "review", args: [path] });
       return { ok: true, rows: [] };
     },
+    async addSource(bench, paper) {
+      calls.push({ op: "addSource", args: [bench, paper.id] });
+      return { ok: true, source: { id: `conicet-${paper.id}`, origin: "conicet", title: paper.title, authors: paper.creators, year: paper.year, url: paper.url, pdf_url: paper.pdfUrl, file: `sources/conicet-${paper.id}.md`, pages: 3, chars: 900, text: "full", added: 1 } };
+    },
+    async uploadSource(bench, filename, pdf) {
+      calls.push({ op: "uploadSource", args: [bench, filename, pdf.byteLength] });
+      return { ok: false, error: { code: "no_text", message: "sin texto" } };
+    },
+    async removeSource(bench, id) {
+      calls.push({ op: "removeSource", args: [bench, id] });
+      return { ok: true };
+    },
     async readFile(path) {
       calls.push({ op: "readFile", args: [path] });
       return path === "capitales/benchmark.yaml"
@@ -79,8 +92,27 @@ function makeApp(hermes: HermesClient | null, orgsSeen: string[] = []) {
       orgsSeen.push(orgId);
       return hermes;
     },
+    async paper(id) {
+      return id === 179477 ? PAPER : null;
+    },
   });
 }
+
+const PAPER: Paper = {
+  id: 179477,
+  title: "Paisajes mesetarios en Patagonia",
+  creators: ["Cassiodoro, Gisela Eva"],
+  subjects: ["Arqueología"],
+  description: "La disponibilidad de recursos hídricos…",
+  date: "2016-12",
+  year: 2016,
+  type: "article",
+  language: "spa",
+  publisher: "INAPL",
+  rights: "info:eu-repo/semantics/openAccess",
+  pdfUrl: "https://huggingface.co/datasets/UNRN/ri-conicet/resolve/main/papers/089/179477.pdf",
+  url: "https://ri.conicet.gov.ar/handle/11336/179477",
+};
 
 function req(app: ReturnType<typeof makeApp>, method: string, path: string, user?: CurrentUser, body?: unknown) {
   const headers: Record<string, string> = { "content-type": "application/json" };
@@ -261,4 +293,38 @@ it("lets members edit benchmark files and run the answer review, never past a ne
   expect((await req(app, "POST", "/api/workspace/review", ana)).status).toBe(400);
   expect(calls.map((c) => c.op)).toEqual(["writeFile", "writeFile", "writeFile", "review"]);
   expect((await req(makeApp(null), "PUT", "/api/workspace/file", ana, body)).status).toBe(503);
+});
+
+it("adds library papers and uploaded PDFs to a benchmark through the org's agent", async () => {
+  const { client, calls } = fakeHermes();
+  const app = makeApp(client);
+  expect((await req(app, "POST", "/api/workspace/sources", undefined, { bench: "qa", paperId: 179477 })).status).toBe(401);
+  expect((await req(app, "POST", "/api/workspace/sources", orphan, { bench: "qa", paperId: 179477 })).status).toBe(403);
+
+  const added = await req(app, "POST", "/api/workspace/sources", ana, { bench: "qa", paperId: 179477 });
+  expect(await added.json()).toMatchObject({ ok: true, source: { id: "conicet-179477", text: "full" } });
+  expect((await req(app, "POST", "/api/workspace/sources", ana, { bench: "qa", paperId: 1 })).status).toBe(404);
+  for (const bench of ["", "../etc", ".hidden", "a/b"]) {
+    expect((await req(app, "POST", "/api/workspace/sources", ana, { bench, paperId: 179477 })).status).toBe(400);
+  }
+  expect((await req(app, "POST", "/api/workspace/sources", ana, { bench: "qa", paperId: "179477" })).status).toBe(400);
+
+  const upload = (body: BodyInit, query = "bench=qa&name=mi%20paper.pdf") =>
+    app.request(`/api/workspace/sources/upload?${query}`, {
+      method: "POST",
+      headers: { "x-test-user": ana.id, "content-type": "application/pdf" },
+      body,
+    });
+  expect(await (await upload(new TextEncoder().encode("\n%PDF-1.7 rest"))).json()).toMatchObject({ ok: false, error: { code: "no_text" } });
+  expect((await upload(new TextEncoder().encode("<html>"))).status).toBe(415);
+  expect((await upload(new TextEncoder().encode("%PDF-1.7"), "bench=../x&name=a.pdf")).status).toBe(400);
+  expect((await upload(new TextEncoder().encode("%PDF-1.7"), "bench=qa")).status).toBe(400);
+
+  expect(await (await req(app, "DELETE", "/api/workspace/sources?bench=qa&id=conicet-179477", ana)).json()).toEqual({ ok: true });
+  expect((await req(app, "DELETE", "/api/workspace/sources?bench=qa&id=../x", ana)).status).toBe(400);
+  expect(calls).toEqual([
+    { op: "addSource", args: ["qa", 179477] },
+    { op: "uploadSource", args: ["qa", "mi paper.pdf", 14] },
+    { op: "removeSource", args: ["qa", "conicet-179477"] },
+  ]);
 });
