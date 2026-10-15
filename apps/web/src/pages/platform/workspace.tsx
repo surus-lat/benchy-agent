@@ -3,9 +3,9 @@ import { Link, useLocation } from "wouter";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { api, errorText, newestPerModel, REGIONS, splitAsk, type CatalogModel, type Message } from "./data";
-import { useAgentChat, useSelectedModels } from "./bench";
+import { useAgentChat } from "./agent-chat";
 import { usePlatform, type BenchSummary } from "./store";
-import { useExam, useRunResults, type ExamState } from "./use-exam";
+import { useExam, useRunResults, useSelectedModels, type ExamState } from "./use-exam";
 import {
   byAgent,
   criterionMet,

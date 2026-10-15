@@ -35,7 +35,8 @@ const benchSchema = z.string().regex(BENCH);
 
 const createSchema = z.object({
   title: z.string().trim().min(1).max(200).optional(),
-  /** The benchmark this conversation is about ("new" while one is being created). */
+  /** The benchmark this conversation is about. ("new" came from the agent-first
+   *  benchmark creation, removed 2026-10-15; older rows may still carry it.) */
   bench: benchSchema.optional(),
 });
 const tagSchema = z.object({ bench: benchSchema });

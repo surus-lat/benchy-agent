@@ -234,3 +234,27 @@ export function useRunResults(bench: BenchSummary | undefined) {
   }, [key]); // eslint-disable-line react-hooks/exhaustive-deps
   return results;
 }
+
+/** The AI systems chosen to evaluate a benchmark, remembered in this browser. */
+export function useSelectedModels(slug: string, models: string[], defaults?: string[]): [Set<string>, (s: Set<string>) => void] {
+  const key = `benchy-sys:${slug}`;
+  const [sel, setSel] = useState<Set<string> | null>(() => {
+    try {
+      const raw = localStorage.getItem(key);
+      return raw ? new Set(JSON.parse(raw) as string[]) : null;
+    } catch {
+      return null;
+    }
+  });
+  // Until the researcher picks: the catalog's defaults (one model per region), else all.
+  const effective = sel ?? new Set(defaults?.length ? defaults.filter((m) => models.includes(m)) : models);
+  const set = (s: Set<string>) => {
+    setSel(s);
+    try {
+      localStorage.setItem(key, JSON.stringify([...s]));
+    } catch {
+      // ignore
+    }
+  };
+  return [effective, set];
+}

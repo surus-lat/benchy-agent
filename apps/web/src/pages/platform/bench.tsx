@@ -15,8 +15,18 @@ import {
   type RunResult,
   type WorkspaceFile,
 } from "./data";
-import { conversationFor, rememberConversation, usePlatform, type BenchSummary } from "./store";
+import { usePlatform, type BenchSummary } from "./store";
 import { Pip } from "./home";
+import { useAgentChat } from "./agent-chat";
+import { useSelectedModels } from "./use-exam";
+
+// DEPRECATED (2026-10-15), to be deleted in the next release: the previous
+// benchmark view at /app/v1/b/:slug/:tab — tabs, with Definición as a chat with
+// the agent beside the YAML (Thread, Composer). The workspace (workspace.tsx)
+// replaced it: A · Interfaz first, the agent always optional in B. Nothing links
+// here any more. The agent-first "Nuevo benchmark" that used the same chat was
+// already removed (3e77fcb). Delete this file, its route in platform-app.tsx
+// and its CSS (marked in platform.css); nothing else imports from it.
 
 const TABS = [
   ["definicion", "Definición"],
@@ -27,90 +37,6 @@ const TABS = [
   ["historial", "Historial"],
 ] as const;
 type Tab = (typeof TABS)[number][0];
-
-// ---- The agent chat (Definición, and B in the workspace) ---------------------
-
-export function useAgentChat(convKey: string) {
-  const [convId, setConvId] = useState<string | null>(() => conversationFor(convKey));
-  const [messages, setMessages] = useState<Message[]>([]);
-  const [pending, setPending] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
-  // Not remembered in this browser: the researcher's latest conversation about
-  // this benchmark, kept in D1, so the work follows them across devices.
-  useEffect(() => {
-    if (convId) return;
-    let cancelled = false;
-    api
-      .conversations(convKey)
-      .then(({ conversations }) => {
-        const latest = conversations[0];
-        if (!latest || cancelled) return;
-        rememberConversation(convKey, latest.id);
-        setConvId(latest.id);
-      })
-      .catch(() => {});
-    return () => {
-      cancelled = true;
-    };
-  }, [convId, convKey]);
-
-  useEffect(() => {
-    if (!convId) return;
-    let cancelled = false;
-    api
-      .messages(convId)
-      .then((r) => {
-        if (cancelled) return;
-        setMessages(r.messages);
-        // A conversation this browser remembered from before D1 kept the benchmark.
-        void api.tagConversation(convId, convKey).catch(() => {});
-      })
-      .catch(() => {
-        // Gone or not ours: start fresh.
-        rememberConversation(convKey, null);
-        if (!cancelled) setConvId(null);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [convId, convKey]);
-
-  const send = useCallback(
-    async (text: string, opts: { quiet?: boolean } = {}): Promise<string | null> => {
-      const message = text.trim();
-      if (!message) return null;
-      setPending(true);
-      setError(null);
-      if (!opts.quiet) {
-        setMessages((m) => [...m, { id: `local-${Date.now()}`, role: "user", content: message, createdAt: new Date().toISOString() }]);
-      }
-      try {
-        let id = convId;
-        if (!id) {
-          id = (await api.createConversation(convKey)).id;
-          rememberConversation(convKey, id);
-          setConvId(id);
-        }
-        const { reply } = await api.sendTurn(id, message);
-        setMessages((m) => [
-          ...m,
-          ...(opts.quiet ? [{ id: `local-q-${Date.now()}`, role: "user" as const, content: message, createdAt: new Date().toISOString() }] : []),
-          { id: `local-r-${Date.now()}`, role: "assistant", content: reply, createdAt: new Date().toISOString() },
-        ]);
-        return id;
-      } catch (err) {
-        setError(errorText(err));
-        throw err;
-      } finally {
-        setPending(false);
-      }
-    },
-    [convId, convKey],
-  );
-
-  return { convId, messages, pending, error, send, setError };
-}
 
 function Thread({ chat, onAnswered }: { chat: ReturnType<typeof useAgentChat>; onAnswered?: () => void }) {
   const bottom = useRef<HTMLDivElement>(null);
@@ -201,6 +127,7 @@ function Composer({ disabled, onSend, placeholder = "Escribile al agente…" }: 
 
 // ---- One benchmark ---------------------------------------------------------------
 
+/** @deprecated The tabbed view (/app/v1); use the workspace (workspace.tsx). Deleted next release. */
 export default function BenchPage({ slug, tab }: { slug: string; tab?: string }) {
   const { benches, files, runs, setRun, refresh } = usePlatform();
   const [, navigate] = useLocation();
@@ -280,29 +207,6 @@ export default function BenchPage({ slug, tab }: { slug: string; tab?: string })
       {current === "historial" && <HistoryTab />}
     </div>
   );
-}
-
-export function useSelectedModels(slug: string, models: string[], defaults?: string[]): [Set<string>, (s: Set<string>) => void] {
-  const key = `benchy-sys:${slug}`;
-  const [sel, setSel] = useState<Set<string> | null>(() => {
-    try {
-      const raw = localStorage.getItem(key);
-      return raw ? new Set(JSON.parse(raw) as string[]) : null;
-    } catch {
-      return null;
-    }
-  });
-  // Until the researcher picks: the catalog's defaults (one model per region), else all.
-  const effective = sel ?? new Set(defaults?.length ? defaults.filter((m) => models.includes(m)) : models);
-  const set = (s: Set<string>) => {
-    setSel(s);
-    try {
-      localStorage.setItem(key, JSON.stringify([...s]));
-    } catch {
-      // ignore
-    }
-  };
-  return [effective, set];
 }
 
 // ---- Definición --------------------------------------------------------------

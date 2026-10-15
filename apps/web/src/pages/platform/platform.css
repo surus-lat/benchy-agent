@@ -122,6 +122,10 @@ button.bp-row:hover { background: var(--paper); }
 @keyframes bp-breathe { 0%, 100% { transform: scale(1); opacity: 1; } 50% { transform: scale(0.82); opacity: 0.68; } }
 @keyframes bp-indet { 0% { transform: translateX(-100%); } 100% { transform: translateX(260%); } }
 
+/* DEPRECATED (2026-10-15): from here to "Cuenta", the tabbed view at /app/v1
+   (bench.tsx) and its chat with the agent. Delete with bench.tsx in the next
+   release — except .bp-error, which home.tsx also uses. */
+
 /* Benchmark header + tabs */
 .bp-bench { flex: 1; min-height: 0; display: flex; flex-direction: column; }
 .bp-bench-head { flex: none; padding: 20px clamp(16px, 4vw, 32px) 0; border-bottom: 1px solid var(--line-soft); background: rgba(251, 249, 247, 0.9); }

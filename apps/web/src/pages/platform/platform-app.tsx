@@ -19,8 +19,8 @@ import "./platform.css";
 //   /app/biblioteca         the paper library (CONICET Digital): search, read,
 //                           add a paper to a benchmark
 //   /app/cuenta             account
-//   /app/v1/b/:slug/:tab?   the previous benchmark view (tabs), kept while the
-//                           new one settles
+//   /app/v1/b/:slug/:tab?   DEPRECATED: the previous benchmark view (tabs, with a
+//                           chat with the agent); deleted next release (bench.tsx)
 //   /app/chat               the first view: plain chat + files
 
 export default function PlatformApp() {
