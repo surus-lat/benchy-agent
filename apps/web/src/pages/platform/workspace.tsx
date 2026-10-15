@@ -1,8 +1,8 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { Link, useLocation } from "wouter";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
-import { api, errorText, newestPerModel, REGIONS, splitAsk, type CatalogModel, type Evaluation, type Message } from "./data";
+import { api, errorText, newestPerModel, REGIONS, spellcheckFor, splitAsk, type CatalogModel, type Evaluation, type Message } from "./data";
 import { useAgentChat } from "./agent-chat";
 import { usePlatform, type BenchSummary, type PendingSource } from "./store";
 import { useEvaluation, useExam, useRunResults, useSelectedModels, type EvaluationState, type ExamState } from "./use-exam";
@@ -54,6 +54,9 @@ const BRACKET: Record<QStatus, [string, string]> = {
 };
 
 type Event = { id: string; at: number; who: "Vos" | "Juez"; path: string; change: string; open: () => void };
+
+/** The exam's language (benchmark.language): its text fields declare it, for spell check. */
+const ExamLang = createContext("es");
 
 /** First message of a conversation tells the agent which benchmark is open. Hidden in the thread. */
 const CONTEXT = /^\(Benchmark abierto en la app: [^)]*\)\n\n/;
@@ -204,6 +207,7 @@ export default function Workspace({ slug, stage: stageParam }: { slug: string; s
           : `${qs.length} filas en el examen`;
 
   return (
+    <ExamLang.Provider value={exam.doc?.language ?? "es"}>
     <div className="ws">
       <WsHeader org={me?.org?.name} front={front} unread={unread} onFront={bringFront} />
       <main className="ws-canvas">
@@ -413,6 +417,7 @@ export default function Workspace({ slug, stage: stageParam }: { slug: string; s
         />
       </main>
     </div>
+    </ExamLang.Provider>
   );
 }
 
@@ -572,7 +577,7 @@ function Authoring({
             <span>Preguntas</span>
             <span>{qs.length}</span>
           </div>
-          <input type="search" value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Buscar pregunta…" aria-label="Buscar pregunta" />
+          <input type="search" value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Buscar pregunta…" aria-label="Buscar pregunta" spellCheck={false} />
           {openExam && (
           <div role="group" aria-label="Filtrar" className="ws-pills">
             {(
@@ -842,6 +847,7 @@ function AutoText({
   placeholder?: string;
 }) {
   const ref = useRef<HTMLTextAreaElement>(null);
+  const lang = useContext(ExamLang);
   useEffect(() => {
     const el = ref.current;
     if (!el) return;
@@ -851,6 +857,8 @@ function AutoText({
   return (
     <textarea
       ref={ref}
+      lang={lang}
+      spellCheck={spellcheckFor(lang)}
       className={`ws-edit ${className}`}
       value={value}
       aria-label={label}
@@ -1074,7 +1082,7 @@ function SourcesEditor({ sources, papers, locked, onChange }: { sources: string[
           <option value="otra">Otra referencia (DOI, libro, URL)</option>
         </select>
         {pick === "otra" ? (
-          <input value={ref} onChange={(e) => setRef(e.target.value)} placeholder="10.1234/… o autor, título, año" aria-label="Referencia" disabled={locked} />
+          <input value={ref} onChange={(e) => setRef(e.target.value)} placeholder="10.1234/… o autor, título, año" aria-label="Referencia" disabled={locked} spellCheck={false} />
         ) : (
           <input
             className="pg"
@@ -2001,6 +2009,8 @@ function AgentWindow({
           >
             <textarea
               rows={1}
+              lang="es"
+              spellCheck={spellcheckFor("es")}
               value={draft}
               placeholder="Escribile al agente…"
               aria-label="Mensaje para el agente"

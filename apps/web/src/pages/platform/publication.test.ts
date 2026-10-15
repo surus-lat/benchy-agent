@@ -14,3 +14,11 @@ it("publishes a benchmark under its organization", async () => {
   expect(publicPath({ name: "CONICET", slug: "conicet" }, "historia-argentina-siglo-xx")).toBe("getbenchy.lat/b/conicet/historia-argentina-siglo-xx");
   expect(publicPath({ name: "Universidad Nacional de Río Negro" }, "x")).toBe("getbenchy.lat/b/universidad-nacional-de-rio-negro/x");
 });
+
+it("keeps the browser's spell checker only for text in the browser's own language", async () => {
+  const { spellcheckFor } = await import("./data");
+  expect(spellcheckFor("es", ["es-AR", "en"])).toBe(true);
+  expect(spellcheckFor("es", ["en-US", "es"])).toBe(false);
+  expect(spellcheckFor("en", ["en-US"])).toBe(true);
+  expect(spellcheckFor("pt", [])).toBe(false);
+});

@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState, type FormEvent } from "react";
 import { useLocation } from "wouter";
-import { api, ApiError, errorText } from "./data";
+import { api, ApiError, errorText, spellcheckFor } from "./data";
 import { serializeMeta } from "./exam-model";
 import { usePlatform } from "./store";
 import { authorsLine, library, sources, type Paper } from "./library-data";
@@ -86,6 +86,8 @@ export function NewBench() {
           Nombre
           <input
             autoFocus
+            lang="es"
+            spellCheck={spellcheckFor("es")}
             value={name}
             onChange={(e) => setName(e.target.value)}
             placeholder="Ej.: Morfología verbal del mapudungun"

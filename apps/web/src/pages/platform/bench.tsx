@@ -9,6 +9,7 @@ import {
   firstText,
   leafSummary,
   newestPerModel,
+  spellcheckFor,
   splitAsk,
   type ExamCheck,
   type Message,
@@ -107,6 +108,8 @@ function Composer({ disabled, onSend, placeholder = "Escribile al agente…" }: 
       <textarea
         ref={ref}
         rows={1}
+        lang="es"
+        spellCheck={spellcheckFor("es")}
         value={draft}
         placeholder={placeholder}
         aria-label="Mensaje para el agente"

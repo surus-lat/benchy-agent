@@ -63,6 +63,7 @@ export default function Account() {
                 setSaved("idle");
               }}
               placeholder="Cómo querés que te llame el agente"
+              spellCheck={false}
               style={{ flex: 1 }}
             />
             <button className="btn-ghost" onClick={() => void saveName()} disabled={saved === "saving" || name.trim() === (me?.user.name ?? "")}>

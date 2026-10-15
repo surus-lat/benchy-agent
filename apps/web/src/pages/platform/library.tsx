@@ -80,6 +80,7 @@ function SearchForm({
         onChange={(e) => setQuery({ ...query, q: e.target.value })}
         placeholder="Tema, título o palabra clave"
         aria-label="Buscar papers por tema, título o palabra clave"
+        spellCheck={false}
         autoFocus={!compact}
       />
       <input
@@ -89,6 +90,7 @@ function SearchForm({
         onChange={(e) => setQuery({ ...query, author: e.target.value })}
         placeholder="Autor o autora"
         aria-label="Autor o autora"
+        spellCheck={false}
       />
       <button type="submit" className="lib-go">
         Buscar
@@ -478,6 +480,7 @@ export function LibraryBrowser({
         onChange={(e) => setText(e.target.value)}
         placeholder="Filtrá por tema, autor o título…"
         aria-label="Filtrar la biblioteca"
+        spellCheck={false}
       />
       <div className="lb-bar">
         <div role="group" aria-label="Qué papers" className="lb-seg">

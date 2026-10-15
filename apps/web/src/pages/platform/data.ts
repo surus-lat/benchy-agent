@@ -39,6 +39,18 @@ export type RunResult = {
 };
 export type Me = { user: { id: string; name: string; email: string }; org: { id: string; name: string; slug?: string } | null };
 
+/**
+ * Whether the browser's spell checker can help with text in `lang`. The browser
+ * picks the dictionary from its own settings, not from the page (Chrome checks
+ * against the languages enabled there, by default its interface language), so a
+ * Spanish exam in an English browser would be all red. Spell check stays on only
+ * when the browser's first language is the text's.
+ */
+export function spellcheckFor(lang: string, languages: readonly string[] | undefined = globalThis.navigator?.languages): boolean {
+  const first = (languages?.[0] ?? globalThis.navigator?.language ?? "").toLowerCase();
+  return !!lang && first.split("-")[0] === lang.toLowerCase().split("-")[0];
+}
+
 /** Where a benchmark is published: getbenchy.lat/b/<org>/<benchmark>. */
 export function publicPath(org: { slug?: string; name: string } | null | undefined, slug: string): string {
   const o = org?.slug || (org?.name ?? "org").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
