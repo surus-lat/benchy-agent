@@ -22,6 +22,7 @@ export const PAGE_SIZE = 20;
 /** Broad queries rank only their newest matches; ranking 70k rows per keystroke is not worth it. */
 const CANDIDATES = 4000;
 const COUNT_CAP = 1000;
+const AUTHOR_POOL = 400;
 const DATASET = "https://huggingface.co/datasets/UNRN/ri-conicet/resolve/main/";
 
 export type PaperRow = {
@@ -68,6 +69,25 @@ const STOPWORDS = new Set(
     "e o u da do das dos em no na nos nas le les des du et"
   ).split(" "),
 );
+
+/** Lowercase, no accents: "Chávez" and "chavez" are the same name. */
+function fold(text: string): string {
+  return text.normalize("NFD").replace(/\p{Diacritic}/gu, "").toLowerCase();
+}
+
+/**
+ * Is every word of the author box in one and the same author? FTS matches the
+ * authors as one text, so "Chávez Martín" also finds a paper by Martín X and
+ * Chávez Y; those go after the papers by Chávez, Martín.
+ */
+export function byThatAuthor(creators: string[], author: string): boolean {
+  const wanted = terms(fold(author));
+  if (!wanted.length) return false;
+  return creators.some((c) => {
+    const words = terms(fold(c));
+    return wanted.every((w) => words.some((x) => (w.length >= 3 ? x.startsWith(w) : x === w)));
+  });
+}
 
 function terms(text: string): string[] {
   return (text.normalize("NFC").toLowerCase().match(/[\p{L}\p{N}]+/gu) ?? []).slice(0, 12);
@@ -146,6 +166,9 @@ export function createLibraryApp(deps: LibraryDeps) {
     if (!match) return c.json({ error: "EMPTY_QUERY" }, 400);
     const pdfOnly = c.req.query("pdf") === "1" ? 1 : 0;
     const page = Math.max(0, Math.min(Number.parseInt(c.req.query("page") ?? "0", 10) || 0, CANDIDATES / PAGE_SIZE - 1));
+    const author = (c.req.query("author") ?? "").trim();
+    // With an author, rank the first AUTHOR_POOL here, that author's papers first.
+    const [limit, offset] = author ? [AUTHOR_POOL, 0] : [PAGE_SIZE, page * PAGE_SIZE];
 
     // Rank the newest matches, then keep those with a PDF if asked: a join
     // inside the ranking makes broad queries several times slower.
@@ -163,7 +186,7 @@ export function createLibraryApp(deps: LibraryDeps) {
            WHERE ?2 = 0 OR p.pdf IS NOT NULL
            ORDER BY hits.score LIMIT ?3 OFFSET ?4`,
         )
-        .bind(match, pdfOnly, PAGE_SIZE, page * PAGE_SIZE),
+        .bind(match, pdfOnly, limit, offset),
       pdfOnly
         ? deps.library
             .prepare(
@@ -177,13 +200,19 @@ export function createLibraryApp(deps: LibraryDeps) {
     ]);
     type Hit = { id: number; origin: string; title: string; creators: string; year: number | null; type: string; language: string; has_pdf: number; excerpt: string };
     const total = (count.results[0] as { n: number } | undefined)?.n ?? 0;
+    let rows = hits.results as Hit[];
+    if (author) {
+      const mine = rows.filter((h) => byThatAuthor(list(h.creators), author));
+      const rest = rows.filter((h) => !byThatAuthor(list(h.creators), author));
+      rows = [...mine, ...rest].slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE);
+    }
     return c.json({
       // With the PDF filter the count stops at COUNT_CAP: "more than 1.000".
       total: pdfOnly ? Math.min(total, COUNT_CAP) : total,
       more: pdfOnly === 1 && total > COUNT_CAP,
       page,
       pageSize: PAGE_SIZE,
-      papers: (hits.results as Hit[]).map((h) => ({
+      papers: rows.map((h) => ({
         id: h.id,
         origin: h.origin,
         title: h.title,

@@ -1,7 +1,7 @@
 import { env } from "cloudflare:workers";
 import { beforeAll, expect, it } from "vitest";
 import schema from "../library/schema.sql?raw";
-import { createLibraryApp, ftsQuery } from "../src/library";
+import { byThatAuthor, createLibraryApp, ftsQuery } from "../src/library";
 import { agentOrgFor } from "../src/agent-auth";
 
 // The paper library: the query a search box becomes, and the routes over the
@@ -56,6 +56,14 @@ it("turns what a researcher types into a quoted FTS query, never raw syntax", ()
   expect(ftsQuery("", "Núñez, Paula")).toBe('creators : ("núñez"* AND "paula"*)');
   expect(ftsQuery("ADN", "li")).toBe('"adn" AND creators : ("li")');
   expect(ftsQuery("  ¿? ")).toBeNull();
+});
+
+it("puts the papers of the author typed before papers by two people with those names", () => {
+  expect(byThatAuthor(["Chavez, Martín Nicolás"], "Chávez Martín")).toBe(true);
+  expect(byThatAuthor(["Misischia Bibiana", "Chavez, Martín Nicolás"], "martin chavez")).toBe(true);
+  expect(byThatAuthor(["Martin, Gabriel Mario", "González Chávez, Baltazar"], "Chávez Martín")).toBe(false);
+  expect(byThatAuthor(["Nuñez, Paula Gabriela"], "nunez")).toBe(true);
+  expect(byThatAuthor(["Nuñez, Paula Gabriela"], "")).toBe(false);
 });
 
 it("searches signed-in only, ignoring accents, by words, authors and PDF", async () => {
