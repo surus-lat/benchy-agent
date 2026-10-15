@@ -98,7 +98,7 @@ function sendInviteEmail(email: string, orgName: string, token: string) {
     "--subject",
     `Tenés acceso a benchy agent (${orgName})`,
     "--text",
-    `Te dimos acceso a benchy agent para ${orgName}.\n\nIngresá con este mail acá: ${link}\nTe vamos a mandar un código de 6 dígitos para entrar, y después podés guardar una passkey para ingresar con tu huella.\n\nLa invitación vence en ${INVITE_TTL_DAYS} días.`,
+    `Te dimos acceso a benchy agent para ${orgName}.\n\nIngresá con este mail acá: ${link}\nTe vamos a mandar un código de 6 dígitos para entrar, y después podés guardar una passkey para ingresar con tu huella.\n\nEste link vence en ${INVITE_TTL_DAYS} días.`,
   ]);
 }
 
