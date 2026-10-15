@@ -36,7 +36,16 @@ export interface HermesClient {
   removeSource(bench: string, id: string): Promise<{ ok: boolean }>;
   /** The whole workspace as a .tar.gz, for the daily backup. */
   backup(): Promise<ArrayBuffer>;
+  /** A benchmark's last evaluation: each model's run, then the report. */
+  evaluation(path: string): Promise<unknown>;
+  /** Run a benchmark with these models in the container, then write its report; returns at once. */
+  startEvaluation(path: string, models: string[]): Promise<StartResult>;
+  /** (Re)write a benchmark's findings report from the results there are; returns at once. */
+  startReport(path: string): Promise<StartResult>;
 }
+
+/** Started; busy (one is already running, its state in `body`); or refused by the engine (why in `body`). */
+export type StartResult = { status: "started" | "busy" | "refused"; body: unknown };
 
 /** A paper in a benchmark, as the container lists it in <bench>/sources.json. */
 export type Source = {
@@ -120,6 +129,13 @@ export function hermesClient(baseUrl: string, apiKey: string): HermesClient {
   async function json(res: Response): Promise<unknown> {
     if (!res.ok) throw new HermesError(`agent returned ${res.status}`, 502);
     return res.json();
+  }
+
+  async function started(res: Response): Promise<StartResult> {
+    if (res.status === 409) return { status: "busy", body: await res.json() };
+    if (res.status === 400) return { status: "refused", body: { ok: false, error: { code: "bad_request", message: "bad request" } } };
+    const body = (await json(res)) as { ok?: boolean };
+    return { status: body.ok ? "started" : "refused", body };
   }
 
   async function send(method: string, path: string, init: { body?: BodyInit; type?: string }, timeoutMs: number): Promise<Response> {
@@ -206,6 +222,15 @@ export function hermesClient(baseUrl: string, apiKey: string): HermesClient {
       const res = await send("GET", "/benchy/backup", {}, SOURCE_TIMEOUT_MS);
       if (!res.ok) throw new HermesError(`agent returned ${res.status}`, 502);
       return res.arrayBuffer();
+    },
+    async evaluation(path) {
+      return json(await get(`/benchy/evaluation?path=${encodeURIComponent(path)}`));
+    },
+    async startEvaluation(path, models) {
+      return started(await send("POST", "/benchy/evaluation", { body: JSON.stringify({ path, models }), type: "application/json" }, SESSION_TIMEOUT_MS));
+    },
+    async startReport(path) {
+      return started(await send("POST", `/benchy/report?path=${encodeURIComponent(path)}`, {}, SESSION_TIMEOUT_MS));
     },
     async createSession(userId) {
       const data = await call("/api/sessions", userId, {}, SESSION_TIMEOUT_MS);

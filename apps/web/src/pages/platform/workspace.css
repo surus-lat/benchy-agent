@@ -353,6 +353,19 @@
 .ws-run-row .m { font-family: var(--mono); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .ws-indet { display: block; height: 4px; border-radius: 999px; background: var(--line-soft); overflow: hidden; }
 .ws-indet span { display: block; width: 40%; height: 100%; border-radius: 999px; background: var(--amber); animation: ws-indet 1.4s cubic-bezier(0.77, 0, 0.175, 1) infinite; }
+.ws-indet.wide { margin: 2px 0; }
+.ws-evprog { display: flex; flex-direction: column; gap: 9px; margin-bottom: 12px; padding: 12px 14px; border: 1px solid var(--line-soft); border-radius: 12px; background: var(--paper-2); }
+.ws-evprog.running, .ws-evprog.reporting { border-color: var(--amber-line); background: var(--amber-paper); }
+.ws-evprog.error, .ws-evprog.interrupted { border-color: #f0cfcb; background: var(--fail-bg); }
+.ws-evprog .h { display: flex; align-items: baseline; gap: 8px; font-size: 13.5px; color: var(--ink); }
+.ws-evprog .h .mono { flex: none; font-size: 12px; }
+.ws-evprog .ws-run-row { grid-template-columns: minmax(0, 13rem) minmax(0, 1fr); }
+.ws-evprog .ws-run-row .m { font-family: var(--sans); font-size: 13px; }
+.ws-evprog .ws-run-row .mono { font-size: 12px; }
+.ws-evprog .ws-run-err { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ws-evprog .ws-run-row.report { padding-top: 8px; border-top: 1px dashed var(--line); }
+.ws-evprog a.ok:hover { text-decoration: underline; }
+.ws-pub-wait { margin-bottom: 12px; }
 
 /* ---- 04 Publicación ---- */
 .ws-soon-banner { max-width: 980px; margin: 0 auto 14px; display: flex; align-items: center; gap: 10px; padding: 11px 14px; border: 1px solid var(--amber-line); border-radius: 12px; background: var(--amber-soft); font-size: 13.5px; color: var(--ink-soft); }

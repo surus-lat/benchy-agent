@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { api, ApiError, errorText, readBenchYaml, type BenchDoc, type RunResult } from "./data";
+import { api, ApiError, errorText, readBenchYaml, type BenchDoc, type Evaluation, type RunResult } from "./data";
 import {
   parseBenchDoc,
   parseExam,
@@ -262,3 +262,72 @@ export function useSelectedModels(slug: string, models: string[], defaults?: str
   };
   return [effective, set];
 }
+
+const POLL_MS = 4000;
+const signature = (e: Evaluation | null) => (e ? `${e.state}|${e.models.map((m) => m.state).join(",")}|${e.report.state}` : "");
+
+/**
+ * The benchmark's evaluation as the container keeps it (evaluation.json):
+ * read on opening, polled while it runs, so it shows the same after a reload
+ * or on another device. `onChange` runs when a model or the report finishes,
+ * to reload the files the results come from.
+ */
+export function useEvaluation(bench: BenchSummary | undefined, onChange: () => void) {
+  const path = bench?.yamlPath;
+  const [evaluation, setEvaluation] = useState<Evaluation | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const last = useRef<string | null>(null);
+  const changed = useRef(onChange);
+  changed.current = onChange;
+
+  const take = useCallback((e: Evaluation | null) => {
+    setEvaluation(e);
+    const sig = signature(e);
+    if (last.current !== null && sig !== last.current) changed.current();
+    last.current = sig;
+  }, []);
+
+  const load = useCallback(async () => {
+    if (!path) return;
+    try {
+      const r = await api.evaluation(path);
+      take(r.ok ? r.evaluation : null);
+    } catch {
+      // The next poll tries again.
+    }
+  }, [path, take]);
+
+  useEffect(() => {
+    last.current = null;
+    setEvaluation(null);
+    void load();
+  }, [load]);
+
+  const active = evaluation?.state === "running" || evaluation?.state === "reporting";
+  useEffect(() => {
+    if (!active) return;
+    const timer = setInterval(() => void load(), POLL_MS);
+    return () => clearInterval(timer);
+  }, [active, load]);
+
+  const begin = useCallback(
+    async (call: () => Promise<{ ok: true; evaluation: Evaluation } | { ok: false; error: { code: string; message: string } }>, what: string) => {
+      setError(null);
+      try {
+        const r = await call();
+        if (r.ok) take(r.evaluation);
+        else setError(`${what} no pudo empezar: ${r.error.code} · ${r.error.message}`);
+      } catch (err) {
+        setError(errorText(err));
+        void load();
+      }
+    },
+    [take, load],
+  );
+  const start = useCallback((models: string[]) => (path ? begin(() => api.startEvaluation(path, models), "La evaluación") : Promise.resolve()), [path, begin]);
+  const startReport = useCallback(() => (path ? begin(() => api.startReport(path), "El informe") : Promise.resolve()), [path, begin]);
+
+  return { evaluation, active, error, setError, start, startReport, reload: load };
+}
+
+export type EvaluationState = ReturnType<typeof useEvaluation>;

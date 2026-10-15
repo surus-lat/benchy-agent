@@ -2,10 +2,10 @@ import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } fro
 import { Link, useLocation } from "wouter";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
-import { api, errorText, newestPerModel, REGIONS, splitAsk, type CatalogModel, type Message } from "./data";
+import { api, errorText, newestPerModel, REGIONS, splitAsk, type CatalogModel, type Evaluation, type Message } from "./data";
 import { useAgentChat } from "./agent-chat";
 import { usePlatform, type BenchSummary } from "./store";
-import { useExam, useRunResults, useSelectedModels, type ExamState } from "./use-exam";
+import { useEvaluation, useExam, useRunResults, useSelectedModels, type EvaluationState, type ExamState } from "./use-exam";
 import {
   addCriterion,
   byAgent,
@@ -24,7 +24,7 @@ import {
   type Question,
   type QStatus,
 } from "./exam-model";
-import { LibraryPicker, SourceRow } from "./library";
+import { LibraryBrowser, SourceRow } from "./library";
 import { PublicationStage } from "./publication";
 import { citation, sources as sourcesApi, libraryErrorText, type Source } from "./library-data";
 import { ApiError } from "./data";
@@ -67,13 +67,15 @@ function batchPrompt(n: number, slug: string, fromPapers: boolean): string {
 }
 
 export default function Workspace({ slug, stage: stageParam }: { slug: string; stage?: string }) {
-  const { me, benches, files, runs, setRun, refresh } = usePlatform();
+  const { me, benches, files, refresh } = usePlatform();
   const [, navigate] = useLocation();
   const bench = benches.find((b) => b.slug === slug);
   const stage = (STAGES.some(([k]) => k === stageParam) ? stageParam : "autoria") as Stage;
   const go = useCallback((s: Stage) => navigate(`/app/b/${encodeURIComponent(slug)}/${s}`), [navigate, slug]);
 
   const exam = useExam(bench);
+  // Runs in the container, not in the chat: a model or the report finishing reloads the files.
+  const evaluation = useEvaluation(bench, () => void refresh());
   const chat = useAgentChat(slug);
   const [front, setFront] = useState<"A" | "B">("A");
   const [instant, setInstant] = useState(false);
@@ -182,13 +184,15 @@ export default function Workspace({ slug, stage: stageParam }: { slug: string; s
   // The exam is "concretado" when the grader has reviewed every question as it
   // stands, the researcher approved each one, and it compiles.
   const ready = openExam && qs.length > 0 && qs.every((x) => x.status === "done" && x.review) && !!bench.validation?.ok;
-  const run = runs[slug];
-  const running = run?.state === "running";
+  const ev = evaluation.evaluation;
+  const running = evaluation.active;
   const busy = chat.pending || reviewing;
   const statusText = reviewing
     ? `El juez está revisando ${qs.length} respuestas expertas contra la rúbrica…`
-    : running
-      ? `Corriendo ${run.models.length} sistemas sobre ${qs.length} preguntas… ${run.finished.size}/${run.models.length} terminados`
+    : ev?.state === "running"
+      ? `Evaluando ${ev.models.length} ${ev.models.length === 1 ? "modelo" : "modelos"} sobre ${qs.length} preguntas… ${ev.models.filter((m) => m.state === "done" || m.state === "error").length}/${ev.models.length} terminados`
+      : ev?.state === "reporting"
+        ? "Evaluación terminada · el agente está redactando el informe…"
       : chat.pending
         ? "El agente está trabajando…"
         : openExam
@@ -242,10 +246,10 @@ export default function Workspace({ slug, stage: stageParam }: { slug: string; s
               )}
               <button
                 className="ws-btn-dark"
-                disabled={!bench.validation?.ok || running || busy || (openExam && qs.length === 0)}
+                disabled={!bench.validation?.ok || running || reviewing || (openExam && qs.length === 0)}
                 onClick={requestRun}
               >
-                {running ? "Evaluando…" : "Ejecutar evaluación"}
+                {ev?.state === "reporting" ? "Redactando informe…" : running ? "Evaluando…" : "Ejecutar evaluación"}
                 <span className="amber">→</span>
               </button>
             </div>
@@ -326,16 +330,13 @@ export default function Workspace({ slug, stage: stageParam }: { slug: string; s
             ) : stage === "evaluacion" ? (
               <EvaluationStage
                 bench={bench}
-                ask={ask}
-                setRun={setRun}
-                running={running}
-                busy={busy}
+                evaluation={evaluation}
                 runRequest={runRequest}
                 unapproved={openExam ? qs.length - approved : 0}
                 onReview={() => go("revision")}
               />
             ) : (
-              <PublicationStage bench={bench} exam={exam} openExam={openExam} go={go} ask={ask} showAgent={() => bringFront("B")} busy={busy} />
+              <PublicationStage bench={bench} exam={exam} openExam={openExam} go={go} ask={ask} showAgent={() => bringFront("B")} busy={busy} evaluation={evaluation} />
             )}
 
             {openExam && (
@@ -1268,7 +1269,6 @@ function PapersDrawer({
   const [uploads, setUploads] = useState<Upload[]>([]);
   const [removing, setRemoving] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const added = useMemo(() => new Set(list.filter((s) => s.origin === "conicet").map((s) => Number(s.id.replace("conicet-", "")))), [list]);
   const uploading = uploads.some((u) => u.state === "waiting" || u.state === "reading");
 
   const upload = async (files: File[]) => {
@@ -1346,7 +1346,7 @@ function PapersDrawer({
             </button>
           </div>
           {tab === "library" ? (
-            <LibraryPicker bench={bench} added={added} disabled={locked} onAdded={(src) => onChange(`+ ${src.title}`)} />
+            <LibraryBrowser bench={bench} inBench={list} disabled={locked} onAdded={(src) => onChange(`+ ${src.title}`)} />
           ) : (
             <div className="ws-upload">
               <label className={`ws-drop${locked || uploading ? " off" : ""}`}>
@@ -1564,25 +1564,19 @@ function ReviewStage({
 
 function EvaluationStage({
   bench,
-  ask,
-  setRun,
-  running,
-  busy,
+  evaluation,
   runRequest,
   unapproved,
   onReview,
 }: {
   bench: BenchSummary;
-  ask: (t: string) => Promise<void>;
-  setRun: ReturnType<typeof usePlatform>["setRun"];
-  running: boolean;
-  busy: boolean;
+  evaluation: EvaluationState;
   runRequest: number;
   /** Questions not yet approved: the exam is not "concretado" until they are. */
   unapproved: number;
   onReview: () => void;
 }) {
-  const { runs } = usePlatform();
+  const running = evaluation.active;
   const [models, setModels] = useState<string[]>([]);
   const [catalog, setCatalog] = useState<CatalogModel[]>([]);
   useEffect(() => {
@@ -1602,23 +1596,11 @@ function EvaluationStage({
   const byRegion = REGIONS.map((region) => ({ region, items: catalog.filter((c) => c.region === region) })).filter((g) => g.items.length);
   const results = useRunResults(bench);
   const board = newestPerModel(results, bench.doc?.model);
-  const run = runs[bench.slug];
-  const runsRef = useRef(runs);
-  runsRef.current = runs;
-
   const start = useCallback(async () => {
     const chosen = models.filter((m) => selected.has(m));
-    if (chosen.length === 0 || running || busy) return;
-    const base = { slug: bench.slug, models: chosen, startedAt: Date.now(), baseline: new Set(bench.runs.map((r) => r.path)), finished: new Set<string>() };
-    setRun(bench.slug, { ...base, state: "running" });
-    void api.logActivity(bench.slug, "evaluate", `evaluó ${chosen.join(", ")}`);
-    await ask(
-      `Corré la evaluación de ${bench.yamlPath} con ${chosen.length === 1 ? "este modelo" : "estos modelos"}: ${chosen.join(", ")}. Usá benchy_run una vez por modelo con su argumento model, sin cambiar el YAML, y resumí los puntajes con sus fallas.`,
-    );
-    // The agent's reply (or its error) is in B; the files say which models finished.
-    const cur = runsRef.current[bench.slug] ?? { ...base, state: "running" as const };
-    setRun(bench.slug, { ...cur, state: "done" });
-  }, [models, selected, running, busy, bench, setRun, ask]);
+    if (chosen.length === 0 || running) return;
+    await evaluation.start(chosen);
+  }, [models, selected, running, evaluation]);
 
   // The toolbar's "Ejecutar evaluación" and B's chip land here, once the models are known.
   const handled = useRef(runRequest);
@@ -1703,7 +1685,7 @@ function EvaluationStage({
           <span>
             {models.filter((m) => selected.has(m)).length} de {models.length} modelos en la próxima evaluación
           </span>
-          <button className="ws-btn-dark sm" disabled={!bench.validation?.ok || running || busy || !models.some((m) => selected.has(m))} onClick={() => void start()}>
+          <button className="ws-btn-dark sm" disabled={!bench.validation?.ok || running || !models.some((m) => selected.has(m))} onClick={() => void start()}>
             {running ? "Evaluando…" : "Ejecutar evaluación"}
           </button>
         </div>
@@ -1711,18 +1693,8 @@ function EvaluationStage({
 
       <div className="ws-card ws-pad ws-results">
         <p className="ws-eyebrow">Resultados · {board.length ? `la corrida más reciente de cada modelo` : "todavía sin corridas"}</p>
-        {run?.state === "running" && (
-          <div className="ws-running">
-            {run.models.map((m) => (
-              <div key={m} className="ws-run-row">
-                <span className="m">{m}</span>
-                {run.finished.has(m) ? <span className="ok mono">[✓] terminado</span> : <span className="ws-indet"><span /></span>}
-              </div>
-            ))}
-            <p className="ws-note">Cada modelo se marca terminado cuando aparece su resultado en runs/.</p>
-          </div>
-        )}
-        {run?.state === "error" && <p className="ws-note fail">{run.error}</p>}
+        {evaluation.error && <p className="ws-note fail">{evaluation.error}</p>}
+        {evaluation.evaluation && <EvaluationProgress bench={bench} ev={evaluation.evaluation} catalog={catalog} onReport={() => void evaluation.startReport()} />}
         {board.map((r, i) => {
           const s = r.result.summary;
           const bad = s.invalid_outputs + s.execution_errors;
@@ -1745,6 +1717,80 @@ function EvaluationStage({
         })}
         {board.length > 0 && top === 0 && <p className="ws-note">Todos en 0: revisá las fallas antes de leer el puntaje.</p>}
       </div>
+    </div>
+  );
+}
+
+const clock = (t: number) => new Date(t * 1000).toLocaleString("es-AR", { dateStyle: "short", timeStyle: "short" });
+
+/** The last evaluation, model by model and then the report: running, done, or what failed. */
+function EvaluationProgress({ bench, ev, catalog, onReport }: { bench: BenchSummary; ev: Evaluation; catalog: CatalogModel[]; onReport: () => void }) {
+  const name = (id: string) => catalog.find((c) => c.id === id)?.name ?? id;
+  const finished = ev.models.filter((m) => m.state === "done" || m.state === "error").length;
+  const head =
+    ev.state === "running"
+      ? `Evaluación en curso · ${finished} de ${ev.models.length} modelos · empezó ${clock(ev.started)}`
+      : ev.state === "reporting"
+        ? "Modelos terminados · el agente está redactando el informe"
+        : ev.state === "interrupted"
+          ? "La evaluación se cortó: el agente se reinició mientras corría. Volvé a ejecutarla."
+          : ev.state === "error"
+            ? "La evaluación falló: ningún modelo pudo terminar."
+            : `Evaluación terminada · ${clock(ev.finished ?? ev.started)}`;
+  const r = ev.report;
+  return (
+    <div className={`ws-evprog ${ev.state}`} role="status" aria-live="polite">
+      <p className="h">
+        <span className={`mono ${ev.state === "done" ? "ok" : ev.state === "error" || ev.state === "interrupted" ? "fail" : "amber"}`}>
+          {ev.state === "done" ? "[✓]" : ev.state === "error" || ev.state === "interrupted" ? "[×]" : "[···]"}
+        </span>
+        {head}
+      </p>
+      {ev.models.map((m) => (
+        <div key={m.model} className="ws-run-row">
+          <span className="m" title={m.model}>{name(m.model)}</span>
+          {m.state === "pending" ? (
+            <span className="mono muted">en cola</span>
+          ) : m.state === "running" ? (
+            <span className="ws-indet" aria-label="corriendo"><span /></span>
+          ) : m.state === "done" ? (
+            <span className="ok mono">
+              [✓] {m.score?.toFixed(2) ?? "—"}
+              {m.summary?.examples ? ` · ${m.summary.valid ?? 0}/${m.summary.examples} válidas` : ""}
+              {m.seconds ? ` · ${Math.round(m.seconds)} s` : ""}
+            </span>
+          ) : (
+            <span className="fail mono ws-run-err" title={m.error ? `${m.error.code}: ${m.error.message}` : undefined}>
+              [×] {m.error?.message || m.error?.code || "error"}
+            </span>
+          )}
+        </div>
+      ))}
+      {r.state !== "skipped" && (
+        <div className="ws-run-row report">
+          <span className="m">Informe de hallazgos</span>
+          {r.state === "pending" ? (
+            <span className="mono muted">cuando terminen los modelos</span>
+          ) : r.state === "running" ? (
+            <span className="ws-indet" aria-label="redactando"><span /></span>
+          ) : r.state === "done" ? (
+            <a className="ok mono" href={`/app/b/${encodeURIComponent(bench.slug)}/informe`} target="_blank" rel="noreferrer">
+              [✓] listo · abrir ↗
+            </a>
+          ) : (
+            <span className="fail mono">
+              [×] no se pudo{" "}
+              <button className="ws-link" onClick={onReport}>
+                reintentar
+              </button>
+            </span>
+          )}
+        </div>
+      )}
+      {r.state === "error" && r.error && <p className="ws-note">{r.error}</p>}
+      {(ev.state === "running" || ev.state === "reporting") && (
+        <p className="ws-note">Corre en el agente de tu organización: podés cerrar la página o seguir con otra cosa; el estado queda acá.</p>
+      )}
     </div>
   );
 }

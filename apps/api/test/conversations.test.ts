@@ -22,6 +22,7 @@ type Call = { op: string; args: unknown[] };
 function fakeHermes(opts: { fail?: "chat" | "session" } = {}) {
   const calls: Call[] = [];
   let sessions = 0;
+  let running = false;
   const client: HermesClient = {
     async createSession(userId) {
       calls.push({ op: "createSession", args: [userId] });
@@ -74,6 +75,24 @@ function fakeHermes(opts: { fail?: "chat" | "session" } = {}) {
     async removeSource(bench, id) {
       calls.push({ op: "removeSource", args: [bench, id] });
       return { ok: true };
+    },
+    async backup() {
+      return new ArrayBuffer(0);
+    },
+    async evaluation(path) {
+      calls.push({ op: "evaluation", args: [path] });
+      return { ok: true, evaluation: running ? { state: "running", models: [] } : null };
+    },
+    async startEvaluation(path, models) {
+      calls.push({ op: "startEvaluation", args: [path, models] });
+      if (models.includes("nope")) return { status: "refused", body: { ok: false, error: { code: "adapter_not_bound", message: "no" } } };
+      if (running) return { status: "busy", body: { error: "busy", evaluation: { state: "running" } } };
+      running = true;
+      return { status: "started", body: { ok: true, evaluation: { state: "running", models: models.map((m) => ({ model: m, state: "pending" })) } } };
+    },
+    async startReport(path) {
+      calls.push({ op: "startReport", args: [path] });
+      return running ? { status: "busy", body: { error: "busy" } } : { status: "started", body: { ok: true, evaluation: { state: "reporting" } } };
     },
     async readFile(path) {
       calls.push({ op: "readFile", args: [path] });
@@ -276,7 +295,7 @@ it("exposes engine checks, models and the caller's org to members", async () => 
   expect((await req(app, "GET", "/api/workspace/analysis?path=x/benchmark.yaml")).status).toBe(401);
   expect(calls.map((c) => c.op)).toEqual(["models", "validate", "exam", "analysis"]);
   const me = await (await req(app, "GET", "/api/me", ana)).json();
-  expect(me).toEqual({ user: { id: ana.id, name: ana.name, email: ana.email }, org: { id: "org_uni", name: "Uni" } });
+  expect(me).toEqual({ user: { id: ana.id, name: ana.name, email: ana.email }, org: { id: "org_uni", name: "Uni", slug: "uni" } });
   expect((await req(app, "GET", "/api/me", orphan)).status).toBe(403);
 });
 
@@ -381,4 +400,41 @@ it("keeps the org's record of who did what, never what was said to the agent", a
   );
   expect(JSON.stringify(activity)).not.toContain("privado");
   expect((await req(app, "GET", "/api/activity", orphan)).status).toBe(403);
+});
+
+it("starts an evaluation in the container, refuses a second one while it runs, and records it", async () => {
+  const { client, calls } = fakeHermes();
+  const app = makeApp(client);
+  const path = "qa/benchmark.yaml";
+  expect((await req(app, "POST", "/api/workspace/evaluation", ana, { path, models: [] })).status).toBe(400);
+  expect((await req(app, "POST", "/api/workspace/evaluation", ana, { path: "", models: ["a"] })).status).toBe(400);
+  const refused = await req(app, "POST", "/api/workspace/evaluation", ana, { path, models: ["nope"] });
+  expect(((await refused.json()) as { ok: boolean }).ok).toBe(false);
+
+  const started = await req(app, "POST", "/api/workspace/evaluation", ana, { path, models: ["us.moonshotai.kimi-k3", "zai.glm-5"] });
+  expect(started.status).toBe(200);
+  expect(((await started.json()) as { evaluation: { state: string } }).evaluation.state).toBe("running");
+  const again = await req(app, "POST", "/api/workspace/evaluation", beto, { path, models: ["zai.glm-5"] });
+  expect(again.status).toBe(409);
+  expect(((await again.json()) as { error: string }).error).toBe("EVALUATION_RUNNING");
+  expect((await req(app, "POST", `/api/workspace/report?path=${path}`, beto)).status).toBe(409);
+
+  const status = await req(app, "GET", `/api/workspace/evaluation?path=${path}`, beto);
+  expect(((await status.json()) as { evaluation: { state: string } }).evaluation.state).toBe("running");
+  expect(calls.filter((x) => x.op === "startEvaluation").map((x) => x.args[1])).toEqual([["nope"], ["us.moonshotai.kimi-k3", "zai.glm-5"], ["zai.glm-5"]]);
+
+  const res = await req(app, "GET", "/api/activity?bench=qa", ana);
+  const { activity } = (await res.json()) as { activity: { kind: string; detail: string }[] };
+  expect(activity.map((a) => `${a.kind}|${a.detail}`)).toEqual(["evaluate|evaluó 2 modelos: us.moonshotai.kimi-k3, zai.glm-5"]);
+  expect((await req(makeApp(null), "GET", `/api/workspace/evaluation?path=${path}`, ana)).status).toBe(503);
+});
+
+it("asks the container for the findings report and records who asked", async () => {
+  const { client, calls } = fakeHermes();
+  const app = makeApp(client);
+  const res = await req(app, "POST", "/api/workspace/report?path=qa/benchmark.yaml", ana);
+  expect(((await res.json()) as { evaluation: { state: string } }).evaluation.state).toBe("reporting");
+  expect(calls.at(-1)).toEqual({ op: "startReport", args: ["qa/benchmark.yaml"] });
+  const act = (await (await req(app, "GET", "/api/activity?bench=qa", ana)).json()) as { activity: { kind: string }[] };
+  expect(act.activity.map((a) => a.kind)).toEqual(["report"]);
 });

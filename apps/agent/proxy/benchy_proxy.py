@@ -10,6 +10,9 @@ Hermes's API server listens on 127.0.0.1 only; this process fronts it:
   PUT /benchy/file               write one benchmark text file (the app's editors)
   POST /benchy/review?path=...   grade the expert answers against the rubric
   GET /benchy/analysis?path=...  the results beyond the score: criteria, topics, papers, answers
+  POST /benchy/evaluation        run a benchmark with several models, then write its report (background)
+  GET /benchy/evaluation?path=   that evaluation's state: each model, then the report
+  POST /benchy/report?path=...   (re)write the findings report from the results there are (background)
   GET /benchy/backup             the whole workspace as a .tar.gz (the Worker's daily backup)
   POST /benchy/sources           add a library paper to a benchmark (fetches its PDF)
   POST /benchy/sources/upload?bench=...&name=...   add an uploaded PDF to a benchmark
@@ -39,6 +42,7 @@ from pathlib import Path
 from aiohttp import ClientSession, ClientTimeout, web
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "mcp"))  # /opt/benchy/mcp in the image
+import benchy_evaluation  # noqa: E402
 import benchy_sources  # noqa: E402
 from benchy_analysis import analyze  # noqa: E402
 from benchy_review import review as review_answers  # noqa: E402
@@ -242,6 +246,79 @@ async def analysis(request: web.Request) -> web.Response:
     return web.json_response(analyze(ir, source))
 
 
+# The findings report is the agent's: asked in a session of its own, not in
+# any researcher's conversation, so it never waits for one or blocks it.
+REPORT_PROMPT = (
+    "Redactá el informe de hallazgos de este benchmark en {bench}/report.md, siguiendo la skill "
+    "benchy-report-findings: los números de benchy_analysis, los hallazgos con su evidencia (pregunta, "
+    "respuesta experta, respuesta del modelo, criterio que falla), las limitaciones y el ángulo para publicar."
+)
+REPORT_SPEAKER = (
+    "No researcher is in this conversation: the app asks for the findings report when an evaluation "
+    "finishes. Write the file, then reply in one line."
+)
+REPORT_TIMEOUT_S = 15 * 60
+
+
+async def _write_report(bench: str) -> None:
+    headers = {"authorization": f"Bearer {KEY}", "content-type": "application/json", "x-hermes-session-key": "benchy:report"}
+    async with ClientSession(timeout=ClientTimeout(total=REPORT_TIMEOUT_S, sock_connect=10)) as http:
+        async with http.post(f"{UPSTREAM}/api/sessions", json={}, headers=headers) as res:
+            if res.status >= 400:
+                raise RuntimeError(f"el agente no abrió una sesión ({res.status})")
+            data = await res.json()
+        session = (data.get("session") or {}).get("id") or data.get("session_id") or data.get("id")
+        if not isinstance(session, str):
+            raise RuntimeError("el agente no devolvió una sesión")
+        body = {"message": REPORT_PROMPT.format(bench=bench), "system_message": REPORT_SPEAKER}
+        async with http.post(f"{UPSTREAM}/api/sessions/{session}/chat", json=body, headers=headers) as res:
+            if res.status >= 400:
+                raise RuntimeError(f"el agente respondió {res.status}")
+            await res.read()
+
+
+async def evaluation(request: web.Request) -> web.Response:
+    """GET: the benchmark's last evaluation. POST {path, models}: start one."""
+    if not _authorized(request):
+        return web.json_response({"error": "unauthorized"}, status=401)
+    if request.method == "GET":
+        try:
+            source, _ = _compile(request.query.get("path", ""))
+        except BenchyError as exc:
+            return web.json_response({"ok": False, "error": exc.to_dict()})
+        return web.json_response({"ok": True, "evaluation": benchy_evaluation.status(source.parent)})
+    try:
+        body = await request.json()
+        path, models = body["path"], body["models"]
+        if not isinstance(path, str) or not isinstance(models, list) or not models or len(models) > len(MODELS):
+            raise TypeError
+        if not all(isinstance(m, str) for m in models):
+            raise TypeError
+    except (ValueError, KeyError, TypeError):
+        return web.json_response({"error": "bad_request"}, status=400)
+    try:
+        source, ir = _compile(path)
+        state = benchy_evaluation.start(source, ir, list(dict.fromkeys(models)), _write_report)
+    except benchy_evaluation.Busy as busy:
+        return web.json_response({"error": "busy", "evaluation": busy.status}, status=409)
+    except BenchyError as exc:
+        return web.json_response({"ok": False, "error": exc.to_dict()})
+    return web.json_response({"ok": True, "evaluation": state})
+
+
+async def report(request: web.Request) -> web.Response:
+    if not _authorized(request):
+        return web.json_response({"error": "unauthorized"}, status=401)
+    try:
+        source, _ = _compile(request.query.get("path", ""))
+        state = benchy_evaluation.start_report(source, _write_report)
+    except benchy_evaluation.Busy as busy:
+        return web.json_response({"error": "busy", "evaluation": busy.status}, status=409)
+    except BenchyError as exc:
+        return web.json_response({"ok": False, "error": exc.to_dict()})
+    return web.json_response({"ok": True, "evaluation": state})
+
+
 def _archive() -> bytes:
     buf = io.BytesIO()
     with tarfile.open(fileobj=buf, mode="w:gz", compresslevel=9) as tar:
@@ -346,6 +423,9 @@ def main() -> None:
     app.router.add_put("/benchy/file", write_file)
     app.router.add_post("/benchy/review", review)
     app.router.add_get("/benchy/analysis", analysis)
+    app.router.add_get("/benchy/evaluation", evaluation)
+    app.router.add_post("/benchy/evaluation", evaluation)
+    app.router.add_post("/benchy/report", report)
     app.router.add_get("/benchy/backup", backup)
     app.router.add_post("/benchy/sources", add_source)
     app.router.add_post("/benchy/sources/upload", upload_source)

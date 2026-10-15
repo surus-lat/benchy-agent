@@ -13,9 +13,7 @@ Runs as a stdio subprocess of the Hermes gateway, with Hermes's own Python.
 from __future__ import annotations
 
 import asyncio
-import json
 import os
-import time
 from pathlib import Path
 
 try:  # mcp >= 2.0 (what Hermes ships)
@@ -26,19 +24,17 @@ except ImportError:  # mcp 1.x
 import sys
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from benchy_shared import MODELS, WORKSPACE, catalog, check_models, inside, model_slug  # noqa: E402
+from benchy_shared import MODELS, WORKSPACE, catalog, inside  # noqa: E402
 from benchy_review import review  # noqa: E402
 import benchy_sources  # noqa: E402
 from benchy_analysis import analyze  # noqa: E402
+from benchy_evaluation import run_model  # noqa: E402
 
 from aiohttp import ClientError, ClientSession, ClientTimeout
 
-from benchy import providers
 from benchy.compiler import compile_benchmark
 from benchy.errors import BenchyError
-from benchy.run import run
 
-MAX_ROWS = int(os.environ.get("BENCHY_MAX_ROWS", "500"))
 
 mcp = MCPServer("benchy")
 
@@ -112,32 +108,10 @@ async def benchy_run(path: str, model: str | None = None) -> dict:
     """
     try:
         source, ir = _compile(path)
-        if model:
-            ir = {**ir, "ai-system": {**ir["ai-system"], "model": model}}
-        system = ir["ai-system"]
-        check_models(ir)
-        workspace = source.parent
-        exam = (workspace / ir["data"]["path"]).resolve()
-        if exam.is_file():
-            with exam.open(encoding="utf-8") as fh:
-                rows = sum(1 for line in fh if line.strip())
-            if rows > MAX_ROWS:
-                raise BenchyError("runtime", "dataset_too_large", f"the exam has {rows} rows; the limit here is {MAX_ROWS}")
-        adapter = providers.for_system(ir, workspace)
-        # A rubric benchmark is graded by its declared grader (scoring.grader).
-        grader = providers.for_grader(ir, workspace) if ir["scoring"].get("grader") else None
-        started = time.time()
-        result = await run(ir, workspace, adapter, grader=grader)
+        done = await run_model(source, ir, model)
     except BenchyError as exc:
         return _error(exc)
-
-    runs_dir = source.parent / "runs"
-    runs_dir.mkdir(exist_ok=True)
-    # <stem>__<model>__<timestamp>.json: the app groups the newest run per
-    # model into a comparison, and the result itself records the AI-system.
-    out = runs_dir / f"{source.stem}__{model_slug(system.get('model', 'external'))}__{time.strftime('%Y%m%d-%H%M%S')}.json"
-    saved = {"ai_system": system, **result}
-    out.write_text(json.dumps(saved, indent=2, ensure_ascii=False), encoding="utf-8")
+    result, system = done["result"], done["system"]
 
     failures = [r for r in result["results"] if r["status"] != "valid"][:10]
     return {
@@ -145,8 +119,8 @@ async def benchy_run(path: str, model: str | None = None) -> dict:
         "benchmark_score": result.get("benchmark_score"),
         "summary": result.get("summary"),
         "model": system.get("model"),
-        "seconds": round(time.time() - started, 1),
-        "saved_to": str(out.relative_to(WORKSPACE)),
+        "seconds": done["seconds"],
+        "saved_to": str(done["file"].relative_to(WORKSPACE)),
         "failures_shown": failures,
     }
 

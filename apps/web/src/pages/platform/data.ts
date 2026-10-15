@@ -37,7 +37,13 @@ export type RunResult = {
   summary: { examples: number; valid: number; invalid_outputs: number; execution_errors: number };
   results: { index: number; status: string; prediction: unknown; field_scores: { path: string[]; score: number; weight: number; criteria?: Record<string, { grade: number; justification: string }> }[] | null; error: EngineError | null }[];
 };
-export type Me = { user: { id: string; name: string; email: string }; org: { id: string; name: string } | null };
+export type Me = { user: { id: string; name: string; email: string }; org: { id: string; name: string; slug?: string } | null };
+
+/** Where a benchmark is published: getbenchy.lat/b/<org>/<benchmark>. */
+export function publicPath(org: { slug?: string; name: string } | null | undefined, slug: string): string {
+  const o = org?.slug || (org?.name ?? "org").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
+  return `getbenchy.lat/b/${o}/${slug}`;
+}
 
 /** A model a benchmark may run, with its maker and region (apps/agent/mcp/benchy_shared.py). */
 export type CatalogModel = { id: string; name: string; maker: string; region: string; default: boolean };
@@ -80,6 +86,41 @@ export type Analysis = {
   regions: Record<string, number | null>;
 };
 
+async function send<T>(path: string, body?: unknown): Promise<T> {
+  let res: Response;
+  try {
+    res = await fetch(path, {
+      method: "POST",
+      credentials: "same-origin",
+      headers: body === undefined ? undefined : { "content-type": "application/json" },
+      body: body === undefined ? undefined : JSON.stringify(body),
+    });
+  } catch {
+    throw new ApiError("NETWORK", 0);
+  }
+  if (!res.ok) {
+    const data = (await res.json().catch(() => ({}))) as { error?: string };
+    throw new ApiError(data.error ?? `HTTP_${res.status}`, res.status);
+  }
+  return (await res.json()) as T;
+}
+
+/** An evaluation in the container (<bench>/evaluation.json): each model's run, then the report. */
+export type Evaluation = {
+  state: "running" | "reporting" | "done" | "error" | "interrupted";
+  started: number;
+  finished: number | null;
+  models: {
+    model: string;
+    state: "pending" | "running" | "done" | "error";
+    score?: number | null;
+    summary?: { examples?: number; valid?: number; invalid_outputs?: number; execution_errors?: number };
+    seconds?: number;
+    error?: EngineError;
+  }[];
+  report: { state: "pending" | "running" | "done" | "error" | "skipped"; started?: number; finished?: number; error?: string };
+};
+
 export const api = {
   ...chatApi,
   me: () => get<Me>("/api/me"),
@@ -88,6 +129,13 @@ export const api = {
   exam: (path: string) => get<ExamCheck>(`/api/workspace/exam?path=${encodeURIComponent(path)}`),
   analysis: (path: string) => get<Analysis | { ok: false; error: EngineError }>(`/api/workspace/analysis?path=${encodeURIComponent(path)}`),
   text: async (path: string) => (await chatApi.file(path)).content,
+  /** The benchmark's last evaluation (each model, then the report), kept by the container. */
+  evaluation: (path: string) => get<{ ok: true; evaluation: Evaluation | null } | { ok: false; error: EngineError }>(`/api/workspace/evaluation?path=${encodeURIComponent(path)}`),
+  /** Run the benchmark with these models in the container; the report follows on its own. */
+  startEvaluation: (path: string, models: string[]) =>
+    send<{ ok: true; evaluation: Evaluation } | { ok: false; error: EngineError }>("/api/workspace/evaluation", { path, models }),
+  /** (Re)write the findings report from the results there are. */
+  startReport: (path: string) => send<{ ok: true; evaluation: Evaluation } | { ok: false; error: EngineError }>(`/api/workspace/report?path=${encodeURIComponent(path)}`),
   /** The grader grades every expert answer against the rubric; writes review.json. */
   review: async (path: string) => {
     let res: Response;

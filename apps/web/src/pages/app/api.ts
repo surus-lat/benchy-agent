@@ -41,7 +41,7 @@ export const api = {
   activity: (bench?: string, limit = 50) =>
     call<{ activity: Activity[] }>(`/api/activity?limit=${limit}${bench ? `&bench=${encodeURIComponent(bench)}` : ""}`),
   /** Record what only the app knows happened; never blocks the action itself. */
-  logActivity: (bench: string, kind: "create" | "delete" | "approve" | "evaluate" | "report", detail: string) =>
+  logActivity: (bench: string, kind: "create" | "delete" | "approve", detail: string) =>
     call<{ ok: true }>("/api/activity", { method: "POST", body: JSON.stringify({ bench, kind, detail }) }).catch(() => null),
   messages: (id: string) => call<{ messages: Message[] }>(`/api/conversations/${id}/messages`),
   sendTurn: (id: string, message: string) =>
@@ -67,7 +67,9 @@ export function errorText(err: unknown): string {
     case "AGENT_UNAVAILABLE":
       return "No pudimos comunicarnos con el agente. Probá de nuevo en un momento.";
     case "TURN_IN_PROGRESS":
-      return "El agente todavía está respondiendo en esta conversación.";
+      return "El agente todavía está respondiendo tu mensaje anterior. Cuando termine, mandá el siguiente.";
+    case "EVALUATION_RUNNING":
+      return "Ya hay una evaluación corriendo en este benchmark: esperá a que termine.";
     case "UNAUTHENTICATED":
       return "Tu sesión expiró. Volvé a ingresar.";
     case "CONFLICT":

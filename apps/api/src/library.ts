@@ -114,6 +114,8 @@ export function ftsQuery(q: string, author = ""): string | null {
   return parts.length ? parts.join(" AND ") : null;
 }
 
+type Hit = { id: number; origin: string; title: string; creators: string; year: number | null; type: string; language: string; has_pdf: number; excerpt: string };
+
 function list(json: string): string[] {
   try {
     const v = JSON.parse(json) as unknown;
@@ -121,6 +123,21 @@ function list(json: string): string[] {
   } catch {
     return [];
   }
+}
+
+/** A search result as the app and the agent read it. */
+function hit(h: Hit) {
+  return {
+    id: h.id,
+    origin: h.origin,
+    title: h.title,
+    creators: list(h.creators),
+    year: h.year,
+    type: h.type,
+    language: h.language,
+    hasPdf: h.has_pdf === 1,
+    excerpt: h.excerpt,
+  };
 }
 
 const FILE_KEY = /^[a-z]+\/\d+\.pdf$/;
@@ -167,9 +184,22 @@ export function createLibraryApp(deps: LibraryDeps) {
 
   app.get("/api/library/search", async (c) => {
     const match = ftsQuery(c.req.query("q") ?? "", c.req.query("author") ?? "");
-    if (!match) return c.json({ error: "EMPTY_QUERY" }, 400);
     const pdfOnly = c.req.query("pdf") === "1" ? 1 : 0;
     const page = Math.max(0, Math.min(Number.parseInt(c.req.query("page") ?? "0", 10) || 0, CANDIDATES / PAGE_SIZE - 1));
+    if (!match) {
+      // Nothing typed: the newest papers, so a list is there before any search.
+      const [newest, meta] = await deps.library.batch([
+        deps.library
+          .prepare(
+            `SELECT id, origin, title, creators, year, type, language, pdf IS NOT NULL AS has_pdf, substr(description, 1, 320) AS excerpt
+             FROM papers WHERE ?1 = 0 OR pdf IS NOT NULL ORDER BY rowid DESC LIMIT ?2 OFFSET ?3`,
+          )
+          .bind(pdfOnly, PAGE_SIZE, page * PAGE_SIZE),
+        deps.library.prepare("SELECT value FROM library_meta WHERE key = ?1").bind(pdfOnly ? "with_pdf" : "papers"),
+      ]);
+      const total = Number((meta.results[0] as { value: string } | undefined)?.value ?? 0);
+      return c.json({ total, more: false, page, pageSize: PAGE_SIZE, papers: (newest.results as Hit[]).map(hit) });
+    }
     const author = (c.req.query("author") ?? "").trim();
     // With an author, rank the first AUTHOR_POOL here, that author's papers first.
     const [limit, offset] = author ? [AUTHOR_POOL, 0] : [PAGE_SIZE, page * PAGE_SIZE];
@@ -202,7 +232,6 @@ export function createLibraryApp(deps: LibraryDeps) {
             .bind(match)
         : deps.library.prepare("SELECT count(*) AS n FROM papers_fts WHERE papers_fts MATCH ?1").bind(match),
     ]);
-    type Hit = { id: number; origin: string; title: string; creators: string; year: number | null; type: string; language: string; has_pdf: number; excerpt: string };
     const total = (count.results[0] as { n: number } | undefined)?.n ?? 0;
     let rows = hits.results as Hit[];
     if (author) {
@@ -216,17 +245,7 @@ export function createLibraryApp(deps: LibraryDeps) {
       more: pdfOnly === 1 && total > COUNT_CAP,
       page,
       pageSize: PAGE_SIZE,
-      papers: rows.map((h) => ({
-        id: h.id,
-        origin: h.origin,
-        title: h.title,
-        creators: list(h.creators),
-        year: h.year,
-        type: h.type,
-        language: h.language,
-        hasPdf: h.has_pdf === 1,
-        excerpt: h.excerpt,
-      })),
+      papers: rows.map(hit),
     });
   });
 

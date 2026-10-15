@@ -313,6 +313,57 @@ export function createConversationsApp(deps: ConversationsDeps) {
     }
   });
 
+  // An evaluation runs in the container, not in a conversation: it never
+  // waits for the researcher's chat nor blocks it, and its state outlives the page.
+  app.get("/api/workspace/evaluation", async (c) => {
+    const path = c.req.query("path");
+    if (!path || path.length > 1000) return c.json({ error: "INVALID_PATH" }, 400);
+    const agent = await deps.agentFor(c.get("user").orgId);
+    if (!agent) return c.json({ error: "AGENT_NOT_PROVISIONED" }, 503);
+    try {
+      return c.json(await agent.evaluation(path));
+    } catch (err) {
+      return agentFailure(c, err);
+    }
+  });
+
+  app.post("/api/workspace/evaluation", async (c) => {
+    const body = (await c.req.json().catch(() => null)) as { path?: unknown; models?: unknown } | null;
+    const path = body?.path;
+    const models = body?.models;
+    if (typeof path !== "string" || !path || path.length > 1000) return c.json({ error: "INVALID_PATH" }, 400);
+    if (!Array.isArray(models) || models.length === 0 || models.length > 20 || !models.every((m) => typeof m === "string" && m && m.length <= 100)) {
+      return c.json({ error: "INVALID_BODY" }, 400);
+    }
+    const agent = await deps.agentFor(c.get("user").orgId);
+    if (!agent) return c.json({ error: "AGENT_NOT_PROVISIONED" }, 503);
+    try {
+      const result = await agent.startEvaluation(path, models as string[]);
+      if (result.status === "busy") return c.json({ ...(result.body as object), error: "EVALUATION_RUNNING" }, 409);
+      if (result.status === "started") {
+        await log(c.get("user"), path.split("/")[0], "evaluate", `evaluó ${models.length === 1 ? "un modelo" : `${models.length} modelos`}: ${models.join(", ")}`);
+      }
+      return c.json(result.body);
+    } catch (err) {
+      return agentFailure(c, err);
+    }
+  });
+
+  app.post("/api/workspace/report", async (c) => {
+    const path = c.req.query("path");
+    if (!path || path.length > 1000) return c.json({ error: "INVALID_PATH" }, 400);
+    const agent = await deps.agentFor(c.get("user").orgId);
+    if (!agent) return c.json({ error: "AGENT_NOT_PROVISIONED" }, 503);
+    try {
+      const result = await agent.startReport(path);
+      if (result.status === "busy") return c.json({ ...(result.body as object), error: "EVALUATION_RUNNING" }, 409);
+      if (result.status === "started") await log(c.get("user"), path.split("/")[0], "report", "pidió el informe de hallazgos");
+      return c.json(result.body);
+    } catch (err) {
+      return agentFailure(c, err);
+    }
+  });
+
   app.post("/api/workspace/review", async (c) => {
     const path = c.req.query("path");
     if (!path || path.length > 1000) return c.json({ error: "INVALID_PATH" }, 400);
@@ -434,7 +485,7 @@ export function createConversationsApp(deps: ConversationsDeps) {
   app.get("/api/me", async (c) => {
     const user = c.get("user");
     const [org] = await db
-      .select({ id: schema.orgs.id, name: schema.orgs.name })
+      .select({ id: schema.orgs.id, name: schema.orgs.name, slug: schema.orgs.slug })
       .from(schema.orgs)
       .where(eq(schema.orgs.id, user.orgId))
       .limit(1);

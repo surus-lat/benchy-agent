@@ -1,12 +1,13 @@
 import { useEffect, useMemo, useState } from "react";
-import { api, errorText, newestPerModel, type Analysis } from "./data";
+import { api, errorText, newestPerModel, publicPath, type Analysis } from "./data";
 import { usePlatform, type BenchSummary } from "./store";
-import { useRunResults, type ExamState } from "./use-exam";
+import { useRunResults, type EvaluationState, type ExamState } from "./use-exam";
 
 // 04 · Publicación: what the results say (the analysis: by criterion, topic,
-// paper and question), the findings report the agent writes with the
-// researcher (report.md, rendered on the SURUS letterhead at
-// /app/b/:slug/informe), and the public card, still a preview.
+// paper and question), the findings report (report.md: the agent writes it on
+// its own when an evaluation ends, and the researcher adjusts it with the agent;
+// rendered on the SURUS letterhead at /app/b/:slug/informe), and the public
+// card, still a preview.
 
 export type PubStage = "autoria" | "revision" | "evaluacion" | "publicacion";
 
@@ -64,6 +65,7 @@ export function PublicationStage({
   ask,
   showAgent,
   busy,
+  evaluation,
 }: {
   bench: BenchSummary;
   exam: ExamState;
@@ -72,6 +74,7 @@ export function PublicationStage({
   ask: (t: string) => Promise<void>;
   showAgent: () => void;
   busy: boolean;
+  evaluation: EvaluationState;
 }) {
   const [tab, setTab] = useState<Tab>("analisis");
   const { analysis, error, loading } = useAnalysis(bench);
@@ -97,7 +100,7 @@ export function PublicationStage({
       {tab === "analisis" ? (
         <AnalysisView analysis={analysis} error={error} loading={loading} go={go} talk={talk} busy={busy} />
       ) : tab === "informe" ? (
-        <ReportView bench={bench} analysis={analysis} talk={talk} showAgent={showAgent} busy={busy} />
+        <ReportView bench={bench} analysis={analysis} showAgent={showAgent} evaluation={evaluation} />
       ) : (
         <PublishView bench={bench} exam={exam} openExam={openExam} go={go} />
       )}
@@ -365,21 +368,16 @@ function AnalysisView({
 
 // ---- Informe ---------------------------------------------------------------------
 
-const REPORT_PROMPT = (slug: string) =>
-  `Redactá el informe de hallazgos de este benchmark en ${slug}/report.md, siguiendo la skill benchy-report-findings: los números de benchy_analysis, los hallazgos con su evidencia (pregunta, respuesta experta, respuesta del modelo, criterio que falla), las limitaciones y el ángulo para publicar. Cuando termines, contame en dos líneas cuáles son los hallazgos principales.`;
-
 function ReportView({
   bench,
   analysis,
-  talk,
   showAgent,
-  busy,
+  evaluation,
 }: {
   bench: BenchSummary;
   analysis: Analysis | null;
-  talk: (t: string) => void;
   showAgent: () => void;
-  busy: boolean;
+  evaluation: EvaluationState;
 }) {
   const { files } = usePlatform();
   const path = `${bench.slug}/report.md`;
@@ -393,33 +391,56 @@ function ReportView({
     void api.text(path).then(setText, () => setText(null));
   }, [path, file?.modified]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  const ev = evaluation.evaluation;
+  const writing = ev?.report.state === "running";
+  const evaluating = ev?.state === "running";
   const hasRuns = (analysis?.models.length ?? 0) > 0;
   const title = text?.match(/^#\s+(.+)$/m)?.[1];
-  const summary = text?.split(/^##\s+/m)[1]?.replace(/^[^\n]*\n/, "").trim().slice(0, 600);
+  // The summary as plain text: no list marks or emphasis from the markdown.
+  const summary = text
+    ?.split(/^##\s+/m)[1]
+    ?.replace(/^[^\n]*\n/, "")
+    .replace(/^\s*[-*]\s+/gm, "")
+    .replace(/[*_`]+/g, "")
+    .trim()
+    .slice(0, 600);
+  const failed = ev?.report.state === "error" ? ev.report.error : null;
+
+  const status = writing ? (
+    <div className="ws-evprog reporting" role="status" aria-live="polite">
+      <p className="h">
+        <span className="mono amber">[···]</span>
+        {text ? "El agente está rehaciendo el informe con los últimos resultados." : "El agente está redactando el informe con los resultados de la evaluación."}
+      </p>
+      <span className="ws-indet wide" aria-hidden="true"><span /></span>
+      <p className="ws-note">Aparece acá solo cuando termina, en unos minutos. Podés seguir con otra cosa.</p>
+    </div>
+  ) : evaluating ? (
+    <p className="ws-note ws-pub-wait">Hay una evaluación corriendo: el informe se redacta solo cuando termina.</p>
+  ) : null;
+
   return (
     <div className="ws-narrow">
+      {status}
+      {failed && !writing && <p className="ws-note fail">El informe no se pudo redactar: {failed}</p>}
+      {evaluation.error && <p className="ws-note fail">{evaluation.error}</p>}
       {!text ? (
-        <div className="ws-empty">
-          <p className="t">El informe de hallazgos</p>
-          <p className="d">
-            El agente lo redacta a partir del análisis: qué fallan los modelos y por qué, con la evidencia de cada pregunta, las limitaciones y el
-            ángulo para un paper o una nota. Sale en el membrete de SURUS con el nombre de tu organización, listo para descargar en PDF. Después lo
-            ajustás conversando con el agente.
-          </p>
-          <div className="b">
-            <button
-              className="ws-btn-dark sm"
-              disabled={busy || !hasRuns}
-              onClick={() => {
-                void api.logActivity(bench.slug, "report", "pidió el informe de hallazgos");
-                talk(REPORT_PROMPT(bench.slug));
-              }}
-            >
-              Redactar el informe con el agente
-            </button>
+        !writing && (
+          <div className="ws-empty">
+            <p className="t">El informe de hallazgos</p>
+            <p className="d">
+              Se redacta solo cuando termina una evaluación, a partir del análisis: qué fallan los modelos y por qué, con la evidencia de cada
+              pregunta, las limitaciones y el ángulo para un paper o una nota. Sale en el membrete de SURUS con el nombre de tu organización,
+              listo para descargar en PDF.
+            </p>
+            <div className="b">
+              <button className="ws-btn-dark sm" disabled={!hasRuns || evaluation.active} onClick={() => void evaluation.startReport()}>
+                Redactar el informe
+              </button>
+            </div>
+            {!hasRuns && <p className="ws-note">Primero hace falta una evaluación: el informe sale de sus resultados.</p>}
           </div>
-          {!hasRuns && <p className="ws-note">Primero hace falta una evaluación: el informe sale de sus resultados.</p>}
-        </div>
+        )
       ) : (
         <div className="ws-card ws-pad ws-report-card">
           <p className="ws-eyebrow">Informe de hallazgos · report.md</p>
@@ -432,13 +453,13 @@ function ReportView({
             <button className="ws-btn-line sm" onClick={showAgent}>
               Pedirle cambios al agente
             </button>
-            <button className="ws-btn-line sm" disabled={busy} onClick={() => talk(`Actualizá ${bench.slug}/report.md con los resultados actuales de benchy_analysis, manteniendo lo que no cambió.`)}>
-              Actualizar con los últimos resultados
+            <button className="ws-btn-line sm" disabled={evaluation.active} onClick={() => void evaluation.startReport()}>
+              Rehacer con los últimos resultados
             </button>
           </div>
           <p className="ws-note">
             Pedile al agente lo que quieras cambiar («sumá un hallazgo sobre la pregunta 03», «escribí un párrafo para prensa»): edita el informe y
-            acá se actualiza solo.
+            acá se actualiza solo. Rehacerlo guarda la versión anterior en report.previous.md.
           </p>
         </div>
       )}
@@ -477,7 +498,7 @@ function PublishView({ bench, exam, openExam, go }: { bench: BenchSummary; exam:
           <div className="ws-card ws-preview">
             <div className="ws-browser">
               <span className="dots"><span /><span /><span /></span>
-              <span>getbenchy.lat/b/{bench.slug}</span>
+              <span>{publicPath(me?.org, bench.slug)}</span>
             </div>
             <div className="ws-pad ws-preview-body">
               <div>
@@ -515,7 +536,7 @@ function PublishView({ bench, exam, openExam, go }: { bench: BenchSummary; exam:
               <div>
                 <p className="ws-eyebrow">Cómo citar</p>
                 <p className="cite">
-                  {org} ({new Date().getFullYear()}). {title} [Benchmark]. Benchy. https://getbenchy.lat/b/{bench.slug}
+                  {org} ({new Date().getFullYear()}). {title} [Benchmark]. Benchy. https://{publicPath(me?.org, bench.slug)}
                 </p>
               </div>
             </div>

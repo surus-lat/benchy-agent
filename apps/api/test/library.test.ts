@@ -69,7 +69,10 @@ it("puts the papers of the author typed before papers by two people with those n
 
 it("searches signed-in only, ignoring accents, by words, authors and PDF", async () => {
   expect((await get("/api/library/search?q=glaciar", false)).status).toBe(401);
-  expect((await get("/api/library/search?q=")).status).toBe(400);
+  // Nothing typed: the newest papers, the library's size as the total.
+  const newest = (await (await get("/api/library/search?q=")).json()) as { total: number; papers: { id: number }[] };
+  expect(newest.papers.length).toBeGreaterThan(1);
+  expect(newest.papers.map((p) => p.id)).toEqual([...newest.papers.map((p) => p.id)].sort((a, b) => b - a));
 
   const glaciar = (await (await get("/api/library/search?q=glaciar")).json()) as { total: number; papers: { id: number; hasPdf: boolean }[] };
   expect(glaciar.total).toBe(1);

@@ -371,34 +371,73 @@ function PaperDetail({ id, onClose }: { id: number; onClose: () => void }) {
   );
 }
 
-// ---- Inside a benchmark: search and add directly -----------------------------------
+// ---- Inside a benchmark: the library as a list, filtered as you type -------------
 
-export function LibraryPicker({
+type Row = { id: number; origin: string; title: string; creators: string[]; year: number | null; hasPdf: boolean; excerpt: string };
+
+/** The library number of a benchmark source that came from it (conicet-123, bicyt-123); null for an upload. */
+export function libraryId(s: Source): number | null {
+  const m = /^(?:conicet|bicyt)-(\d+)$/.exec(s.id);
+  return m ? Number(m[1]) : null;
+}
+
+export function LibraryBrowser({
   bench,
-  added,
+  inBench,
   onAdded,
   disabled,
 }: {
   bench: string;
-  /** Ids of the CONICET papers already in the benchmark. */
-  added: Set<number>;
+  /** The benchmark's papers (sources.json). */
+  inBench: Source[];
   onAdded: (s: Source) => void;
   disabled: boolean;
 }) {
   const { me } = usePlatform();
-  const [query, setQuery] = useState<Query>({ q: "", author: "", pdf: false });
+  const myName = me?.user.name?.trim() || "";
+  const [text, setText] = useState("");
+  const [mine, setMine] = useState(false);
+  const [view, setView] = useState<"all" | "in" | "out">("all");
+  const [rows, setRows] = useState<Row[]>([]);
+  const [total, setTotal] = useState<number | null>(null);
+  const [page, setPage] = useState(0);
+  const [loading, setLoading] = useState(false);
   const [open, setOpen] = useState<number | null>(null);
   const [busy, setBusy] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const search = useLibrarySearch();
+  const seq = useRef(0);
 
-  const submit = (q: Query) => {
-    setQuery(q);
-    setOpen(null);
-    void search.run(q);
-  };
+  const added = new Set(inBench.map(libraryId).filter((x): x is number => x !== null));
+  const fromLibrary: Row[] = inBench
+    .filter((s) => libraryId(s) !== null)
+    .map((s) => ({ id: libraryId(s)!, origin: s.origin, title: s.title, creators: s.authors, year: s.year, hasPdf: s.text === "full", excerpt: "" }));
 
-  const add = async (h: LibraryHit) => {
+  const load = useCallback(
+    async (p: number) => {
+      const n = ++seq.current;
+      setLoading(true);
+      setError(null);
+      try {
+        const r = await library.search({ q: text, author: mine ? myName : "", pdf: false, page: p });
+        if (n !== seq.current) return;
+        setRows((cur) => (p === 0 ? r.papers : [...cur, ...r.papers]));
+        setTotal(r.total);
+        setPage(p);
+      } catch (err) {
+        if (n === seq.current) setError(err instanceof ApiError && err.code !== "NETWORK" ? libraryErrorText(err.code) : errorText(err));
+      } finally {
+        if (n === seq.current) setLoading(false);
+      }
+    },
+    [text, mine, myName],
+  );
+  // Typing filters the list after a short pause; an empty box lists the newest.
+  useEffect(() => {
+    const timer = setTimeout(() => void load(0), text ? 300 : 0);
+    return () => clearTimeout(timer);
+  }, [load, text]);
+
+  const add = async (h: Row) => {
     setBusy(h.id);
     setError(null);
     try {
@@ -412,36 +451,90 @@ export function LibraryPicker({
     }
   };
 
-  const result = search.result;
+  const term = text.trim().toLowerCase();
+  const shown =
+    view === "in"
+      ? fromLibrary.filter((r) => !term || `${r.title} ${r.creators.join(" ")}`.toLowerCase().includes(term))
+      : view === "out"
+        ? rows.filter((r) => !added.has(r.id))
+        : rows;
+  const more = view !== "in" && total !== null && rows.length < Math.min(total, 1000);
+  const count =
+    view === "in"
+      ? `${shown.length} de ${fromLibrary.length} en este benchmark`
+      : total === null
+        ? "Cargando la biblioteca…"
+        : text.trim() || mine
+          ? `${total.toLocaleString("es-AR")} ${total === 1 ? "paper coincide" : "papers coinciden"}`
+          : `${total.toLocaleString("es-AR")} papers · los más recientes primero`;
+
   return (
-    <div className="lib lib-picker">
-      <SearchForm query={query} setQuery={setQuery} onSubmit={submit} myName={me?.user.name || undefined} compact />
-      {search.error && <p className="lib-error">{search.error}</p>}
+    <div className="lib lb">
+      <input
+        type="search"
+        className="lb-search"
+        value={text}
+        onChange={(e) => setText(e.target.value)}
+        placeholder="Filtrá por tema, autor o título…"
+        aria-label="Filtrar la biblioteca"
+      />
+      <div className="lb-bar">
+        <div role="group" aria-label="Qué papers" className="lb-seg">
+          {(
+            [
+              ["all", "Todos"],
+              ["in", `En el benchmark · ${fromLibrary.length}`],
+              ["out", "Sin agregar"],
+            ] as const
+          ).map(([k, label]) => (
+            <button key={k} className={view === k ? "on" : ""} aria-pressed={view === k} onClick={() => setView(k)}>
+              {label}
+            </button>
+          ))}
+        </div>
+        {myName && view !== "in" && (
+          <button className={`lb-chip${mine ? " on" : ""}`} aria-pressed={mine} onClick={() => setMine((m) => !m)} title={`Papers de ${myName}`}>
+            Mis papers
+          </button>
+        )}
+      </div>
+      <p className="lb-count">
+        {count}
+        {loading && view !== "in" && total !== null ? " · buscando…" : ""}
+      </p>
       {error && <p className="lib-error">{error}</p>}
-      {result && <ResultsHead result={result} query={query} loading={search.loading} />}
-      <ol className="lib-list">
-        {result?.papers.map((h) => {
+      <ul className="lb-list">
+        {shown.map((h) => {
           const isIn = added.has(h.id);
           return (
-            <li key={h.id} className="lib-pick">
-              <button className="lib-hit" aria-expanded={open === h.id} onClick={() => setOpen(open === h.id ? null : h.id)}>
+            <li key={`${h.origin}-${h.id}`} className={`lb-row${isIn ? " in" : ""}`}>
+              <button className="lb-main" aria-expanded={open === h.id} onClick={() => setOpen(open === h.id ? null : h.id)}>
                 <span className="t">{h.title}</span>
-                <span className="a">{authorsLine(h.creators)}</span>
-                <HitMeta year={h.year} type={h.type} language={h.language} hasPdf={h.hasPdf} />
-                {open === h.id && <span className="x">{h.excerpt ? `${h.excerpt}${h.excerpt.length >= 320 ? "…" : ""}` : "Sin resumen."}</span>}
+                <span className="m">
+                  {[authorsLine(h.creators, 2), h.year, h.origin === "bicyt" ? "BICyT" : null].filter(Boolean).join(" · ")}
+                  {!h.hasPdf && <span className="np"> · solo resumen</span>}
+                </span>
+                {open === h.id && h.excerpt && <span className="x">{h.excerpt}{h.excerpt.length >= 320 ? "…" : ""}</span>}
               </button>
               {isIn ? (
-                <span className="lib-in">✓ agregado</span>
+                <span className="lb-in">en el benchmark</span>
               ) : (
-                <button className="lib-btn-line sm" disabled={disabled || busy !== null} onClick={() => void add(h)}>
-                  {busy === h.id ? (h.hasPdf ? "Leyendo…" : "Agregando…") : "+ Agregar"}
+                <button className="lb-add" disabled={disabled || busy !== null} onClick={() => void add(h)}>
+                  {busy === h.id ? (h.hasPdf ? "leyendo…" : "agregando…") : "+ agregar"}
                 </button>
               )}
             </li>
           );
         })}
-      </ol>
-      {result && <Pager result={result} onPage={(p) => void search.run(query, p)} />}
+        {!loading && shown.length === 0 && (
+          <li className="lb-empty">{view === "in" ? "Ningún paper de la biblioteca en este benchmark todavía." : "Nada coincide. Probá con otras palabras."}</li>
+        )}
+      </ul>
+      {more && (
+        <button className="lb-more" disabled={loading} onClick={() => void load(page + 1)}>
+          {loading ? "Cargando…" : "Ver más"}
+        </button>
+      )}
     </div>
   );
 }

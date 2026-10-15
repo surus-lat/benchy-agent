@@ -8,7 +8,7 @@ import { letterheadName } from "./publication";
 import "./report.css";
 
 // /app/b/:slug/informe — the findings report (report.md, written by the agent
-// with the researcher) on the SURUS letterhead, with the organization's name
+// when an evaluation ends, adjusted with the researcher) on the SURUS letterhead, with the organization's name
 // beside SURUS's, and an annex of result tables built from the analysis so the
 // numbers are exact. Printing it (A4) gives the PDF.
 
@@ -68,7 +68,7 @@ export default function ReportPage({ slug }: { slug: string }) {
         <p className="rp-wait">Cargando el informe…</p>
       ) : text === null ? (
         <p className="rp-wait">
-          Este benchmark todavía no tiene informe. Pedíselo al agente desde Publicación → Informe.{" "}
+          Este benchmark todavía no tiene informe: se redacta solo cuando termina una evaluación, o desde Publicación → Informe.{" "}
           <Link href={`/app/b/${encodeURIComponent(slug)}/publicacion`}>Ir a Publicación</Link>
         </p>
       ) : (

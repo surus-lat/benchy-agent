@@ -8,3 +8,9 @@ it("puts the organization beside SURUS on the letterhead, and SURUS alone for SU
   expect(letterheadName(" surus ")).toBe("SURUS");
   expect(letterheadName(null)).toBe("SURUS");
 });
+
+it("publishes a benchmark under its organization", async () => {
+  const { publicPath } = await import("./data");
+  expect(publicPath({ name: "CONICET", slug: "conicet" }, "historia-argentina-siglo-xx")).toBe("getbenchy.lat/b/conicet/historia-argentina-siglo-xx");
+  expect(publicPath({ name: "Universidad Nacional de Río Negro" }, "x")).toBe("getbenchy.lat/b/universidad-nacional-de-rio-negro/x");
+});
