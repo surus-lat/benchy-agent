@@ -29,6 +29,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from benchy_shared import MODELS, WORKSPACE, check_models, inside, model_slug  # noqa: E402
 from benchy_review import review  # noqa: E402
 import benchy_sources  # noqa: E402
+from benchy_analysis import analyze  # noqa: E402
 
 from aiohttp import ClientError, ClientSession, ClientTimeout
 
@@ -174,6 +175,27 @@ async def benchy_review(path: str) -> dict:
     ]
     return {"ok": True, "rows": len(report["rows"]), "weak": weak[:20],
             "saved_to": str((source.parent / "review.json").relative_to(WORKSPACE))}
+
+
+@mcp.tool()
+def benchy_analysis(path: str) -> dict:
+    """What a benchmark's results say beyond the score, from the newest run
+    of each model in its runs/: each model's score and failures; for rubric
+    benchmarks, the share of questions where each criterion was met; the score
+    by topic (questions.json `group`) and by paper (what each question cites);
+    and every question with each model's answer (cut at 600 characters), score
+    and missed criteria with the grader's justification. `hardest` lists the
+    questions with the lowest mean score. `stale` marks a run made before the
+    exam last changed.
+
+    Use it to answer questions about the results and to write the findings
+    report; quote its numbers, never compute or recall your own.
+    """
+    try:
+        source, ir = _compile(path)
+    except BenchyError as exc:
+        return _error(exc)
+    return analyze(ir, source, answer_chars=600)
 
 
 async def _library(path: str, params: dict | None = None) -> dict:

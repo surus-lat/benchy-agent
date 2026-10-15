@@ -37,12 +37,36 @@ export function useAgentChat(convKey: string) {
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  // Not remembered in this browser: the researcher's latest conversation about
+  // this benchmark, kept in D1, so the work follows them across devices.
+  useEffect(() => {
+    if (convId || convKey === "new") return;
+    let cancelled = false;
+    api
+      .conversations(convKey)
+      .then(({ conversations }) => {
+        const latest = conversations[0];
+        if (!latest || cancelled) return;
+        rememberConversation(convKey, latest.id);
+        setConvId(latest.id);
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [convId, convKey]);
+
   useEffect(() => {
     if (!convId) return;
     let cancelled = false;
     api
       .messages(convId)
-      .then((r) => !cancelled && setMessages(r.messages))
+      .then((r) => {
+        if (cancelled) return;
+        setMessages(r.messages);
+        // A conversation this browser remembered from before D1 kept the benchmark.
+        if (convKey !== "new") void api.tagConversation(convId, convKey).catch(() => {});
+      })
       .catch(() => {
         // Gone or not ours: start fresh.
         rememberConversation(convKey, null);
@@ -65,7 +89,7 @@ export function useAgentChat(convKey: string) {
       try {
         let id = convId;
         if (!id) {
-          id = (await api.createConversation()).id;
+          id = (await api.createConversation(convKey)).id;
           rememberConversation(convKey, id);
           setConvId(id);
         }
@@ -217,6 +241,7 @@ export function NewBench() {
     if (created) {
       rememberConversation(created.slug, chat.convId);
       rememberConversation("new", null);
+      void api.tagConversation(chat.convId, created.slug).catch(() => {});
       const open = () => navigate(`/app/b/${encodeURIComponent(created.slug)}/autoria`);
       if (paperId) void sources.add(created.slug, paperId).then(open, open);
       else open();

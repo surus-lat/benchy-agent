@@ -9,6 +9,7 @@ Hermes's API server listens on 127.0.0.1 only; this process fronts it:
   GET /benchy/models             the models a benchmark may run
   PUT /benchy/file               write one benchmark text file (the app's editors)
   POST /benchy/review?path=...   grade the expert answers against the rubric
+  GET /benchy/analysis?path=...  the results beyond the score: criteria, topics, papers, answers
   POST /benchy/sources           add a library paper to a benchmark (fetches its PDF)
   POST /benchy/sources/upload?bench=...&name=...   add an uploaded PDF to a benchmark
   DELETE /benchy/sources?bench=...&id=...          take a paper out of a benchmark
@@ -35,6 +36,7 @@ from aiohttp import ClientSession, ClientTimeout, web
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "mcp"))  # /opt/benchy/mcp in the image
 import benchy_sources  # noqa: E402
+from benchy_analysis import analyze  # noqa: E402
 from benchy_review import review as review_answers  # noqa: E402
 from benchy_shared import MODELS  # noqa: E402
 
@@ -224,6 +226,16 @@ async def review(request: web.Request) -> web.Response:
     return web.json_response({"ok": True, **report})
 
 
+async def analysis(request: web.Request) -> web.Response:
+    if not _authorized(request):
+        return web.json_response({"error": "unauthorized"}, status=401)
+    try:
+        source, ir = _compile(request.query.get("path", ""))
+    except BenchyError as exc:
+        return web.json_response({"ok": False, "error": exc.to_dict()})
+    return web.json_response(analyze(ir, source))
+
+
 async def add_source(request: web.Request) -> web.Response:
     """Body: {bench, paper} with the Worker's library Paper. Domain failures
     (no such benchmark, PDF unavailable) are {ok: false, error}, not HTTP errors."""
@@ -307,6 +319,7 @@ def main() -> None:
     app.router.add_get("/benchy/models", models)
     app.router.add_put("/benchy/file", write_file)
     app.router.add_post("/benchy/review", review)
+    app.router.add_get("/benchy/analysis", analysis)
     app.router.add_post("/benchy/sources", add_source)
     app.router.add_post("/benchy/sources/upload", upload_source)
     app.router.add_delete("/benchy/sources", remove_source)

@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  byAgent,
   criterionMet,
   groupsOf,
   parseBenchDoc,
@@ -109,4 +110,16 @@ describe("rubric in benchmark.yaml", () => {
     expect(criterionMet({ index: 0, input: {}, answer: "", criteria: { c1: { grade: 0, justification: "" } } }, c1)).toBe(false);
     expect(criterionMet({ index: 0, input: {}, answer: "" }, c1)).toBeNull();
   });
+});
+
+it("marks as new only what the agent wrote; a colleague's question is in progress", () => {
+  const rows = [
+    { input: { question: "¿A?" }, expected: { answer: "a" } },
+    { input: { question: "¿B?" }, expected: { answer: "b" } },
+    { input: { question: "¿C?" }, expected: { answer: "c" } },
+  ];
+  const qs = questionsFrom(rows, [{ by: "agente" }, { by: "Ana Pérez" }, { by: "vos", status: "approved", approved_by: "Ana Pérez" }], null);
+  expect(qs.map((q) => q.status)).toEqual(["new", "progress", "done"]);
+  expect(byAgent({ by: "Agente " })).toBe(true);
+  expect(byAgent({ by: "Ana" })).toBe(false);
 });

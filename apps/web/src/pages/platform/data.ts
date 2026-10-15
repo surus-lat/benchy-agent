@@ -39,12 +39,44 @@ export type RunResult = {
 };
 export type Me = { user: { id: string; name: string; email: string }; org: { id: string; name: string } | null };
 
+/** The results beyond the score (apps/agent/mcp/benchy_analysis.py). */
+export type Analysis = {
+  ok: true;
+  grader: string | null;
+  criteria: { key: string; weight: number; description: string; top: number }[];
+  groups: string[];
+  papers: { id: string; title: string; year: number | null }[];
+  models: {
+    model: string;
+    file: string;
+    run_at: number;
+    score: number | null;
+    summary: { examples?: number; valid?: number; invalid_outputs?: number; execution_errors?: number };
+    stale: boolean;
+    criteria: Record<string, number | null>;
+    groups: Record<string, number | null>;
+    papers: Record<string, number | null>;
+  }[];
+  questions: {
+    index: number;
+    num: string;
+    question: string;
+    expert_answer: string;
+    group: string;
+    papers: string[];
+    mean: number | null;
+    models: Record<string, { score: number; status: string; answer: string; missed: { criterion: string; justification: string }[]; error: string | null }>;
+  }[];
+  hardest: number[];
+};
+
 export const api = {
   ...chatApi,
   me: () => get<Me>("/api/me"),
   models: () => get<{ provider: string; models: string[] }>("/api/models"),
   validate: (path: string) => get<Validation>(`/api/workspace/validate?path=${encodeURIComponent(path)}`),
   exam: (path: string) => get<ExamCheck>(`/api/workspace/exam?path=${encodeURIComponent(path)}`),
+  analysis: (path: string) => get<Analysis | { ok: false; error: EngineError }>(`/api/workspace/analysis?path=${encodeURIComponent(path)}`),
   text: async (path: string) => (await chatApi.file(path)).content,
   /** The grader grades every expert answer against the rubric; writes review.json. */
   review: async (path: string) => {

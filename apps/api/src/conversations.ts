@@ -1,6 +1,6 @@
 import { Hono } from "hono";
 import { z } from "zod";
-import { and, asc, desc, eq, isNull, lt, or, sql } from "drizzle-orm";
+import { and, asc, desc, eq, gt, isNull, lt, or, sql } from "drizzle-orm";
 import type { DrizzleD1Database } from "drizzle-orm/d1";
 import { schema } from "@benchy/db";
 import { HermesError, type HermesClient } from "./hermes";
@@ -23,15 +23,31 @@ export type ConversationsDeps = {
   paper: (id: number) => Promise<Paper | null>;
 };
 
-/** A benchmark is a top-level workspace folder; the container checks it has a benchmark.yaml. */
-const BENCH = /^[^./\\][^/\\]{0,99}$/;
 /** The container accepts up to 25 MB per request. */
 const MAX_PDF_BYTES = 24 * 1024 * 1024;
 
 /** A turn older than this is presumed dead (Worker evicted mid-turn) and its lock is reclaimable. */
 const STALE_TURN_MS = 15 * 60 * 1000;
 
-const createSchema = z.object({ title: z.string().trim().min(1).max(200).optional() });
+/** A benchmark is a top-level workspace folder; the container checks it has a benchmark.yaml. */
+const BENCH = /^[^./\\][^/\\]{0,99}$/;
+const benchSchema = z.string().regex(BENCH);
+
+const createSchema = z.object({
+  title: z.string().trim().min(1).max(200).optional(),
+  /** The benchmark this conversation is about ("new" while one is being created). */
+  bench: benchSchema.optional(),
+});
+const tagSchema = z.object({ bench: benchSchema });
+/** What the app reports itself (the rest is logged where it happens, below). */
+const activitySchema = z.object({
+  bench: benchSchema,
+  kind: z.enum(["approve", "evaluate", "report"]),
+  detail: z.string().trim().min(1).max(300),
+});
+
+/** Edits to the same file by the same person within this window are one entry. */
+const COALESCE_MS = 15 * 60 * 1000;
 const turnSchema = z.object({ message: z.string().trim().min(1).max(20_000) });
 
 function newId(prefix: string): string {
@@ -59,6 +75,7 @@ export function createConversationsApp(deps: ConversationsDeps) {
   app.use("/api/workspace/*", authed);
   app.use("/api/models", authed);
   app.use("/api/me", authed);
+  app.use("/api/activity", authed);
 
   async function authed(c: any, next: () => Promise<void>) {
     const user = await deps.currentUser(c.req.raw);
@@ -91,26 +108,49 @@ export function createConversationsApp(deps: ConversationsDeps) {
       orgId: user.orgId,
       hermesSessionId,
       title: parsed.data.title ?? null,
+      bench: parsed.data.bench ?? null,
       createdAt: now,
       updatedAt: now,
     };
     await db.insert(schema.conversations).values(row);
-    return c.json({ id: row.id, title: row.title, createdAt: row.createdAt }, 201);
+    return c.json({ id: row.id, title: row.title, bench: row.bench, createdAt: row.createdAt }, 201);
   });
 
+  // The caller's conversations, newest first; ?bench= narrows to one benchmark's.
   app.get("/api/conversations", async (c) => {
     const user = c.get("user");
+    const bench = c.req.query("bench");
+    if (bench !== undefined && !BENCH.test(bench)) return c.json({ error: "INVALID_BENCH" }, 400);
     const rows = await db
       .select({
         id: schema.conversations.id,
         title: schema.conversations.title,
+        bench: schema.conversations.bench,
         updatedAt: schema.conversations.updatedAt,
       })
       .from(schema.conversations)
-      .where(eq(schema.conversations.userId, user.id))
+      .where(
+        bench === undefined
+          ? eq(schema.conversations.userId, user.id)
+          : and(eq(schema.conversations.userId, user.id), eq(schema.conversations.bench, bench)),
+      )
       .orderBy(desc(schema.conversations.updatedAt))
       .limit(200);
     return c.json({ conversations: rows });
+  });
+
+  // Move a conversation to a benchmark (the one the agent just created from "new").
+  app.patch("/api/conversations/:id", async (c) => {
+    const user = c.get("user");
+    const parsed = tagSchema.safeParse(await c.req.json().catch(() => null));
+    if (!parsed.success) return c.json({ error: "INVALID_BODY" }, 400);
+    const updated = await db
+      .update(schema.conversations)
+      .set({ bench: parsed.data.bench })
+      .where(and(eq(schema.conversations.id, c.req.param("id")), eq(schema.conversations.userId, user.id)))
+      .returning({ id: schema.conversations.id });
+    if (updated.length === 0) return c.json({ error: "NOT_FOUND" }, 404);
+    return c.json({ id: updated[0].id, bench: parsed.data.bench });
   });
 
   app.get("/api/conversations/:id/messages", async (c) => {
@@ -190,6 +230,10 @@ export function createConversationsApp(deps: ConversationsDeps) {
         .update(schema.conversations)
         .set({ updatedAt: repliedAt, title: conversation.title ?? titleFrom(message) })
         .where(eq(schema.conversations.id, conversation.id));
+      // The org sees that someone worked with the agent on a benchmark, never what was said.
+      if (conversation.bench && conversation.bench !== "new") {
+        await log(user, conversation.bench, "agent", "trabajó con el agente");
+      }
       return c.json({ reply: turn.reply, usage: turn.usage });
     } finally {
       await db
@@ -227,6 +271,7 @@ export function createConversationsApp(deps: ConversationsDeps) {
   for (const [route, call] of [
     ["/api/workspace/validate", (a: HermesClient, p: string) => a.validate(p)],
     ["/api/workspace/exam", (a: HermesClient, p: string) => a.exam(p)],
+    ["/api/workspace/analysis", (a: HermesClient, p: string) => a.analysis(p)],
   ] as const) {
     app.get(route, async (c) => {
       const path = c.req.query("path");
@@ -259,6 +304,8 @@ export function createConversationsApp(deps: ConversationsDeps) {
       if (result.status === "conflict") return c.json({ error: "CONFLICT", modified: result.modified }, 409);
       if (result.status === "forbidden") return c.json({ error: "FORBIDDEN_PATH" }, 403);
       if (result.status === "too_large") return c.json({ error: "TOO_LARGE" }, 413);
+      const [bench, ...rest] = result.path.split("/");
+      await log(c.get("user"), bench, "edit", rest.join("/"));
       return c.json({ path: result.path, modified: result.modified });
     } catch (err) {
       return agentFailure(c, err);
@@ -271,7 +318,9 @@ export function createConversationsApp(deps: ConversationsDeps) {
     const agent = await deps.agentFor(c.get("user").orgId);
     if (!agent) return c.json({ error: "AGENT_NOT_PROVISIONED" }, 503);
     try {
-      return c.json(await agent.review(path));
+      const report = await agent.review(path);
+      await log(c.get("user"), path.split("/")[0], "review", "revisión del juez de las respuestas expertas");
+      return c.json(report);
     } catch (err) {
       return agentFailure(c, err);
     }
@@ -288,7 +337,9 @@ export function createConversationsApp(deps: ConversationsDeps) {
     const agent = await deps.agentFor(c.get("user").orgId);
     if (!agent) return c.json({ error: "AGENT_NOT_PROVISIONED" }, 503);
     try {
-      return c.json(await agent.addSource(body.bench, paper));
+      const result = await agent.addSource(body.bench, paper);
+      if (result.ok) await log(c.get("user"), body.bench, "paper", `agregó «${paper.title}»`);
+      return c.json(result);
     } catch (err) {
       return agentFailure(c, err);
     }
@@ -309,7 +360,9 @@ export function createConversationsApp(deps: ConversationsDeps) {
     const agent = await deps.agentFor(c.get("user").orgId);
     if (!agent) return c.json({ error: "AGENT_NOT_PROVISIONED" }, 503);
     try {
-      return c.json(await agent.uploadSource(bench, name, pdf));
+      const result = await agent.uploadSource(bench, name, pdf);
+      if (result.ok) await log(c.get("user"), bench, "paper", `subió «${result.source.title}»`);
+      return c.json(result);
     } catch (err) {
       return agentFailure(c, err);
     }
@@ -323,10 +376,47 @@ export function createConversationsApp(deps: ConversationsDeps) {
     const agent = await deps.agentFor(c.get("user").orgId);
     if (!agent) return c.json({ error: "AGENT_NOT_PROVISIONED" }, 503);
     try {
-      return c.json(await agent.removeSource(bench, id));
+      const result = await agent.removeSource(bench, id);
+      if (result.ok) await log(c.get("user"), bench, "paper", `quitó ${id}`);
+      return c.json(result);
     } catch (err) {
       return agentFailure(c, err);
     }
+  });
+
+  // The org's record of its work: who did what on which benchmark, newest first.
+  app.get("/api/activity", async (c) => {
+    const user = c.get("user");
+    const bench = c.req.query("bench");
+    if (bench !== undefined && !BENCH.test(bench)) return c.json({ error: "INVALID_BENCH" }, 400);
+    const limit = Math.min(Math.max(Number.parseInt(c.req.query("limit") ?? "50", 10) || 50, 1), 200);
+    const rows = await db
+      .select({
+        id: schema.activity.id,
+        who: schema.activity.who,
+        userId: schema.activity.userId,
+        bench: schema.activity.bench,
+        kind: schema.activity.kind,
+        detail: schema.activity.detail,
+        createdAt: schema.activity.createdAt,
+      })
+      .from(schema.activity)
+      .where(
+        bench === undefined
+          ? eq(schema.activity.orgId, user.orgId)
+          : and(eq(schema.activity.orgId, user.orgId), eq(schema.activity.bench, bench)),
+      )
+      .orderBy(desc(schema.activity.createdAt))
+      .limit(limit);
+    return c.json({ activity: rows });
+  });
+
+  // What only the app knows happened (an approval, an evaluation or a report it asked for).
+  app.post("/api/activity", async (c) => {
+    const parsed = activitySchema.safeParse(await c.req.json().catch(() => null));
+    if (!parsed.success) return c.json({ error: "INVALID_BODY" }, 400);
+    await log(c.get("user"), parsed.data.bench, parsed.data.kind, parsed.data.detail);
+    return c.json({ ok: true }, 201);
   });
 
   app.get("/api/models", async (c) => {
@@ -349,6 +439,38 @@ export function createConversationsApp(deps: ConversationsDeps) {
       .limit(1);
     return c.json({ user: { id: user.id, name: user.name, email: user.email }, org: org ?? null });
   });
+
+  /** One entry in the org's record; the same edit within COALESCE_MS only moves its time. */
+  async function log(user: CurrentUser & { orgId: string }, bench: string, kind: string, detail: string) {
+    const now = new Date();
+    if (kind === "edit" || kind === "agent") {
+      const touched = await db
+        .update(schema.activity)
+        .set({ createdAt: now })
+        .where(
+          and(
+            eq(schema.activity.orgId, user.orgId),
+            eq(schema.activity.userId, user.id),
+            eq(schema.activity.bench, bench),
+            eq(schema.activity.kind, kind),
+            eq(schema.activity.detail, detail),
+            gt(schema.activity.createdAt, new Date(now.getTime() - COALESCE_MS)),
+          ),
+        )
+        .returning({ id: schema.activity.id });
+      if (touched.length) return;
+    }
+    await db.insert(schema.activity).values({
+      id: newId("act_"),
+      orgId: user.orgId,
+      userId: user.id,
+      who: user.name.trim() || user.email,
+      bench,
+      kind,
+      detail,
+      createdAt: now,
+    });
+  }
 
   async function ownConversation(id: string, userId: string) {
     const [row] = await db

@@ -45,6 +45,10 @@ function fakeHermes(opts: { fail?: "chat" | "session" } = {}) {
       calls.push({ op: "exam", args: [path] });
       return { ok: true, total: 0, rows: [] };
     },
+    async analysis(path) {
+      calls.push({ op: "analysis", args: [path] });
+      return { ok: true, models: [], questions: [] };
+    },
     async models() {
       calls.push({ op: "models", args: [] });
       return { provider: "bedrock", models: ["us.moonshotai.kimi-k3"] };
@@ -121,6 +125,7 @@ function req(app: ReturnType<typeof makeApp>, method: string, path: string, user
 }
 
 beforeEach(async () => {
+  await db.delete(schema.activity);
   await db.delete(schema.conversationMessages);
   await db.delete(schema.conversations);
   await db.delete(schema.user);
@@ -266,8 +271,10 @@ it("exposes engine checks, models and the caller's org to members", async () => 
   expect(await (await req(app, "GET", "/api/models", ana)).json()).toMatchObject({ models: ["us.moonshotai.kimi-k3"] });
   expect(await (await req(app, "GET", "/api/workspace/validate?path=x/benchmark.yaml", beto)).json()).toMatchObject({ ok: true });
   expect(await (await req(app, "GET", "/api/workspace/exam?path=x/benchmark.yaml", ana)).json()).toMatchObject({ ok: true });
+  expect(await (await req(app, "GET", "/api/workspace/analysis?path=x/benchmark.yaml", beto)).json()).toMatchObject({ ok: true, models: [] });
   expect((await req(app, "GET", "/api/workspace/validate", ana)).status).toBe(400);
-  expect(calls.map((c) => c.op)).toEqual(["models", "validate", "exam"]);
+  expect((await req(app, "GET", "/api/workspace/analysis?path=x/benchmark.yaml")).status).toBe(401);
+  expect(calls.map((c) => c.op)).toEqual(["models", "validate", "exam", "analysis"]);
   const me = await (await req(app, "GET", "/api/me", ana)).json();
   expect(me).toEqual({ user: { id: ana.id, name: ana.name, email: ana.email }, org: { id: "org_uni", name: "Uni" } });
   expect((await req(app, "GET", "/api/me", orphan)).status).toBe(403);
@@ -327,4 +334,47 @@ it("adds library papers and uploaded PDFs to a benchmark through the org's agent
     { op: "uploadSource", args: ["qa", "mi paper.pdf", 14] },
     { op: "removeSource", args: ["qa", "conicet-179477"] },
   ]);
+});
+
+it("finds a researcher's conversation for a benchmark from any device, and only theirs", async () => {
+  const app = makeApp(fakeHermes().client);
+  const made = (await (await req(app, "POST", "/api/conversations", ana, { bench: "new" })).json()) as { id: string; bench: string };
+  expect(made.bench).toBe("new");
+  await req(app, "POST", "/api/conversations", beto, { bench: "qa" });
+  expect((await req(app, "POST", "/api/conversations", ana, { bench: "../x" })).status).toBe(400);
+
+  // The agent created "qa": the conversation moves there.
+  expect((await req(app, "PATCH", `/api/conversations/${made.id}`, ana, { bench: "qa" })).status).toBe(200);
+  expect((await req(app, "PATCH", `/api/conversations/${made.id}`, beto, { bench: "qa" })).status).toBe(404);
+  const mine = (await (await req(app, "GET", "/api/conversations?bench=qa", ana)).json()) as { conversations: { id: string }[] };
+  expect(mine.conversations.map((c) => c.id)).toEqual([made.id]);
+  expect((await req(app, "GET", "/api/conversations?bench=.x", ana)).status).toBe(400);
+});
+
+it("keeps the org's record of who did what, never what was said to the agent", async () => {
+  const app = makeApp(fakeHermes().client);
+  const conv = (await (await req(app, "POST", "/api/conversations", ana, { bench: "qa" })).json()) as { id: string };
+  await req(app, "POST", `/api/conversations/${conv.id}/turns`, ana, { message: "algo privado sobre mi examen" });
+  await req(app, "PUT", "/api/workspace/file", ana, { path: "qa/exam.jsonl", content: "{}\n" });
+  await req(app, "PUT", "/api/workspace/file", ana, { path: "qa/exam.jsonl", content: "{}\n{}\n" }); // same edit: one entry
+  await req(app, "PUT", "/api/workspace/file", beto, { path: "qa/questions.json", content: "{}" });
+  await req(app, "POST", "/api/workspace/review?path=qa/benchmark.yaml", beto);
+  await req(app, "POST", "/api/workspace/sources", ana, { bench: "qa", paperId: 179477 });
+  expect((await req(app, "POST", "/api/activity", ana, { bench: "qa", kind: "approve", detail: "aprobó la pregunta 01" })).status).toBe(201);
+  expect((await req(app, "POST", "/api/activity", ana, { bench: "qa", kind: "edit", detail: "x" })).status).toBe(400);
+
+  const res = await req(app, "GET", "/api/activity?bench=qa", beto);
+  const { activity } = (await res.json()) as { activity: { who: string; kind: string; detail: string }[] };
+  expect(activity.map((a) => `${a.who}|${a.kind}|${a.detail}`).sort()).toEqual(
+    [
+      "Ana Pérez|agent|trabajó con el agente",
+      "Ana Pérez|edit|exam.jsonl",
+      "beto@uni.edu|edit|questions.json",
+      "beto@uni.edu|review|revisión del juez de las respuestas expertas",
+      "Ana Pérez|paper|agregó «Paisajes mesetarios en Patagonia»",
+      "Ana Pérez|approve|aprobó la pregunta 01",
+    ].sort(),
+  );
+  expect(JSON.stringify(activity)).not.toContain("privado");
+  expect((await req(app, "GET", "/api/activity", orphan)).status).toBe(403);
 });

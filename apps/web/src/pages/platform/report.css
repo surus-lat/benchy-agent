@@ -1,0 +1,67 @@
+/* The findings report on the SURUS letterhead (design: Membrete Surus,
+   Institutional letterhead design). Its own tokens: the letterhead's ink and
+   teal, Inter, JetBrains Mono and Instrument Serif. Prints on A4. */
+
+.rp {
+  --rp-ink: oklch(0.22 0.012 240); --rp-deep: oklch(0.16 0.012 240); --rp-soft: oklch(0.45 0.012 240);
+  --rp-muted: oklch(0.50 0.012 240); --rp-rule: oklch(0.82 0.01 240); --rp-teal: oklch(0.45 0.08 175);
+  --rp-sans: "Inter", system-ui, sans-serif; --rp-mono: "JetBrains Mono", ui-monospace, monospace; --rp-serif: "Instrument Serif", Georgia, serif;
+  min-height: 100vh; min-height: 100dvh; background: #eeece8; color: var(--rp-ink); font-family: var(--rp-sans); -webkit-font-smoothing: antialiased;
+}
+.rp a { color: var(--rp-teal); text-decoration: none; }
+.rp a:hover { text-decoration: underline; }
+.rp-bar { position: sticky; top: 0; z-index: 2; display: flex; align-items: center; gap: 12px; padding: 10px 16px; background: rgba(238, 236, 232, 0.92); backdrop-filter: blur(6px); font-size: 13px; }
+.rp-bar .sp { flex: 1; }
+.rp-print { border: 0; border-radius: 999px; background: var(--rp-deep); color: #fff; padding: 7px 16px; font: 500 13px var(--rp-sans); cursor: pointer; }
+.rp-print:hover { background: #000; }
+.rp-wait { max-width: 40rem; margin: 15vh auto; padding: 0 16px; text-align: center; color: var(--rp-soft); font-size: 15px; line-height: 1.6; }
+
+.rp-page { box-sizing: border-box; width: min(210mm, calc(100% - 32px)); margin: 8px auto 48px; padding: 20mm 20mm 18mm; background: #fff; box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05), 0 24px 60px -30px rgba(0, 0, 0, 0.35); font-size: 11pt; line-height: 1.6; }
+.rp-head { display: flex; align-items: flex-end; justify-content: space-between; gap: 16px; padding-bottom: 12px; border-bottom: 1px solid var(--rp-ink); }
+.rp-head .brand { display: flex; align-items: center; gap: 12px; }
+.rp-head img { width: 34px; height: 34px; display: block; }
+.rp-head .name { font-weight: 600; font-size: 17px; letter-spacing: 0.14em; line-height: 1; color: var(--rp-deep); }
+.rp-head .tag, .rp-head .kind { font-family: var(--rp-mono); font-size: 8.5px; letter-spacing: 0.22em; text-transform: uppercase; color: var(--rp-muted); margin-top: 3px; }
+.rp-head .kind { color: var(--rp-teal); border: 1px dashed var(--rp-teal); padding: 5px 10px; border-radius: 4px; margin: 0; white-space: nowrap; }
+.rp-meta { display: grid; grid-template-columns: 1fr 1fr 1.4fr; gap: 16px; padding: 14px 0; margin: 28px 0 36px; border-top: 1px dashed var(--rp-rule); border-bottom: 1px dashed var(--rp-rule); font-family: var(--rp-mono); font-size: 9.5px; line-height: 1.7; break-inside: avoid; }
+.rp-meta .k { font-size: 8px; letter-spacing: 0.22em; text-transform: uppercase; color: var(--rp-muted); }
+.rp-meta .v { color: var(--rp-deep); font-weight: 500; overflow-wrap: anywhere; }
+.rp-eyebrow { font-family: var(--rp-mono); font-size: 8.5px; letter-spacing: 0.22em; text-transform: uppercase; color: var(--rp-teal); margin-bottom: 10px; }
+.rp-title { font-family: var(--rp-serif); font-style: italic; font-weight: 400; font-size: 30pt; line-height: 1.08; letter-spacing: -0.005em; color: var(--rp-deep); margin: 0 0 28px; max-width: 17em; text-wrap: balance; }
+
+.rp-body { counter-reset: rp-sec; }
+.rp-body p, .rp-body li { margin: 0 0 12px; orphans: 3; widows: 3; }
+.rp-body ul, .rp-body ol { padding-left: 1.2em; margin: 0 0 12px; }
+.rp-body ul { list-style: disc; }
+.rp-body ol { list-style: decimal; }
+.rp-body li::marker { color: var(--rp-teal); }
+.rp-body strong { font-weight: 600; color: var(--rp-deep); }
+.rp-body h2 { counter-increment: rp-sec; display: flex; gap: 12px; align-items: baseline; font-size: 11pt; font-weight: 600; color: var(--rp-deep); margin: 28px 0 8px; break-after: avoid; }
+.rp-body h2::before { content: counter(rp-sec, decimal-leading-zero); font-family: var(--rp-mono); font-weight: 500; font-size: 9px; letter-spacing: 0.22em; color: var(--rp-teal); }
+.rp-body h3 { font-size: 10.5pt; font-weight: 600; color: var(--rp-deep); margin: 18px 0 6px; break-after: avoid; }
+.rp-body blockquote { margin: 0 0 12px; padding: 2px 0 2px 14px; border-left: 2px solid var(--rp-teal); color: var(--rp-soft); font-style: italic; }
+.rp-body code { font-family: var(--rp-mono); font-size: 0.88em; }
+.rp-body table { width: 100%; border-collapse: collapse; margin: 6px 0 16px; font-size: 9.5pt; break-inside: avoid; }
+.rp-body th { text-align: left; font-family: var(--rp-mono); font-size: 8px; font-weight: 500; letter-spacing: 0.12em; text-transform: uppercase; color: var(--rp-muted); padding: 6px 8px; border-bottom: 1px solid var(--rp-ink); }
+.rp-body td { padding: 6px 8px; border-bottom: 1px dashed var(--rp-rule); vertical-align: top; }
+.rp-body td:not(:first-child), .rp-body th:not(:first-child) { text-align: right; white-space: nowrap; }
+.rp-annex { margin-top: 32px; }
+.rp-annex .fine { font-size: 9pt; color: var(--rp-soft); }
+
+.rp-foot { display: flex; justify-content: space-between; align-items: center; gap: 16px; padding-top: 10px; margin-top: 40px; border-top: 1px dashed var(--rp-rule); font-family: var(--rp-mono); font-size: 8px; letter-spacing: 0.06em; color: var(--rp-muted); line-height: 1.5; }
+.rp-foot .links { display: flex; gap: 14px; flex-shrink: 0; }
+
+@media (max-width: 640px) {
+  .rp-page { width: 100%; margin: 0; padding: 22px 16px 28px; font-size: 10.5pt; }
+  .rp-meta { grid-template-columns: 1fr 1fr; }
+  .rp-title { font-size: 24pt; }
+  .rp-foot { flex-direction: column; align-items: flex-start; }
+}
+
+@page { size: A4; margin: 20mm 20mm 18mm; }
+@media print {
+  .rp { background: #fff; }
+  .rp-bar { display: none; }
+  .rp-page { width: auto; margin: 0; padding: 0; box-shadow: none; }
+  .rp * { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+}

@@ -115,11 +115,32 @@ export const conversations = sqliteTable("conversations", {
   // The session inside the org's Hermes this conversation maps to.
   hermesSessionId: text("hermesSessionId").notNull(),
   title: text("title"),
+  // The benchmark (workspace folder) this conversation is about, so the
+  // researcher finds it again from any device; "new" while one is being created.
+  bench: text("bench"),
   // Set while a turn is in flight; the per-conversation lock (Hermes holds
   // no per-session lock, so two concurrent turns would race).
   turnStartedAt: integer("turnStartedAt", { mode: "timestamp" }),
   createdAt: integer("createdAt", { mode: "timestamp" }).notNull(),
   updatedAt: integer("updatedAt", { mode: "timestamp" }).notNull(),
+});
+
+// What happened in an org's workspace, and who did it: the org's record of
+// its work (benchmarks themselves live in the agent's workspace). Written by
+// the Worker on the actions it serves; read by every member of the org.
+export const activity = sqliteTable("activity", {
+  id: text("id").primaryKey(),
+  orgId: text("orgId")
+    .notNull()
+    .references(() => orgs.id),
+  // Null once the user is deleted: the record of the work stays.
+  userId: text("userId").references(() => user.id, { onDelete: "set null" }),
+  // Name at the time, so the record reads the same after a rename or deletion.
+  who: text("who").notNull(),
+  bench: text("bench"),
+  kind: text("kind").notNull(),
+  detail: text("detail").notNull(),
+  createdAt: integer("createdAt", { mode: "timestamp" }).notNull(),
 });
 
 export const conversationMessages = sqliteTable("conversationMessages", {

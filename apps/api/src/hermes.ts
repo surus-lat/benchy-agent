@@ -20,6 +20,8 @@ export interface HermesClient {
   validate(path: string): Promise<unknown>;
   /** Every exam row of a benchmark checked against its program. */
   exam(path: string): Promise<unknown>;
+  /** The results beyond the score: criteria, topics, papers, each model's answers. */
+  analysis(path: string): Promise<unknown>;
   /** The models a benchmark may run. */
   models(): Promise<unknown>;
   /** Write one benchmark text file; refused if it changed after `baseModified`. */
@@ -146,6 +148,9 @@ export function hermesClient(baseUrl: string, apiKey: string): HermesClient {
     },
     async exam(path) {
       return json(await get(`/benchy/exam?path=${encodeURIComponent(path)}`));
+    },
+    async analysis(path) {
+      return json(await get(`/benchy/analysis?path=${encodeURIComponent(path)}`));
     },
     async models() {
       return json(await get("/benchy/models"));

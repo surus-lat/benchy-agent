@@ -6,6 +6,7 @@ import BenchPage, { NewBench } from "./bench";
 import Account from "./account";
 import Workspace from "./workspace";
 import LibraryPage from "./library";
+import ReportPage from "./report";
 import "./platform.css";
 
 // /app — the platform. Routes:
@@ -13,6 +14,7 @@ import "./platform.css";
 //   /app/nuevo              a new benchmark, started with the agent
 //   /app/b/:slug/:stage?    one benchmark as two windows, A · Interfaz and
 //                           B · Agente (autoria|revision|evaluacion|publicacion)
+//   /app/b/:slug/informe    the findings report on the SURUS letterhead (prints to PDF)
 //   /app/biblioteca         the paper library (CONICET Digital): search, read,
 //                           add a paper to a benchmark
 //   /app/cuenta             account
@@ -22,11 +24,18 @@ import "./platform.css";
 
 export default function PlatformApp() {
   const [isChat] = useRoute("/app/chat");
+  const [isReport, rp] = useRoute("/app/b/:slug/informe");
   const [isWorkspace, ws] = useRoute("/app/b/:slug/:stage?");
   if (isChat) return <AgentApp />;
   return (
     <PlatformProvider>
-      {isWorkspace ? <Workspace key={ws!.slug} slug={decodeURIComponent(ws!.slug)} stage={ws!.stage} /> : <Shell />}
+      {isReport ? (
+        <ReportPage slug={decodeURIComponent(rp!.slug)} />
+      ) : isWorkspace ? (
+        <Workspace key={ws!.slug} slug={decodeURIComponent(ws!.slug)} stage={ws!.stage} />
+      ) : (
+        <Shell />
+      )}
     </PlatformProvider>
   );
 }

@@ -18,8 +18,15 @@ export type QuestionMeta = {
   tags?: string[];
   group?: string;
   status?: "draft" | "approved";
+  /** Who wrote it: "agente", or the researcher's name ("vos" in older files). */
   by?: string;
+  /** Who approved it and when (ISO), set by the app. */
+  approved_by?: string;
+  approved_at?: string;
 };
+
+/** Written by the org's agent (the skill writes by: "agente"). */
+export const byAgent = (m: QuestionMeta) => /^(agente|agent)$/i.test(m.by?.trim() ?? "");
 
 export type ReviewRow = {
   index: number;
@@ -113,7 +120,7 @@ export function questionsFrom(rows: (ExamRow | { raw: string })[], meta: Questio
     else if (!a.trim()) status = "error";
     else if (current && (r!.error || (r!.missed?.length ?? 0) > 0)) status = "attention";
     else if (m.status === "approved") status = "done";
-    else if (m.by && m.by !== "vos") status = "new";
+    else if (byAgent(m)) status = "new";
     else status = "progress";
     return { index, num, text: q, answer: a, meta: m, status, review: current ? r : null, stale: !!r && !current };
   });

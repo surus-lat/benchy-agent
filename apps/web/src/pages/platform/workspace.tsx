@@ -7,6 +7,7 @@ import { useAgentChat, useSelectedModels } from "./bench";
 import { usePlatform, type BenchSummary } from "./store";
 import { useExam, useRunResults, type ExamState } from "./use-exam";
 import {
+  byAgent,
   criterionMet,
   groupsOf,
   hasIssue,
@@ -20,6 +21,7 @@ import {
   type QStatus,
 } from "./exam-model";
 import { LibraryPicker, SourceRow } from "./library";
+import { PublicationStage } from "./publication";
 import { citation, sources as sourcesApi, libraryErrorText, type Source } from "./library-data";
 import { ApiError } from "./data";
 import "./workspace.css";
@@ -250,6 +252,7 @@ export default function Workspace({ slug, stage: stageParam }: { slug: string; s
             ) : stage === "autoria" ? (
               <Authoring
                 exam={exam}
+                author={me?.user.name?.trim() || me?.user.email || "vos"}
                 openExam={openExam}
                 q={q}
                 qIndex={qIndex}
@@ -295,8 +298,10 @@ export default function Workspace({ slug, stage: stageParam }: { slug: string; s
                 }}
                 onApprove={(question) => {
                   const meta = [...exam.meta];
-                  meta[question.index] = { ...meta[question.index], status: "approved" };
+                  const who = me?.user.name?.trim() || me?.user.email || "vos";
+                  meta[question.index] = { ...meta[question.index], status: "approved", approved_by: who, approved_at: new Date().toISOString() };
                   exam.updateMeta(meta);
+                  void api.logActivity(slug, "approve", `aprobó la pregunta ${question.num}`);
                   pushEvent({ who: "Vos", path: `${question.num}.revisión`, change: "por aprobar → aprobada", open: () => go("revision") });
                 }}
                 onOpen={(question) => {
@@ -316,7 +321,7 @@ export default function Workspace({ slug, stage: stageParam }: { slug: string; s
                 onReview={() => go("revision")}
               />
             ) : (
-              <PublicationStage bench={bench} exam={exam} openExam={openExam} go={go} />
+              <PublicationStage bench={bench} exam={exam} openExam={openExam} go={go} ask={ask} showAgent={() => bringFront("B")} busy={busy} />
             )}
 
             {openExam && (
@@ -429,6 +434,7 @@ function ValidationBadge({ bench }: { bench: BenchSummary }) {
 
 function Authoring({
   exam,
+  author,
   openExam,
   q,
   qIndex,
@@ -443,6 +449,8 @@ function Authoring({
   onDraft,
 }: {
   exam: ExamState;
+  /** The researcher's name, recorded as who wrote a question. */
+  author: string;
   openExam: boolean;
   q: Question | undefined;
   qIndex: number;
@@ -492,7 +500,9 @@ function Authoring({
     // An edited question goes back to review.
     else if (m.status === "approved") m.status = "draft";
     meta[q.index] = m;
-    exam.update(rows, meta);
+    // The "why" lives only in questions.json: leave the exam file untouched.
+    if (field === "why") exam.updateMeta(meta);
+    else exam.update(rows, meta);
     const label = { text: "pregunta", answer: "respuesta_experta", why: "por_qué" }[field];
     pushEvent({ who: "Vos", path: `${q.num}.${label}`, change: "editado → guardado", open: () => setQIndex(q.index) });
   };
@@ -501,7 +511,7 @@ function Authoring({
     const rows = [...exam.rows, { input: { question: "" }, expected: { answer: "" } }];
     const meta = [...exam.meta];
     while (meta.length < rows.length - 1) meta.push({});
-    meta.push({ status: "draft", by: "vos", group: q?.meta.group });
+    meta.push({ status: "draft", by: author, group: q?.meta.group });
     exam.update(rows, meta);
     setQIndex(rows.length - 1);
     setWriting(rows.length - 1);
@@ -804,7 +814,8 @@ function QuestionEditor({
   onRubric: () => void;
   papers: Source[];
 }) {
-  const byAgent = q.meta.by && q.meta.by !== "vos";
+  const agent = byAgent(q.meta);
+  const writer = !agent && q.meta.by && q.meta.by !== "vos" ? q.meta.by : null;
   return (
     <div className="ws-twocol">
       <div className="ws-col">
@@ -858,8 +869,8 @@ function QuestionEditor({
             )}
           </div>
           <div className="ws-byline">
-            <span className="av">{byAgent ? "[·]" : "Vos"}</span>
-            <span>{byAgent ? "Propuesta del agente" : "Escrita en la interfaz"}</span>
+            <span className="av">{agent ? "[·]" : (writer ?? "Vos").slice(0, 1).toUpperCase()}</span>
+            <span>{agent ? "Propuesta del agente" : writer ? `Escrita por ${writer}` : "Escrita en la interfaz"}</span>
           </div>
         </div>
       </div>
@@ -867,7 +878,11 @@ function QuestionEditor({
       <div className="ws-col">
         <div className="ws-col-head">
           <span className="ws-eyebrow">Respuesta de referencia</span>
-          {q.status === "done" && <span className="ws-flag ok">● aprobada</span>}
+          {q.status === "done" && (
+            <span className="ws-flag ok" title={q.meta.approved_at ? new Date(q.meta.approved_at).toLocaleString("es-AR") : undefined}>
+              ● aprobada{q.meta.approved_by ? ` por ${q.meta.approved_by}` : ""}
+            </span>
+          )}
         </div>
         <div className="ws-card">
           <div className="ws-pad ws-bb">
@@ -1330,6 +1345,7 @@ function EvaluationStage({
     if (chosen.length === 0 || running || busy) return;
     const base = { slug: bench.slug, models: chosen, startedAt: Date.now(), baseline: new Set(bench.runs.map((r) => r.path)), finished: new Set<string>() };
     setRun(bench.slug, { ...base, state: "running" });
+    void api.logActivity(bench.slug, "evaluate", `evaluó ${chosen.join(", ")}`);
     await ask(
       `Corré la evaluación de ${bench.yamlPath} con ${chosen.length === 1 ? "este modelo" : "estos modelos"}: ${chosen.join(", ")}. Usá benchy_run una vez por modelo con su argumento model, sin cambiar el YAML, y resumí los puntajes con sus fallas.`,
     );
@@ -1451,140 +1467,6 @@ function EvaluationStage({
           );
         })}
         {board.length > 0 && top === 0 && <p className="ws-note">Todos en 0: revisá las fallas antes de leer el puntaje.</p>}
-      </div>
-    </div>
-  );
-}
-
-// ---- 04 · Publicación ------------------------------------------------------------
-
-function PublicationStage({ bench, exam, openExam, go }: { bench: BenchSummary; exam: ExamState; openExam: boolean; go: (s: Stage) => void }) {
-  const { me } = usePlatform();
-  const results = useRunResults(bench);
-  const board = newestPerModel(results, bench.doc?.model);
-  const [scope, setScope] = useState<"approved" | "all">("approved");
-  const [visibility, setVisibility] = useState<"private" | "public">("private");
-  const qs = exam.questions;
-  const approved = openExam ? qs.filter((q) => q.status === "done").length : qs.length;
-  const n = scope === "approved" ? approved : qs.length;
-  const title = exam.doc?.title ?? bench.slug;
-  const org = me?.org?.name ?? "";
-  const checks = [
-    { ok: approved > 0, label: `${approved} de ${qs.length} preguntas aprobadas`, go: "revision" as Stage, goLabel: "Revisión" },
-    { ok: board.length > 0, label: board.length ? "Hay una evaluación para adjuntar" : "Falta ejecutar la evaluación", go: "evaluacion" as Stage, goLabel: "Evaluación" },
-    { ok: !!bench.validation?.ok, label: bench.validation?.ok ? "El benchmark compila (benchy_validate)" : "El benchmark no compila todavía", go: "autoria" as Stage, goLabel: "Autoría" },
-  ];
-  const radio = (on: boolean) => `ws-radio${on ? " on" : ""}`;
-  return (
-    <div className="ws-scroll ws-pad-lg">
-      <div className="ws-soon-banner">
-        <span className="mono amber">[·]</span>
-        La publicación llega pronto: tablero público, paquete descargable y DOI. Así se va a ver.
-      </div>
-      <div className="ws-pub">
-        <div className="ws-col">
-          <p className="ws-eyebrow">Así se va a ver publicado · tablero de Benchy</p>
-          <div className="ws-card ws-preview">
-            <div className="ws-browser">
-              <span className="dots"><span /><span /><span /></span>
-              <span>getbenchy.lat/b/{bench.slug}</span>
-            </div>
-            <div className="ws-pad ws-preview-body">
-              <div>
-                <div className="tags">
-                  <span className="ws-chip">BORRADOR</span>
-                  <span className="ws-chip">{[exam.doc?.domain, exam.doc?.language].filter(Boolean).join(" · ").toUpperCase()}</span>
-                </div>
-                <h2>{title}</h2>
-                <p className="ws-note">{org}</p>
-              </div>
-              <p className="about">
-                {n} preguntas{openExam ? ` de respuesta abierta, cada una juzgada contra una respuesta experta con una rúbrica de ${exam.criteria!.length} criterios.` : "."}
-              </p>
-              <div className="board">
-                <p className="ws-eyebrow">Resultados</p>
-                {board.length ? (
-                  board.map((r, i) => (
-                    <div key={r.model} className="ws-bar-row sm">
-                      <span className="m">{r.model}</span>
-                      <span className="track">
-                        <span className={i === 0 ? "top" : ""} style={{ width: `${r.result.benchmark_score * 100}%` }} />
-                      </span>
-                      <span className="v">{r.result.benchmark_score.toFixed(2)}</span>
-                    </div>
-                  ))
-                ) : (
-                  <p className="ws-note">Sin corridas todavía.</p>
-                )}
-              </div>
-              <p className="sample">
-                {visibility === "private"
-                  ? "Las preguntas no se publican: se muestran 3 ejemplos y la rúbrica. Así el examen no se filtra en el entrenamiento de los modelos."
-                  : `Las ${n} preguntas, sus respuestas expertas y la rúbrica son públicas.`}
-              </p>
-              <div>
-                <p className="ws-eyebrow">Cómo citar</p>
-                <p className="cite">
-                  {org} ({new Date().getFullYear()}). {title} [Benchmark]. Benchy. https://getbenchy.lat/b/{bench.slug}
-                </p>
-              </div>
-            </div>
-          </div>
-        </div>
-        <div className="ws-col">
-          <div className="ws-card ws-pad ws-stack">
-            <p className="ws-eyebrow">Antes de publicar</p>
-            {checks.map((c) => (
-              <div key={c.label} className="ws-check">
-                <span className={`mono ${c.ok ? "ok" : "amber"}`}>{c.ok ? "[✓]" : "[·]"}</span>
-                <span className="t">{c.label}</span>
-                {!c.ok && (
-                  <button className="ws-link" onClick={() => go(c.go)}>
-                    {c.goLabel} ↗
-                  </button>
-                )}
-              </div>
-            ))}
-          </div>
-          <div className="ws-card ws-pad ws-stack">
-            <p className="ws-eyebrow">Qué preguntas entran</p>
-            <button className={radio(scope === "approved")} onClick={() => setScope("approved")}>
-              <span className="dot" />
-              <span>
-                <span className="l">Solo las aprobadas ({approved})</span>
-                <span className="h">Recomendado: las demás quedan para la próxima versión.</span>
-              </span>
-            </button>
-            <button className={radio(scope === "all")} onClick={() => setScope("all")}>
-              <span className="dot" />
-              <span>
-                <span className="l">Todas ({qs.length})</span>
-                <span className="h">{approved === qs.length ? "Todas están aprobadas." : `Requiere aprobar las ${qs.length - approved} que faltan.`}</span>
-              </span>
-            </button>
-          </div>
-          <div className="ws-card ws-pad ws-stack">
-            <p className="ws-eyebrow">Las preguntas, ¿se ven?</p>
-            <button className={radio(visibility === "private")} onClick={() => setVisibility("private")}>
-              <span className="dot" />
-              <span>
-                <span className="l">Privadas · se publican resultados y 3 ejemplos</span>
-                <span className="h">Protege el examen: si las preguntas circulan, los modelos pueden aprenderlas.</span>
-              </span>
-            </button>
-            <button className={radio(visibility === "public")} onClick={() => setVisibility("public")}>
-              <span className="dot" />
-              <span>
-                <span className="l">Públicas · examen completo</span>
-                <span className="h">Útil para docencia y replicación, pero el benchmark pierde valor con el tiempo.</span>
-              </span>
-            </button>
-          </div>
-          <button className="ws-publish" disabled>
-            Publicar · pronto
-          </button>
-          <p className="ws-note center">Cuando llegue, la versión publicada queda congelada y los cambios siguientes van a la próxima.</p>
-        </div>
       </div>
     </div>
   );

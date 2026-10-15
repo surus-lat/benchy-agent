@@ -1,7 +1,9 @@
+import { useEffect, useState } from "react";
 import { useLocation } from "wouter";
 import { usePlatform } from "./store";
 import { statusOf } from "./platform-app";
-import { since } from "./data";
+import { api, since } from "./data";
+import type { Activity } from "../app/api";
 
 export function Pip({ variant = "thinking" }: { variant?: "thinking" | "idle" | "done" | "lg" }) {
   const dots = variant === "idle" ? 1 : 3;
@@ -78,6 +80,8 @@ export default function Home() {
         </div>
       )}
 
+      <OrgActivity />
+
       {empty && (
         <div className="bp-empty">
           <span role="img" aria-label="benchy agent">
@@ -93,5 +97,49 @@ export default function Home() {
         </div>
       )}
     </section>
+  );
+}
+
+const FILES: Record<string, string> = {
+  "exam.jsonl": "las preguntas y respuestas",
+  "questions.json": "las notas de las preguntas",
+  "benchmark.yaml": "la rúbrica y la definición",
+  "report.md": "el informe",
+};
+
+/** One line of the record: "Ana editó las preguntas y respuestas". */
+export function activityLine(a: Activity): string {
+  if (a.kind === "edit") return `${a.who} editó ${FILES[a.detail] ?? a.detail}`;
+  return `${a.who} ${a.detail}`;
+}
+
+/** What the organization did lately, and who: kept in D1 for every member. */
+function OrgActivity() {
+  const { benches } = usePlatform();
+  const [, navigate] = useLocation();
+  const [items, setItems] = useState<Activity[] | null>(null);
+  useEffect(() => {
+    void api
+      .activity(undefined, 15)
+      .then((r) => setItems(r.activity))
+      .catch(() => setItems([]));
+  }, []);
+  if (!items || items.length === 0) return null;
+  return (
+    <div className="card bp-activity">
+      <div className="card-head">
+        <span className="eyebrow">Actividad de la organización</span>
+      </div>
+      {items.map((a) => {
+        const bench = benches.find((b) => b.slug === a.bench);
+        return (
+          <button key={a.id} className="bp-act-row" onClick={() => a.bench && navigate(`/app/b/${encodeURIComponent(a.bench)}/autoria`)}>
+            <span className="t">{activityLine(a)}</span>
+            <span className="b">{bench?.doc?.title ?? a.bench}</span>
+            <span className="w">{since(Date.parse(a.createdAt) / 1000)}</span>
+          </button>
+        );
+      })}
+    </div>
   );
 }

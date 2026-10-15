@@ -414,6 +414,33 @@
 .ws-b.front .ws-strip { display: none; }
 
 /* ---- responsive ---- */
+/* ---- publication: analysis and report ---- */
+.ws-pub-tabs { display: flex; gap: 3px; width: fit-content; margin: 0 auto 18px; background: rgba(42, 46, 58, 0.05); border-radius: 999px; padding: 3px; }
+.ws-pub-tabs button { border: 0; border-radius: 999px; padding: 6px 16px; font-size: 13.5px; background: transparent; color: var(--body); }
+.ws-pub-tabs button.on { background: #fff; color: var(--ink); box-shadow: 0 1px 2px rgba(42, 46, 58, 0.14); }
+.ws-ana { max-width: 980px; margin: 0 auto; display: flex; flex-direction: column; gap: 14px; }
+.ws-ana-ask { display: flex; flex-direction: column; gap: 6px; }
+.ws-ana-ask .ws-eyebrow { margin: 0 !important; }
+.ws-table-wrap { overflow-x: auto; }
+.ws-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+.ws-table th { text-align: right; font: 400 10.5px var(--mono); letter-spacing: 0.04em; color: var(--muted); padding: 8px 12px; border-bottom: 1px solid var(--line-soft); white-space: nowrap; max-width: 11rem; overflow: hidden; text-overflow: ellipsis; }
+.ws-table th:first-child { text-align: left; }
+.ws-table td { padding: 9px 12px; border-bottom: 1px solid var(--line-soft); vertical-align: top; color: var(--ink-soft); line-height: 1.45; }
+.ws-table tr:last-child td { border-bottom: 0; }
+.ws-table .w { display: block; font: 400 10.5px var(--mono); color: var(--muted); margin-top: 2px; }
+.ws-table .wi { font: 400 10.5px var(--mono); color: var(--muted); }
+.ws-heat { text-align: right; font: 500 12.5px var(--mono); color: var(--ink); white-space: nowrap; width: 1%; }
+.ws-crit-cell { min-width: 16rem; }
+.ws-hard { padding: 4px 14px 16px 48px; display: flex; flex-direction: column; gap: 10px; font-size: 13.5px; line-height: 1.55; animation: ws-fade 160ms ease both; }
+.ws-hard .ws-eyebrow { margin: 0 0 2px !important; }
+.ws-hard .soft { color: var(--body); }
+.ws-hard-model { border-left: 2px solid var(--line); padding-left: 12px; }
+.ws-hard-miss { margin-top: 6px !important; font-size: 12.5px; color: var(--amber-deep); background: var(--amber-soft); border-radius: 8px; padding: 6px 9px; }
+.ws-hard-miss .mono { display: block; font-size: 10.5px; letter-spacing: 0.04em; text-transform: uppercase; margin-bottom: 2px; }
+.ws-hard > .ws-btn-line { align-self: flex-start; }
+.ws-report-card h3 { margin: 4px 0 10px; font-size: 20px; font-weight: 500; line-height: 1.3; letter-spacing: -0.01em; }
+.ws-report-card .ws-row-btns { margin: 14px 0 10px; display: flex; flex-wrap: wrap; gap: 8px; }
+
 /* ---- papers ---- */
 .ws-drawer.wide { width: min(640px, 96%); }
 .ws-papers { display: flex; flex-direction: column; gap: 6px; }
@@ -454,6 +481,9 @@
 }
 @media (max-width: 640px) {
   .ws-ready { flex-wrap: wrap; }
+  .ws-hard { padding-left: 14px; }
+  .ws-pub-tabs { width: 100%; }
+  .ws-pub-tabs button { flex: 1; }
   .ws-org, .ws-saved, .ws-engine, .ws-head-right .ws-seg { display: none; }
   .ws-toolbar { padding: 8px 10px; gap: 8px; }
   .ws-stages { margin-left: 0; width: 100%; overflow-x: auto; flex-wrap: nowrap; }

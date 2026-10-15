@@ -1,7 +1,8 @@
 // The app's only backend: the Worker's /api/conversations and /api/workspace
 // routes (same origin; the session cookie authenticates).
 
-export type Conversation = { id: string; title: string | null; updatedAt: string };
+export type Conversation = { id: string; title: string | null; bench?: string | null; updatedAt: string };
+export type Activity = { id: string; who: string; userId: string | null; bench: string | null; kind: string; detail: string; createdAt: string };
 export type Message = { id: string; role: "user" | "assistant"; content: string; createdAt: string };
 export type WorkspaceFile = { path: string; size: number; modified: number };
 export type FileContent = WorkspaceFile & { truncated: boolean; content: string };
@@ -31,8 +32,17 @@ async function call<T>(path: string, init?: RequestInit): Promise<T> {
 }
 
 export const api = {
-  conversations: () => call<{ conversations: Conversation[] }>("/api/conversations"),
-  createConversation: () => call<{ id: string }>("/api/conversations", { method: "POST", body: "{}" }),
+  conversations: (bench?: string) =>
+    call<{ conversations: Conversation[] }>(`/api/conversations${bench ? `?bench=${encodeURIComponent(bench)}` : ""}`),
+  createConversation: (bench?: string) => call<{ id: string }>("/api/conversations", { method: "POST", body: JSON.stringify(bench ? { bench } : {}) }),
+  /** Move a conversation to the benchmark it turned out to be about. */
+  tagConversation: (id: string, bench: string) =>
+    call<{ id: string }>(`/api/conversations/${id}`, { method: "PATCH", body: JSON.stringify({ bench }) }),
+  activity: (bench?: string, limit = 50) =>
+    call<{ activity: Activity[] }>(`/api/activity?limit=${limit}${bench ? `&bench=${encodeURIComponent(bench)}` : ""}`),
+  /** Record what only the app knows happened; never blocks the action itself. */
+  logActivity: (bench: string, kind: "approve" | "evaluate" | "report", detail: string) =>
+    call<{ ok: true }>("/api/activity", { method: "POST", body: JSON.stringify({ bench, kind, detail }) }).catch(() => null),
   messages: (id: string) => call<{ messages: Message[] }>(`/api/conversations/${id}/messages`),
   sendTurn: (id: string, message: string) =>
     call<{ reply: string }>(`/api/conversations/${id}/turns`, { method: "POST", body: JSON.stringify({ message }) }),

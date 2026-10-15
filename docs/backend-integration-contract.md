@@ -38,10 +38,11 @@ browser ──► getbenchy.lat (Pages) ──/api/*──► Worker benchy-api 
 | Core skills | `apps/agent/skills/benchy-*` | Root-owned, read-only in the image (`skills.external_dirs`). `.github/CODEOWNERS` gates the path. |
 | Pinned config | `apps/agent/config.yaml`, `SOUL.md` | Copied over `$HERMES_HOME` on every boot by `rootfs/etc/cont-init.d/03-benchy-setup`. |
 | Public port | `apps/agent/proxy/benchy_proxy.py` (s6 longrun) | Only thing on `0.0.0.0`; Hermes listens on loopback. Same bearer key for both. |
-| Worker routes | `apps/api/src/conversations.ts`, `hermes.ts` | `/api/conversations*`, `/api/workspace/{files,file,validate,exam}`, `PUT /api/workspace/file`, `POST /api/workspace/review`, `POST/DELETE /api/workspace/sources`, `POST /api/workspace/sources/upload`, `/api/models`, `/api/me`, all authenticated. Writes are limited to benchmark text files inside a benchmark folder (never `runs/`), and refused with 409 `CONFLICT` if the file changed after the caller read it. |
-| Paper library | `apps/api/src/library.ts`, `apps/api/library/` | D1 `benchy-library`: CONICET Digital's 263k publications from the `UNRN/ri-conicet` dataset (SURUS + CITA-UNRN), FTS5 over title, authors, subjects and abstract. `GET /api/library/{search,papers/:id,stats}` for anyone signed in. Refresh: `uv run --with duckdb apps/api/library/build.py metadata.parquet out.sql [--since <ISO>]`, then `wrangler d1 execute benchy-library --remote --file out.sql` (a full import is ~10,600 statements, under 2 minutes). |
+| Worker routes | `apps/api/src/conversations.ts`, `hermes.ts` | `/api/conversations*` (`?bench=` and `PATCH {bench}`: a conversation belongs to a benchmark, so it follows the researcher across devices), `/api/workspace/{files,file,validate,exam,analysis}`, `PUT /api/workspace/file`, `POST /api/workspace/review`, `POST/DELETE /api/workspace/sources`, `POST /api/workspace/sources/upload`, `GET/POST /api/activity`, `/api/models`, `/api/me`, all authenticated. Writes are limited to benchmark text files inside a benchmark folder (never `runs/`), and refused with 409 `CONFLICT` if the file changed after the caller read it. |
+| Paper library | `apps/api/src/library.ts`, `apps/api/library/` | D1 `benchy-library`: CONICET Digital's 263k publications from the `UNRN/ri-conicet` dataset (SURUS + CITA-UNRN), plus researchers' BICyT records that are not in the repository (`bicyt.py` → `external.json`, PDFs in the `LIBRARY_FILES` KV namespace; R2 is not enabled on the account), FTS5 over title, authors, subjects and abstract; an author search lists that author's papers first. `GET /api/library/{search,papers/:id,stats,files/*}` for anyone signed in and for each org's agent, which authenticates with its own `AGENT_KEY_<ORG>` (`agent-auth.ts`). Refresh: `uv run --with duckdb apps/api/library/build.py metadata.parquet out.sql [--since <ISO>]`, then `wrangler d1 execute benchy-library --remote --file out.sql` (a full import is ~10,600 statements, under 2 minutes). |
+| Results analysis and report | `apps/agent/mcp/benchy_analysis.py`, skill `benchy-report-findings` | From the newest run of each model: criteria met, score by topic and by paper, every answer with its missed criteria. One implementation for the app (`GET /benchy/analysis`) and the agent (`benchy_analysis`). The agent writes `<slug>/report.md`; the app renders it on the SURUS letterhead ("SURUS × <org>") at `/app/b/:slug/informe`, printable to PDF, with result tables built from the analysis. |
 | A benchmark's papers | `apps/agent/mcp/benchy_sources.py` | `<slug>/sources.json` plus `<slug>/sources/<id>.md`: metadata, abstract and the PDF's text with `[p. N]` markers (pypdfium2), written by the container when the app adds a library paper (it fetches the open PDF from Hugging Face) or an uploaded PDF. No open PDF, or a scan: the abstract only. The agent writes questions from them and cites `<id> p. N` in `questions.json`. |
-| Tables | `packages/db` migration `0002` | `orgAgentEndpoints`, `conversations`, `conversationMessages`. |
+| Tables | `packages/db` migrations `0002`, `0004` | `orgAgentEndpoints`, `conversations` (with `bench`), `conversationMessages`, `activity`: the org's record of who did what on which benchmark (edits, papers, reviews, approvals, evaluations, reports, work with the agent — never what was said to it), shown on the home page. |
 | UI | `apps/web/src/pages/platform/` | `/app`: benchmarks home; `/app/b/:slug/:stage` one benchmark as two windows, A · Interfaz (autoría, revisión, evaluación, publicación) and B · Agente, ⌘J swaps them (`workspace.tsx`, design "Plataforma AB v3"); `/app/biblioteca` the paper library (`library.tsx`), also inside each benchmark as its Papers drawer; `/app/nuevo` (`?paper=<id>` starts from a library paper), `/app/cuenta`; `/app/v1/b/:slug/:tab` keeps the previous tabbed view and `/app/chat` the first chat + files view. An exam is "listo" when it compiles and every question has the grader's review of its current text and the researcher's approval. |
 
 **Models.** The agent itself runs on `us.moonshotai.kimi-k3` (only invocable
@@ -98,11 +99,13 @@ workspace on the volume and are visible to every member of the org.
 - **Publication is a preview.** The Publicación stage shows the public card
   and the checks, but publishing, versions, the downloadable package and DOIs
   have no backend yet. What "listo para publicar" means is still to be decided.
-- **The library is CONICET's open repository only.** 52% of its records have
-  no open PDF (the agent then has only the abstract; researchers can upload
-  the PDF). Search is lexical (FTS5); the dataset's embeddings cover too few
-  papers for semantic search yet. The agent cannot search the library itself:
-  papers are added from the app.
+- **The library is CONICET's open repository plus the BICyT records we add.**
+  52% of the repository's records have no open PDF (the agent then has only
+  the abstract; researchers can upload the PDF). BICyT records are added by
+  hand with `bicyt.py` for now. Search is lexical (FTS5); the dataset's
+  embeddings cover too few papers for semantic search yet.
+- **Each org's workspace lives on one Railway volume.** D1 has Cloudflare's
+  30-day point-in-time recovery; the volume needs Railway's backups turned on.
 - **Turns are synchronous.** A very long benchmark run could hit the 14-minute
   turn timeout; results still land in `runs/`. Streaming
   (`/chat/stream`) or async runs are the next step if that bites.
