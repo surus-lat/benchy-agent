@@ -1676,8 +1676,7 @@ function EvaluationStage({
         <div className="ws-pad">
           <p className="ws-eyebrow">Sistemas de IA</p>
           <p className="ws-note">
-            Modelos de distintas regiones, para ver cómo responde cada una sobre tu campo: América Latina suele quedar contestada desde la
-            mirada de otra región. Por defecto, uno de cada región.
+            Modelos de distintas regiones, para ver cómo responde cada una sobre tu campo. Por defecto, uno de cada región.
           </p>
         </div>
         <div role="tablist" aria-label="Tipos de sistema" className="ws-systypes">
