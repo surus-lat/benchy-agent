@@ -8,7 +8,7 @@
 //
 // and review.json, written by the grader review (apps/agent/mcp/benchy_review.py).
 
-import { parseDocument, type Document } from "yaml";
+import { parseDocument, YAMLMap, type Document } from "yaml";
 
 export type ExamRow = { input: Record<string, unknown>; expected: Record<string, unknown> };
 
@@ -37,7 +37,14 @@ export type ReviewRow = {
   missed?: string[];
   error?: { code: string; message: string };
 };
-export type Review = { created: number; grader: { model?: string }; criteria: string[]; rows: ReviewRow[] };
+export type Review = {
+  created: number;
+  grader: { model?: string };
+  /** The criteria the grader applied, and (newer reviews) their wording. */
+  criteria: string[];
+  rubric?: { name: string; description: string }[];
+  rows: ReviewRow[];
+};
 
 export type Criterion = { key: string; weight: number; description: string; levels: number[] };
 
@@ -104,7 +111,23 @@ export function isOpenQuestionExam(task: string | undefined, criteria: Criterion
 
 const text = (v: unknown) => (typeof v === "string" ? v : v == null ? "" : JSON.stringify(v));
 
-export function questionsFrom(rows: (ExamRow | { raw: string })[], meta: QuestionMeta[], review: Review | null): Question[] {
+/** Was this review made with the rubric as it stands: the same criteria, worded the same? */
+export function reviewMatchesRubric(review: Review, criteria: Criterion[] | null): boolean {
+  if (!criteria || !Array.isArray(review.criteria)) return true;
+  const keys = (list: string[]) => [...list].sort().join("\n");
+  if (keys(review.criteria) !== keys(criteria.map((c) => c.key))) return false;
+  if (!review.rubric) return true;
+  return criteria.every((c) => review.rubric!.find((r) => r.name === c.key)?.description.trim() === c.description.trim());
+}
+
+export function questionsFrom(
+  rows: (ExamRow | { raw: string })[],
+  meta: QuestionMeta[],
+  reviewed: Review | null,
+  criteria: Criterion[] | null = null,
+): Question[] {
+  // A review made with another rubric counts for no question: the grader has to look again.
+  const review = reviewed && reviewMatchesRubric(reviewed, criteria) ? reviewed : null;
   return rows.map((row, index) => {
     const m = meta[index] ?? {};
     const num = String(index + 1).padStart(2, "0");
@@ -113,8 +136,11 @@ export function questionsFrom(rows: (ExamRow | { raw: string })[], meta: Questio
     }
     const q = text(row.input.question ?? Object.values(row.input)[0]);
     const a = text(row.expected.answer ?? Object.values(row.expected)[0]);
-    const r = review?.rows.find((x) => x.index === index) ?? null;
-    const current = !!r && text(r.input.question ?? Object.values(r.input)[0]) === q && text(r.answer) === a;
+    // The review of this text and answer, wherever it sat (questions move up when one is deleted).
+    const same = (x: ReviewRow) => text(x.input.question ?? Object.values(x.input)[0]) === q && text(x.answer) === a;
+    const atIndex = review?.rows.find((x) => x.index === index) ?? null;
+    const r = atIndex && same(atIndex) ? atIndex : (review?.rows.find(same) ?? atIndex);
+    const current = !!r && same(r);
     let status: QStatus;
     if (!q.trim()) status = "empty";
     else if (!a.trim()) status = "error";
@@ -174,6 +200,37 @@ export function setCriterion(yamlText: string, key: string, patch: { weight?: nu
   if (patch.weight !== undefined) doc.setIn([...CRITERIA_PATH, key, "weight"], patch.weight);
   if (patch.description !== undefined) doc.setIn([...CRITERIA_PATH, key, "description"], patch.description);
   return String(doc);
+}
+
+/** The most criteria a rubric may have in the app. */
+export const MAX_CRITERIA = 10;
+
+/** benchmark.yaml with one more criterion at the end, named after the highest c<n>. */
+export function addCriterion(yamlText: string, description: string, weight: number): string {
+  const doc = parseDocument(yamlText);
+  const keys = readCriteria(doc)?.map((c) => c.key) ?? [];
+  const top = Math.max(0, ...keys.map((k) => Number(/^c(\d+)$/.exec(k)?.[1] ?? 0)));
+  let n = top + 1;
+  while (keys.includes(`c${n}`)) n++;
+  const levels = doc.createNode(new Map([[0, "No lo cumple"], [1, "Lo cumple"]])) as YAMLMap;
+  levels.flow = true;
+  const node = doc.createNode({ weight, description }) as YAMLMap;
+  node.set("levels", levels);
+  doc.setIn([...CRITERIA_PATH, `c${n}`], node);
+  return String(doc);
+}
+
+/** benchmark.yaml without one criterion; a rubric keeps at least one. */
+export function removeCriterion(yamlText: string, key: string): string {
+  const doc = parseDocument(yamlText);
+  if ((readCriteria(doc)?.length ?? 0) <= 1) return yamlText;
+  doc.deleteIn([...CRITERIA_PATH, key]);
+  return String(doc);
+}
+
+/** The exam and its notes without one question (questions.json stays aligned with exam.jsonl). */
+export function removeQuestion<R>(rows: R[], meta: QuestionMeta[], index: number): { rows: R[]; meta: QuestionMeta[] } {
+  return { rows: rows.filter((_, i) => i !== index), meta: meta.filter((_, i) => i !== index) };
 }
 
 export function shareOf(c: Criterion, all: Criterion[]): string {

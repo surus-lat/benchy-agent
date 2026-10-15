@@ -8,6 +8,10 @@ import {
   parseMeta,
   questionsFrom,
   readCriteria,
+  addCriterion,
+  removeCriterion,
+  removeQuestion,
+  reviewMatchesRubric,
   serializeExam,
   serializeMeta,
   setCriterion,
@@ -104,6 +108,48 @@ describe("rubric in benchmark.yaml", () => {
     expect(out).toContain("grader: { type: model, provider: bedrock, model: us.moonshotai.kimi-k3 }");
   });
 
+  it("adds a criterion after the highest c<n>, in the shape the engine reads", () => {
+    const out = addCriterion(YAML, "Usa la terminología del campo.", 2);
+    const cs = readCriteria(parseBenchDoc(out))!;
+    expect(cs.map((c) => [c.key, c.weight, c.description, c.levels])).toEqual([
+      ["c1", 5, "Identifica las posiciones centrales.", [0, 1]],
+      ["c2", 3, "Sitúa el caso.", [0, 1]],
+      ["c3", 2, "Usa la terminología del campo.", [0, 1]],
+    ]);
+    expect(out).toContain("levels: { 0: No lo cumple, 1: Lo cumple }");
+    expect(out).toContain("# la más importante");
+    // Numbering follows the highest name, so removing c1 does not hand its name to a new criterion.
+    expect(readCriteria(parseBenchDoc(addCriterion(removeCriterion(YAML, "c1"), "Otro.", 1)))!.map((c) => c.key)).toEqual(["c2", "c3"]);
+  });
+
+  it("removes a criterion but never the last one", () => {
+    const one = removeCriterion(YAML, "c1");
+    expect(readCriteria(parseBenchDoc(one))!.map((c) => c.key)).toEqual(["c2"]);
+    expect(removeCriterion(one, "c2")).toBe(one);
+  });
+
+  it("counts a review only for the rubric it was made with", () => {
+    const cs = readCriteria(parseBenchDoc(YAML))!;
+    const review: Review = {
+      created: 1,
+      grader: {},
+      criteria: ["c1", "c2"],
+      rubric: [
+        { name: "c1", description: "Identifica las posiciones centrales." },
+        { name: "c2", description: "Sitúa el caso." },
+      ],
+      rows: [{ index: 0, input: { question: "a?" }, answer: "A", missed: [] }],
+    };
+    expect(reviewMatchesRubric(review, cs)).toBe(true);
+    expect(reviewMatchesRubric({ ...review, rubric: undefined }, cs)).toBe(true);
+    expect(reviewMatchesRubric(review, readCriteria(parseBenchDoc(setCriterion(YAML, "c2", { weight: 1 })))!)).toBe(true);
+    expect(reviewMatchesRubric(review, readCriteria(parseBenchDoc(setCriterion(YAML, "c2", { description: "Otro." })))!)).toBe(false);
+    const added = readCriteria(parseBenchDoc(addCriterion(YAML, "Nuevo.", 3)))!;
+    expect(reviewMatchesRubric({ ...review, rubric: undefined }, added)).toBe(false);
+    const [q] = questionsFrom(parseExam(row("a?", "A")), [{}], review, added);
+    expect([q.review, q.stale]).toEqual([null, false]);
+  });
+
   it("knows whether a review row met a criterion", () => {
     const [c1] = readCriteria(parseBenchDoc(YAML))!;
     expect(criterionMet({ index: 0, input: {}, answer: "", criteria: { c1: { grade: 1, justification: "" } } }, c1)).toBe(true);
@@ -122,4 +168,24 @@ it("marks as new only what the agent wrote; a colleague's question is in progres
   expect(qs.map((q) => q.status)).toEqual(["new", "progress", "done"]);
   expect(byAgent({ by: "Agente " })).toBe(true);
   expect(byAgent({ by: "Ana" })).toBe(false);
+});
+
+it("deletes a question and its notes; the questions after it keep their review", () => {
+  const rows = parseExam([row("a?", "A"), row("b?", "B"), row("c?", "C")].join("\n"));
+  const review: Review = {
+    created: 1,
+    grader: {},
+    criteria: ["c1"],
+    rows: [
+      { index: 1, input: { question: "b?" }, answer: "B", missed: [] },
+      { index: 2, input: { question: "c?" }, answer: "C", missed: ["c1"] },
+    ],
+  };
+  const out = removeQuestion(rows, [{ why: "A" }, { why: "B", status: "approved" }, { why: "C" }], 0);
+  expect(out.meta.map((m) => m.why)).toEqual(["B", "C"]);
+  const qs = questionsFrom(out.rows, out.meta, review);
+  expect(qs.map((q) => [q.text, q.status, q.stale])).toEqual([
+    ["b?", "done", false],
+    ["c?", "attention", false],
+  ]);
 });

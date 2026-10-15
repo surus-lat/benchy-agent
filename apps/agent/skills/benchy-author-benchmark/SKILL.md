@@ -101,8 +101,12 @@ ai-system:
 
 - **Criteria** are named `c1`, `c2`, … in order, each with `levels {0: No lo
   cumple, 1: Lo cumple}` and a `weight` from 1 to 5: how important it is. Write
-  each `description` as one checkable sentence. Three to six criteria; the same
-  rubric applies to every question.
+  each `description` as one checkable sentence. The researcher decides how many
+  (one to ten: the app allows up to ten, and adds and removes them too); the same
+  rubric applies to every question. A new criterion takes the next number after
+  the highest (`c4` after `c1`–`c3`, even if `c2` was removed). After any change
+  to the rubric, run `benchy_review` again: the app counts a review only for the
+  rubric it was made with.
 - **Exam rows** are `{"input": {"question": "..."}, "expected": {"answer": "..."}}`:
   the expected answer is the expert answer — the key the grader compares with.
 - **Question notes** go in `<slug>/questions.json`, never in the exam (the

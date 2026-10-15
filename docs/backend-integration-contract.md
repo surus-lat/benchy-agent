@@ -42,7 +42,7 @@ browser ──► getbenchy.lat (Pages) ──/api/*──► Worker benchy-api 
 | Paper library | `apps/api/src/library.ts`, `apps/api/library/` | D1 `benchy-library`: CONICET Digital's 263k publications from the `UNRN/ri-conicet` dataset (SURUS + CITA-UNRN), plus researchers' BICyT records that are not in the repository (`bicyt.py` → `external.json`, PDFs in the `LIBRARY_FILES` KV namespace; R2 is not enabled on the account), FTS5 over title, authors, subjects and abstract; an author search lists that author's papers first. `GET /api/library/{search,papers/:id,stats,files/*}` for anyone signed in and for each org's agent, which authenticates with its own `AGENT_KEY_<ORG>` (`agent-auth.ts`). Refresh: `uv run --with duckdb apps/api/library/build.py metadata.parquet out.sql [--since <ISO>]`, then `wrangler d1 execute benchy-library --remote --file out.sql` (a full import is ~10,600 statements, under 2 minutes). |
 | Results analysis and report | `apps/agent/mcp/benchy_analysis.py`, skill `benchy-report-findings` | From the newest run of each model: criteria met, score by topic and by paper, every answer with its missed criteria. One implementation for the app (`GET /benchy/analysis`) and the agent (`benchy_analysis`). The agent writes `<slug>/report.md`; the app renders it on the SURUS letterhead ("SURUS × <org>") at `/app/b/:slug/informe`, printable to PDF, with result tables built from the analysis. |
 | A benchmark's papers | `apps/agent/mcp/benchy_sources.py` | `<slug>/sources.json` plus `<slug>/sources/<id>.md`: metadata, abstract and the PDF's text with `[p. N]` markers (pypdfium2), written by the container when the app adds a library paper (it fetches the open PDF from Hugging Face) or an uploaded PDF. No open PDF, or a scan: the abstract only. The agent writes questions from them and cites `<id> p. N` in `questions.json`. |
-| Tables | `packages/db` migrations `0002`, `0004` | `orgAgentEndpoints`, `conversations` (with `bench`), `conversationMessages`, `activity`: the org's record of who did what on which benchmark (creation, edits, papers, reviews, approvals, evaluations, reports, work with the agent — never what was said to it), shown on the home page. |
+| Tables | `packages/db` migrations `0002`, `0004` | `orgAgentEndpoints`, `conversations` (with `bench`), `conversationMessages`, `activity`: the org's record of who did what on which benchmark (creation, edits, deleted questions, papers, reviews, approvals, evaluations, reports, work with the agent — never what was said to it), shown on the home page. |
 | UI | `apps/web/src/pages/platform/` | `/app`: benchmarks home; `/app/b/:slug/:stage` one benchmark as two windows, A · Interfaz (autoría, revisión, evaluación, publicación) and B · Agente, ⌘J swaps them (`workspace.tsx`, design "Plataforma AB v3"); `/app/biblioteca` the paper library (`library.tsx`), also inside each benchmark as its Papers drawer; `/app/nuevo` a new benchmark without the agent: name, field and language; the app writes `benchmark.yaml` (open questions, a starting three-criterion rubric), an empty `exam.jsonl` and `questions.json` (only if the folder is new: `baseModified: 0`) and opens it in A, with the agent in B as always (`new-bench.tsx`; `?paper=<id>` adds a library paper right after), `/app/cuenta`; `/app/v1/b/:slug/:tab` is the previous tabbed view with its chat with the agent, **deprecated** (2026-10-15) and to be deleted next release (`bench.tsx`); `/app/chat` keeps the first chat + files view. The agent is always optional, in B: no flow starts with it. An exam is "listo" when it compiles and every question has the grader's review of its current text and the researcher's approval. |
 
 **Models.** The agent itself runs on `us.moonshotai.kimi-k3` (only invocable
@@ -100,10 +100,17 @@ workspace on the volume and are visible to every member of the org.
   (ontology 1.1, merged into surus-lat/benchy main) grades each answer against the expert answer with the
   benchmark's rubric; the grader is `scoring.grader`, Kimi K3 on Bedrock. A
   run costs one model call plus two grader calls per question. The app's
-  editors expect binary criteria (`levels {0, 1}`) weighted 1–5 and per-question
-  notes in `<slug>/questions.json` (the engine rejects extra keys in a row);
+  editors expect binary criteria (`levels {0, 1}`) weighted 1–5, one to ten of
+  them, which the researcher adds, rewords and removes in A (a new one is named
+  after the highest `c<n>`), and per-question notes in `<slug>/questions.json`
+  (the engine rejects extra keys in a row), sources included, also editable in A.
   `POST /benchy/review` grades the expert answers themselves into
-  `<slug>/review.json`. Nobody has yet checked the grader against a professor.
+  `<slug>/review.json`, which records the criteria and their wording: the app
+  counts a review only for the rubric it was made with. Deleting a question
+  removes its row from both files; reviews follow their text, not their
+  position. Nobody has yet checked the grader against a professor. Everything
+  the agent can do to an exam can also be done in A: the agent adds, it never
+  gates.
 - **Publication is a preview.** The Publicación stage shows the public card
   and the checks, but publishing, versions, the downloadable package and DOIs
   have no backend yet. What "listo para publicar" means is still to be decided.

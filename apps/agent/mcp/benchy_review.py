@@ -69,6 +69,8 @@ async def review(ir: dict, source: Path) -> dict:
         "created": int(time.time()),
         "grader": ir["scoring"]["grader"],
         "criteria": [c["name"] for c in criteria],
+        # Their wording too: the app counts a review only for the rubric it was made with.
+        "rubric": [{"name": c["name"], "description": c.get("description", "")} for c in criteria],
         "rows": sorted(results, key=lambda r: r["index"]),
     }
     (workspace / "review.json").write_text(json.dumps(report, indent=2, ensure_ascii=False), encoding="utf-8")

@@ -6,6 +6,7 @@ import {
   parseMeta,
   questionsFrom,
   readCriteria,
+  reviewMatchesRubric,
   serializeExam,
   serializeMeta,
   type Criterion,
@@ -185,7 +186,9 @@ export function useExam(bench: BenchSummary | undefined) {
     [bench, reload],
   );
 
-  const questions = questionsFrom(rows.value, meta.value, review);
+  const questions = questionsFrom(rows.value, meta.value, review, criteria);
+  // The last review was made with a rubric that has changed since.
+  const reviewOutdated = !!review && !reviewMatchesRubric(review, criteria);
 
   return {
     loading,
@@ -199,6 +202,7 @@ export function useExam(bench: BenchSummary | undefined) {
     rows: rows.value,
     meta: meta.value,
     review,
+    reviewOutdated,
     questions,
     /** The benchmark's papers (sources.json). */
     sources,

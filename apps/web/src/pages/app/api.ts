@@ -41,7 +41,7 @@ export const api = {
   activity: (bench?: string, limit = 50) =>
     call<{ activity: Activity[] }>(`/api/activity?limit=${limit}${bench ? `&bench=${encodeURIComponent(bench)}` : ""}`),
   /** Record what only the app knows happened; never blocks the action itself. */
-  logActivity: (bench: string, kind: "create" | "approve" | "evaluate" | "report", detail: string) =>
+  logActivity: (bench: string, kind: "create" | "delete" | "approve" | "evaluate" | "report", detail: string) =>
     call<{ ok: true }>("/api/activity", { method: "POST", body: JSON.stringify({ bench, kind, detail }) }).catch(() => null),
   messages: (id: string) => call<{ messages: Message[] }>(`/api/conversations/${id}/messages`),
   sendTurn: (id: string, message: string) =>

@@ -7,12 +7,16 @@ import { useAgentChat } from "./agent-chat";
 import { usePlatform, type BenchSummary } from "./store";
 import { useExam, useRunResults, useSelectedModels, type ExamState } from "./use-exam";
 import {
+  addCriterion,
   byAgent,
   criterionMet,
   groupsOf,
   hasIssue,
   isOpenQuestionExam,
   isPending,
+  MAX_CRITERIA,
+  removeCriterion,
+  removeQuestion,
   setCriterion,
   shareOf,
   titleOf,
@@ -164,6 +168,14 @@ export default function Workspace({ slug, stage: stageParam }: { slug: string; s
 
   const openExam = isOpenQuestionExam(exam.doc?.task, exam.criteria);
   const qs = exam.questions;
+  /** A question out of the exam, with its notes; the open one stays the same where it can. */
+  const deleteQuestion = (question: Question) => {
+    const next = removeQuestion(exam.rows, exam.meta, question.index);
+    exam.update(next.rows, next.meta);
+    void api.logActivity(slug, "delete", `borró la pregunta ${question.num}`);
+    pushEvent({ who: "Vos", path: question.num, change: "pregunta borrada", open: () => go("autoria") });
+    setQIndex((i) => Math.max(0, Math.min(i > question.index ? i - 1 : i, next.rows.length - 1)));
+  };
   const q = qs[Math.min(qIndex, Math.max(qs.length - 1, 0))];
   const approved = qs.filter((x) => x.status === "done").length;
   const papers = exam.sources;
@@ -263,6 +275,7 @@ export default function Workspace({ slug, stage: stageParam }: { slug: string; s
                 onRubric={() => setRubricOpen(true)}
                 papers={papers}
                 onPapers={() => setPapersOpen(true)}
+                onDelete={deleteQuestion}
                 onBatch={async (n, fromPapers) => {
                   setGenerating(n);
                   const before = qs.length;
@@ -308,6 +321,7 @@ export default function Workspace({ slug, stage: stageParam }: { slug: string; s
                   setQIndex(question.index);
                   go("autoria");
                 }}
+                onDelete={deleteQuestion}
               />
             ) : stage === "evaluacion" ? (
               <EvaluationStage
@@ -348,6 +362,14 @@ export default function Workspace({ slug, stage: stageParam }: { slug: string; s
                 onChange={(c, patch, label) => {
                   void exam.saveYaml(setCriterion(exam.yamlText, c.key, patch));
                   pushEvent({ who: "Vos", path: `rúbrica.${c.key}.${label}`, change: "editado → guardado", open: () => setRubricOpen(true) });
+                }}
+                onAdd={(description, weight) => {
+                  void exam.saveYaml(addCriterion(exam.yamlText, description, weight));
+                  pushEvent({ who: "Vos", path: "rúbrica", change: "criterio agregado", open: () => setRubricOpen(true) });
+                }}
+                onRemove={(c) => {
+                  void exam.saveYaml(removeCriterion(exam.yamlText, c.key));
+                  pushEvent({ who: "Vos", path: `rúbrica.${c.key}`, change: "criterio quitado", open: () => setRubricOpen(true) });
                 }}
               />
             )}
@@ -447,6 +469,7 @@ function Authoring({
   onPapers,
   onBatch,
   onDraft,
+  onDelete,
 }: {
   exam: ExamState;
   /** The researcher's name, recorded as who wrote a question. */
@@ -463,6 +486,7 @@ function Authoring({
   onPapers: () => void;
   onBatch: (n: number, fromPapers: boolean) => void;
   onDraft: (q: Question) => void;
+  onDelete: (q: Question) => void;
 }) {
   const [search, setSearch] = useState("");
   const [filter, setFilter] = useState<"all" | "pend" | "issues">("all");
@@ -505,6 +529,16 @@ function Authoring({
     else exam.update(rows, meta);
     const label = { text: "pregunta", answer: "respuesta_experta", why: "por_qué" }[field];
     pushEvent({ who: "Vos", path: `${q.num}.${label}`, change: "editado → guardado", open: () => setQIndex(q.index) });
+  };
+
+  const setSources = (list: string[]) => {
+    if (!q) return;
+    const meta = [...exam.meta];
+    while (meta.length < exam.rows.length) meta.push({});
+    meta[q.index] = { ...meta[q.index], sources: list };
+    // Notes only: the exam file and the approval stay as they are.
+    exam.updateMeta(meta);
+    pushEvent({ who: "Vos", path: `${q.num}.fuentes`, change: "editado → guardado", open: () => setQIndex(q.index) });
   };
 
   const addQuestion = () => {
@@ -683,14 +717,25 @@ function Authoring({
         ) : q.status === "empty" && writing !== q.index ? (
           <EmptyCard
             title="Pregunta vacía"
-            text="Escribila vos o pedile un borrador al agente: te lo deja acá para revisar."
+            text="Escribila vos, pedile un borrador al agente o borrala si no la vas a usar."
             onAgent={() => onDraft(q)}
             agentLabel="Pedile un borrador al agente"
             onSelf={() => setWriting(q.index)}
+            onDelete={() => onDelete(q)}
             locked={locked}
           />
         ) : (
-          <QuestionEditor q={q} criteria={exam.criteria!} total={qs.length} locked={locked} edit={edit} onRubric={onRubric} papers={papers} />
+          <QuestionEditor
+            q={q}
+            criteria={exam.criteria!}
+            total={qs.length}
+            locked={locked}
+            edit={edit}
+            setSources={setSources}
+            onDelete={() => onDelete(q)}
+            onRubric={onRubric}
+            papers={papers}
+          />
         )}
       </div>
     </div>
@@ -703,6 +748,7 @@ function EmptyCard({
   onAgent,
   agentLabel,
   onSelf,
+  onDelete,
   locked,
 }: {
   title: string;
@@ -710,6 +756,8 @@ function EmptyCard({
   onAgent: () => void;
   agentLabel: string;
   onSelf: () => void;
+  /** An empty question can go: nothing in it is lost. */
+  onDelete?: () => void;
   locked: boolean;
 }) {
   return (
@@ -723,6 +771,11 @@ function EmptyCard({
         <button className="ws-btn-line sm" onClick={onSelf} disabled={locked}>
           Escribirla yo
         </button>
+        {onDelete && (
+          <button className="ws-btn-line sm" onClick={onDelete} disabled={locked}>
+            Borrarla
+          </button>
+        )}
       </div>
     </div>
   );
@@ -803,6 +856,8 @@ function QuestionEditor({
   total,
   locked,
   edit,
+  setSources,
+  onDelete,
   onRubric,
   papers,
 }: {
@@ -811,6 +866,8 @@ function QuestionEditor({
   total: number;
   locked: boolean;
   edit: (field: "text" | "answer" | "why", value: string) => void;
+  setSources: (list: string[]) => void;
+  onDelete: () => void;
   onRubric: () => void;
   papers: Source[];
 }) {
@@ -832,6 +889,7 @@ function QuestionEditor({
               ● aprobada{q.meta.approved_by ? ` por ${q.meta.approved_by}` : ""}
             </span>
           )}
+          <DeleteQuestion num={q.num} locked={locked} onDelete={onDelete} />
         </div>
         <div className="ws-card ws-qcard">
           <AutoText className="big" value={q.text} onChange={(v) => edit("text", v)} label="Texto de la pregunta" disabled={locked} placeholder="Escribí la pregunta…" />
@@ -846,72 +904,191 @@ function QuestionEditor({
         </div>
       </div>
 
-      {/* Why it is asked, where it comes from, and what the grader checks. */}
+      {/* What the grader checks, where the question comes from, and why it is asked. */}
       <div className="ws-col">
         <div className="ws-col-head">
-          <span className="ws-eyebrow">Por qué esta pregunta</span>
-        </div>
-        <div className="ws-card ws-pad ws-why">
-          <AutoText className="soft" value={q.meta.why ?? ""} onChange={(v) => edit("why", v)} label="Por qué esta pregunta" disabled={locked} placeholder="Qué error de los modelos busca exponer…" />
-          <div className="ws-sep">
-            <p className="ws-eyebrow">Fuentes</p>
-            {(q.meta.sources ?? []).length ? (
-              <div className="ws-sources">
-                {q.meta.sources!.map((s) => {
-                  const cited = citation(s, papers);
-                  if (cited) {
-                    const href = cited.source.pdf_url ?? cited.source.url;
-                    return (
-                      <div key={s} className="ws-source">
-                        <span className="tag doi">PAPER</span>
-                        {href ? (
-                          <a className="t" href={href} target="_blank" rel="noreferrer" title={cited.source.title}>
-                            {cited.source.title}
-                          </a>
-                        ) : (
-                          <span className="t">{cited.source.title}</span>
-                        )}
-                        {cited.page && <span className="pg">p. {cited.page}</span>}
-                      </div>
-                    );
-                  }
-                  const doi = /^10\.\d+\//.test(s) || /doi/i.test(s);
-                  return (
-                    <div key={s} className="ws-source">
-                      <span className={`tag ${doi ? "doi" : ""}`}>{doi ? "DOI" : "REF"}</span>
-                      <span className="t">{s}</span>
-                    </div>
-                  );
-                })}
-              </div>
-            ) : (
-              <p className="ws-note">{papers.length ? "Sin fuentes. Pedile al agente que cite el paper y la página." : "Sin fuentes. Agregá papers al benchmark para que el agente cite de dónde sale cada pregunta."}</p>
-            )}
-          </div>
+          <span className="ws-eyebrow">Rúbrica</span>
+          <button className="ws-link push" onClick={onRubric}>
+            {criteria.length} {criteria.length === 1 ? "criterio" : "criterios"} · configurar ↗
+          </button>
         </div>
         <div className="ws-card ws-pad ws-rubric-mini">
-            <div className="ws-eyebrow-row">
-              <span>Rúbrica · {criteria.length} criterios</span>
-              <button className="ws-link" onClick={onRubric}>configurar ↗</button>
-            </div>
-            {criteria.map((c) => {
-              const met = q.review ? criterionMet(q.review, c) : null;
-              return (
-                <div key={c.key} className="ws-crit">
-                  <span className="t">{c.description || c.key}</span>
-                  {met !== null && <span className={`ws-met ${met ? "ok" : "no"}`}>{met ? "sí" : "no"}</span>}
-                  <span className="w" title={`Importancia ${c.weight} de 5`}>
-                    <Pips w={c.weight} />
-                    <span className="s">{shareOf(c, criteria)}</span>
-                  </span>
-                </div>
-              );
-            })}
-            <p className="ws-engine-line">
-              → en el motor: un campo answer juzgado con {criteria.length} criterios · pesos {criteria.map((c) => c.weight).join(" / ")} · {total} filas en exam.jsonl
-            </p>
-          </div>
+          {criteria.map((c) => {
+            const met = q.review ? criterionMet(q.review, c) : null;
+            return (
+              <div key={c.key} className="ws-crit">
+                <span className="t">{c.description || c.key}</span>
+                {met !== null && <span className={`ws-met ${met ? "ok" : "no"}`}>{met ? "sí" : "no"}</span>}
+                <span className="w" title={`Importancia ${c.weight} de 5`}>
+                  <Pips w={c.weight} />
+                  <span className="s">{shareOf(c, criteria)}</span>
+                </span>
+              </div>
+            );
+          })}
+          <p className="ws-engine-line">
+            → en el motor: un campo answer juzgado con {criteria.length} criterios · pesos {criteria.map((c) => c.weight).join(" / ")} · {total} filas en exam.jsonl
+          </p>
+        </div>
+
+        <div className="ws-col-head sub">
+          <span className="ws-eyebrow">Fuentes</span>
+        </div>
+        <div className="ws-card ws-pad">
+          <SourcesEditor sources={q.meta.sources ?? []} papers={papers} locked={locked} onChange={setSources} />
+        </div>
+
+        <div className="ws-col-head sub">
+          <span className="ws-eyebrow">Por qué esta pregunta</span>
+        </div>
+        <div className="ws-card ws-pad">
+          <AutoText className="soft" value={q.meta.why ?? ""} onChange={(v) => edit("why", v)} label="Por qué esta pregunta" disabled={locked} placeholder="Qué error de los modelos busca exponer…" />
+        </div>
       </div>
+    </div>
+  );
+}
+
+/** Delete a question, after a second click that says what goes. */
+function DeleteQuestion({ num, locked, onDelete, button = false }: { num: string; locked: boolean; onDelete: () => void; button?: boolean }) {
+  const [asking, setAsking] = useState(false);
+  useEffect(() => setAsking(false), [num]);
+  if (asking) {
+    return (
+      <span className={`ws-del-ask${button ? " btn" : ""}`} role="group" aria-label={`Borrar la pregunta ${num}`}>
+        <span>¿Borrar la pregunta {num}? No se puede deshacer.</span>
+        <button className="ws-btn-danger sm" disabled={locked} onClick={onDelete}>
+          Borrar
+        </button>
+        <button className="ws-btn-line sm" onClick={() => setAsking(false)}>
+          Cancelar
+        </button>
+      </span>
+    );
+  }
+  return (
+    <button className={button ? "ws-btn-line sm ws-del" : "ws-link ws-del push"} disabled={locked} onClick={() => setAsking(true)}>
+      Borrar pregunta
+    </button>
+  );
+}
+
+/** One citation: a paper of the benchmark (with its page) or any other reference. */
+function SourceLine({ text, papers, onRemove }: { text: string; papers: Source[]; onRemove?: () => void }) {
+  const cited = citation(text, papers);
+  const remove = onRemove && (
+    <button className="x" onClick={onRemove} aria-label={`Quitar la fuente ${cited?.source.title ?? text}`} title="Quitar">
+      ×
+    </button>
+  );
+  if (cited) {
+    const href = cited.source.pdf_url ?? cited.source.url;
+    return (
+      <div className="ws-source">
+        <span className="tag doi">PAPER</span>
+        {href ? (
+          <a className="t" href={href} target="_blank" rel="noreferrer" title={cited.source.title}>
+            {cited.source.title}
+          </a>
+        ) : (
+          <span className="t">{cited.source.title}</span>
+        )}
+        {cited.page && <span className="pg">p. {cited.page}</span>}
+        {remove}
+      </div>
+    );
+  }
+  const doi = /^10\.\d+\//.test(text) || /doi/i.test(text);
+  return (
+    <div className="ws-source">
+      <span className={`tag ${doi ? "doi" : ""}`}>{doi ? "DOI" : "REF"}</span>
+      <span className="t" title={text}>
+        {text}
+      </span>
+      {remove}
+    </div>
+  );
+}
+
+/** A question's citations, added and removed by hand: a paper and page, or any reference. */
+function SourcesEditor({ sources, papers, locked, onChange }: { sources: string[]; papers: Source[]; locked: boolean; onChange: (list: string[]) => void }) {
+  const [pick, setPick] = useState<string>(papers[0]?.id ?? "otra");
+  const [page, setPage] = useState("");
+  const [ref, setRef] = useState("");
+  useEffect(() => {
+    if (pick !== "otra" && !papers.some((p) => p.id === pick)) setPick(papers[0]?.id ?? "otra");
+  }, [papers, pick]);
+  const next = pick === "otra" ? ref.trim() : `${pick}${page ? ` p. ${page}` : ""}`;
+  const add = () => {
+    if (!next || sources.includes(next)) return;
+    onChange([...sources, next]);
+    setPage("");
+    setRef("");
+  };
+  return (
+    <div className="ws-srcs">
+      {sources.length ? (
+        <div className="ws-sources">
+          {sources.map((s, i) => (
+            <SourceLine key={`${i}-${s}`} text={s} papers={papers} onRemove={locked ? undefined : () => onChange(sources.filter((_, j) => j !== i))} />
+          ))}
+        </div>
+      ) : (
+        <p className="ws-note">{papers.length ? "Sin fuentes todavía: elegí el paper y la página." : "Sin fuentes todavía. Agregá papers al benchmark o anotá otra referencia."}</p>
+      )}
+      <form
+        className="ws-src-add"
+        onSubmit={(e) => {
+          e.preventDefault();
+          add();
+        }}
+      >
+        <select value={pick} onChange={(e) => setPick(e.target.value)} aria-label="Fuente" disabled={locked}>
+          {papers.map((p) => (
+            <option key={p.id} value={p.id}>
+              {p.title.length > 60 ? p.title.slice(0, 58).trimEnd() + "…" : p.title}
+            </option>
+          ))}
+          <option value="otra">Otra referencia (DOI, libro, URL)</option>
+        </select>
+        {pick === "otra" ? (
+          <input value={ref} onChange={(e) => setRef(e.target.value)} placeholder="10.1234/… o autor, título, año" aria-label="Referencia" disabled={locked} />
+        ) : (
+          <input
+            className="pg"
+            value={page}
+            onChange={(e) => setPage(e.target.value.replace(/[^\d–-]/g, ""))}
+            inputMode="numeric"
+            placeholder="pág."
+            aria-label="Página"
+            disabled={locked}
+          />
+        )}
+        <button type="submit" className="ws-btn-line sm" disabled={locked || !next || sources.includes(next)}>
+          Agregar
+        </button>
+      </form>
+    </div>
+  );
+}
+
+/** Importance from 1 to 5. */
+function WeightScale({ value, label, disabled, onPick }: { value: number; label: string; disabled: boolean; onPick: (n: number) => void }) {
+  return (
+    <div role="radiogroup" aria-label={label} className="ws-scale">
+      {[1, 2, 3, 4, 5].map((n) => (
+        <button
+          key={n}
+          role="radio"
+          aria-checked={n === value}
+          aria-label={`Importancia ${n}`}
+          className={n === value ? "on" : n < value ? "under" : ""}
+          disabled={disabled}
+          onClick={() => n !== value && onPick(n)}
+        >
+          {n}
+        </button>
+      ))}
     </div>
   );
 }
@@ -923,6 +1100,8 @@ function RubricDrawer({
   total,
   locked,
   onChange,
+  onAdd,
+  onRemove,
 }: {
   open: boolean;
   onClose: () => void;
@@ -930,45 +1109,45 @@ function RubricDrawer({
   total: number;
   locked: boolean;
   onChange: (c: Criterion, patch: { weight?: number; description?: string }, label: string) => void;
+  onAdd: (description: string, weight: number) => void;
+  onRemove: (c: Criterion) => void;
 }) {
   const [drafts, setDrafts] = useState<Record<string, string>>({});
+  const [removing, setRemoving] = useState<string | null>(null);
+  const [adding, setAdding] = useState(false);
+  const [newText, setNewText] = useState("");
+  const [newWeight, setNewWeight] = useState(3);
   useEffect(() => {
-    if (open) setDrafts({});
+    if (!open) return;
+    setDrafts({});
+    setRemoving(null);
+    setAdding(false);
+    setNewText("");
+    setNewWeight(3);
   }, [open]);
+  const full = criteria.length >= MAX_CRITERIA;
   return (
     <>
       <div className={`ws-drawer-overlay${open ? " open" : ""}`} onClick={onClose} />
       <aside className={`ws-drawer${open ? " open" : ""}`} role="dialog" aria-label="Rúbrica del examen" aria-hidden={!open}>
         <div className="ws-drawer-head">
           <span className="t">Rúbrica del examen</span>
-          <span className="mono muted">{criteria.length} criterios · obligatorios</span>
+          <span className="mono muted">
+            {criteria.length} de {MAX_CRITERIA} criterios
+          </span>
           <button onClick={onClose} aria-label="Cerrar">✕</button>
         </div>
         <div className="ws-drawer-body">
           <p className="ws-note">
-            Los {criteria.length} criterios se aplican a las {total} preguntas: el juez compara cada respuesta con la respuesta experta y
-            decide si cumple cada uno. Lo que configurás es la importancia de cada criterio, de 1 a 5.
+            Cada criterio se aplica a las {total} preguntas: el juez compara cada respuesta con la respuesta experta y decide si lo cumple. Podés
+            tener hasta {MAX_CRITERIA} criterios, cada uno con una importancia de 1 a 5.
           </p>
           {criteria.map((c, i) => (
             <div key={c.key} className="ws-crit-card">
               <div className="row">
                 <span className="mono muted">{String(i + 1).padStart(2, "0")}</span>
                 <span className="lbl">Importancia</span>
-                <div role="radiogroup" aria-label={`Importancia del criterio ${i + 1}`} className="ws-scale">
-                  {[1, 2, 3, 4, 5].map((n) => (
-                    <button
-                      key={n}
-                      role="radio"
-                      aria-checked={n === c.weight}
-                      aria-label={`Importancia ${n}`}
-                      className={n === c.weight ? "on" : n < c.weight ? "under" : ""}
-                      disabled={locked}
-                      onClick={() => n !== c.weight && onChange(c, { weight: n }, "importancia")}
-                    >
-                      {n}
-                    </button>
-                  ))}
-                </div>
+                <WeightScale value={c.weight} label={`Importancia del criterio ${i + 1}`} disabled={locked} onPick={(n) => onChange(c, { weight: n }, "importancia")} />
                 <span className="share">{shareOf(c, criteria)} del puntaje</span>
               </div>
               <AutoText
@@ -978,7 +1157,7 @@ function RubricDrawer({
                 disabled={locked}
                 onChange={(v) => setDrafts((d) => ({ ...d, [c.key]: v }))}
               />
-              {drafts[c.key] !== undefined && drafts[c.key] !== c.description && (
+              {drafts[c.key] !== undefined && drafts[c.key] !== c.description ? (
                 <div className="ws-crit-save">
                   <button className="ws-btn-dark sm" disabled={locked || !drafts[c.key].trim()} onClick={() => onChange(c, { description: drafts[c.key].trim() }, "texto")}>
                     Guardar criterio
@@ -987,10 +1166,77 @@ function RubricDrawer({
                     Deshacer
                   </button>
                 </div>
+              ) : removing === c.key ? (
+                <div className="ws-crit-save">
+                  <span className="ws-note">¿Quitar este criterio?</span>
+                  <button
+                    className="ws-btn-danger sm"
+                    disabled={locked}
+                    onClick={() => {
+                      setRemoving(null);
+                      onRemove(c);
+                    }}
+                  >
+                    Quitar
+                  </button>
+                  <button className="ws-btn-line sm" onClick={() => setRemoving(null)}>
+                    Cancelar
+                  </button>
+                </div>
+              ) : (
+                criteria.length > 1 && (
+                  <button className="ws-link ws-crit-remove" disabled={locked} onClick={() => setRemoving(c.key)} aria-label={`Quitar el criterio ${i + 1}`}>
+                    Quitar
+                  </button>
+                )
               )}
             </div>
           ))}
-          <p className="ws-note">Para agregar o quitar criterios, pedíselo al agente: ajusta la rúbrica y vuelve a validar.</p>
+          {adding ? (
+            <div className="ws-crit-card new">
+              <div className="row">
+                <span className="mono muted">{String(criteria.length + 1).padStart(2, "0")}</span>
+                <span className="lbl">Importancia</span>
+                <WeightScale value={newWeight} label="Importancia del nuevo criterio" disabled={locked} onPick={setNewWeight} />
+              </div>
+              <AutoText
+                className="crit"
+                value={newText}
+                label="Nuevo criterio"
+                disabled={locked}
+                onChange={setNewText}
+                placeholder="Una oración que el juez pueda verificar: «Menciona…», «Distingue…»"
+              />
+              <div className="ws-crit-save">
+                <button
+                  className="ws-btn-dark sm"
+                  disabled={locked || !newText.trim()}
+                  onClick={() => {
+                    onAdd(newText.trim(), newWeight);
+                    setAdding(false);
+                    setNewText("");
+                    setNewWeight(3);
+                  }}
+                >
+                  Agregar criterio
+                </button>
+                <button
+                  className="ws-btn-line sm"
+                  onClick={() => {
+                    setAdding(false);
+                    setNewText("");
+                  }}
+                >
+                  Cancelar
+                </button>
+              </div>
+            </div>
+          ) : (
+            <button className="ws-crit-add" disabled={locked || full} onClick={() => setAdding(true)}>
+              {full ? `Máximo ${MAX_CRITERIA} criterios` : "+ Agregar criterio"}
+            </button>
+          )}
+          <p className="ws-note">Si agregás, quitás o reescribís un criterio, el juez tiene que volver a revisar las respuestas expertas en Revisión.</p>
         </div>
         <p className="ws-drawer-foot">→ en el motor: scoring.field_metrics.answer · rubric · pesos {criteria.map((c) => c.weight).join(" / ")}</p>
       </aside>
@@ -1146,6 +1392,7 @@ function ReviewStage({
   onReview,
   onApprove,
   onOpen,
+  onDelete,
 }: {
   exam: ExamState;
   openExam: boolean;
@@ -1155,6 +1402,7 @@ function ReviewStage({
   onReview: () => void;
   onApprove: (q: Question) => void;
   onOpen: (q: Question) => void;
+  onDelete: (q: Question) => void;
 }) {
   const [openRow, setOpenRow] = useState<number | null>(null);
   if (!openExam) {
@@ -1179,7 +1427,13 @@ function ReviewStage({
             </button>
           </div>
         </div>
-        {qs.length > 0 && qs.every((q) => q.status === "done") && qs.some((q) => !q.review) && (
+        {exam.reviewOutdated && qs.length > 0 && (
+          <p className="ws-note ws-outdated" role="status">
+            La rúbrica cambió después de la última revisión del juez. Volvé a revisar para que cada respuesta experta quede verificada con los
+            criterios de ahora.
+          </p>
+        )}
+        {qs.length > 0 && qs.every((q) => q.status === "done") && qs.some((q) => !q.review) && !exam.reviewOutdated && (
           <p className="ws-note" style={{ margin: "0 0 10px" }}>
             Todas están aprobadas, pero {qs.filter((q) => !q.review).length === 1 ? "una no tiene" : "algunas no tienen"} la revisión del juez de su
             versión actual. Volvé a revisar para concretar el examen.
@@ -1276,7 +1530,7 @@ function ReviewStage({
                         </>
                       ) : (
                         <p className="ws-note">
-                          {q.status === "empty" ? "Pregunta vacía: escribila en Autoría o pedile un borrador al agente." : "Sin respuesta experta el juez no tiene contra qué comparar."}
+                          {q.status === "empty" ? "Pregunta vacía: escribila en Autoría o borrala si no la vas a usar." : "Sin respuesta experta el juez no tiene contra qué comparar."}
                         </p>
                       )}
                       {!r && (q.status === "progress" || q.status === "new") && (
@@ -1291,6 +1545,7 @@ function ReviewStage({
                         <button className="ws-btn-line sm" onClick={() => onOpen(q)}>
                           {q.status === "attention" ? "Corregir en Autoría" : "Abrir en Autoría"}
                         </button>
+                        <DeleteQuestion num={q.num} locked={busy} onDelete={() => onDelete(q)} button />
                       </div>
                     </div>
                   </div>

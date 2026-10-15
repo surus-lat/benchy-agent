@@ -43,7 +43,7 @@ const tagSchema = z.object({ bench: benchSchema });
 /** What the app reports itself (the rest is logged where it happens, below). */
 const activitySchema = z.object({
   bench: benchSchema,
-  kind: z.enum(["create", "approve", "evaluate", "report"]),
+  kind: z.enum(["create", "delete", "approve", "evaluate", "report"]),
   detail: z.string().trim().min(1).max(300),
 });
 
