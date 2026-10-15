@@ -14,7 +14,7 @@ import {
   type QuestionMeta,
   type Review,
 } from "./exam-model";
-import type { BenchSummary } from "./store";
+import { usePlatform, type BenchSummary } from "./store";
 import { parseSources, type Source } from "./library-data";
 
 // One benchmark's files, loaded and kept in sync for the workspace window:
@@ -50,6 +50,9 @@ export function useExam(bench: BenchSummary | undefined) {
   const [error, setError] = useState<string | null>(null);
   const [save, setSave] = useState<SaveState>("idle");
   const [savedAt, setSavedAt] = useState<number | null>(null);
+  const { files } = usePlatform();
+  // The review's and the papers' versions as last read: written by the container, never by A.
+  const side = useRef<{ review?: number; sources?: number }>({});
 
   const doc: BenchDoc | null = yaml && slug ? readBenchYaml(yaml.value, slug) : null;
   let criteria: Criterion[] | null = null;
@@ -79,6 +82,7 @@ export function useExam(bench: BenchSummary | undefined) {
         readOptional(`${bench.slug}/sources.json`, known),
       ]);
       setSources(parseSources(src?.content));
+      side.current = { review: r?.modified, sources: src?.modified };
       setYaml({ value: y.content, modified: y.modified });
       setRows({ value: e ? parseExam(e.content) : [], modified: e?.modified });
       setMeta({ value: parseMeta(m?.content), modified: m?.modified });
@@ -99,6 +103,20 @@ export function useExam(bench: BenchSummary | undefined) {
     setLoading(true);
     void reload();
   }, [reload]);
+
+  /** Re-read what only the container writes (the papers, the grader's review), leaving edits alone. */
+  const refreshSide = useCallback(async () => {
+    if (!slug) return;
+    const [r, src] = await Promise.all([readOptional(`${slug}/review.json`, null), readOptional(`${slug}/sources.json`, null)]).catch(() => [undefined, undefined]);
+    if (r === undefined) return;
+    side.current = { review: r?.modified, sources: src?.modified };
+    setSources(parseSources(src?.content));
+    try {
+      setReview(r ? (JSON.parse(r.content) as Review) : null);
+    } catch {
+      setReview(null);
+    }
+  }, [slug]);
 
   // Saving: the latest rows/meta are written after a pause in typing.
   const pending = useRef<{ rows?: (ExamRow | { raw: string })[]; meta?: QuestionMeta[] } | null>(null);
@@ -185,6 +203,27 @@ export function useExam(bench: BenchSummary | undefined) {
     },
     [bench, reload],
   );
+
+  // The platform's listing says a file changed behind this window (the agent, a
+  // colleague, a paper read in the background): load it, without losing typing.
+  const stamp = (p: string | null | undefined) => (p ? files?.find((f) => f.path === p)?.modified : undefined);
+  const remote = {
+    exam: stamp(examPath),
+    meta: stamp(metaPath),
+    yaml: stamp(bench?.yamlPath),
+    review: stamp(slug && `${slug}/review.json`),
+    sources: stamp(slug && `${slug}/sources.json`),
+  };
+  useEffect(() => {
+    if (loading || !files) return;
+    const newer = (theirs?: number, mine?: number) => theirs !== undefined && (mine === undefined || theirs > mine);
+    const v = versions.current;
+    if ((newer(remote.exam, v.exam) || newer(remote.meta, v.meta) || newer(remote.yaml, v.yaml)) && !pending.current) {
+      void reload();
+    } else if (newer(remote.review, side.current.review) || newer(remote.sources, side.current.sources)) {
+      void refreshSide();
+    }
+  }, [remote.exam, remote.meta, remote.yaml, remote.review, remote.sources, loading]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const questions = questionsFrom(rows.value, meta.value, review, criteria);
   // The last review was made with a rubric that has changed since.

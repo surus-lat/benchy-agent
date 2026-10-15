@@ -224,11 +224,13 @@
 .ws-crit-add:hover:not(:disabled) { border-color: var(--ink-soft); color: var(--ink); }
 .ws-crit-add:disabled { opacity: 0.6; }
 .ws-crit-save .ws-note { align-self: center; margin-right: 2px; }
+.ws-locked { margin: 0 0 12px; display: flex; align-items: baseline; gap: 8px; border: 1px solid var(--amber-line); background: var(--amber-soft); border-radius: 10px; padding: 9px 12px; font-size: 13px; color: var(--amber-deep); }
 .ws-outdated { margin: 0 0 10px; border: 1px solid var(--amber-line); background: var(--amber-soft); border-radius: 10px; padding: 10px 12px; color: var(--amber-deep); }
-.ws-edit { display: block; border: 1px solid transparent; border-radius: 8px; background: transparent; resize: none; margin: -6px -8px; padding: 6px 8px; width: calc(100% + 16px); outline: none; overflow: hidden; transition: border-color 150ms ease, background-color 150ms ease; color: var(--ink); }
-.ws-edit:hover:not([readonly]) { border-color: var(--line-soft); }
-.ws-edit:focus:not([readonly]) { border-color: var(--ink-soft); background: var(--paper-2); }
-.ws-edit[readonly] { cursor: default; }
+.ws-edit { display: block; border: 1px solid transparent; border-radius: 8px; background: transparent; resize: none; margin: -6px -8px; padding: 6px 8px; width: calc(100% + 16px); outline: none; overflow: hidden; cursor: text; caret-color: var(--amber-ink); transition: border-color 150ms ease, background-color 150ms ease, box-shadow 150ms ease; color: var(--ink); }
+/* Editable says so: a field on hover, a clear frame while typing. */
+.ws-edit:hover:not([readonly]):not(:focus) { border-color: var(--line); background: rgba(42, 46, 58, 0.025); }
+.ws-edit:focus:not([readonly]) { border-color: var(--ink); background: #fff; box-shadow: 0 0 0 3px rgba(245, 166, 35, 0.22); }
+.ws-edit[readonly] { cursor: not-allowed; opacity: 0.65; }
 .ws-edit::placeholder { color: var(--faint); }
 .ws-edit.big { font: 500 clamp(17px, 1.6vw, 20px)/1.42 var(--sans); letter-spacing: -0.01em; }
 .ws-edit.soft { font: 14px/1.6 var(--sans); color: var(--body); }

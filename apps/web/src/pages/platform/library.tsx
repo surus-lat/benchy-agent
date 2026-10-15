@@ -7,7 +7,6 @@ import {
   library,
   libraryErrorText,
   LANGUAGE_LABEL,
-  sources,
   TYPE_LABEL,
   type LibraryHit,
   type LibraryStats,
@@ -244,7 +243,7 @@ export default function LibraryPage() {
 }
 
 function PaperDetail({ id, onClose }: { id: number; onClose: () => void }) {
-  const { benches } = usePlatform();
+  const { benches, addSource, pendingSources, lastBench } = usePlatform();
   const [, navigate] = useLocation();
   const [paper, setPaper] = useState<Paper | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -268,16 +267,19 @@ function PaperDetail({ id, onClose }: { id: number; onClose: () => void }) {
     };
   }, [id]);
 
+  // The benchmark the researcher came from, else the latest one.
   useEffect(() => {
-    if (!bench && benches[0]) setBench(benches[0].slug);
-  }, [benches, bench]);
+    if (!bench && benches.length) setBench(benches.some((b) => b.slug === lastBench) ? lastBench! : benches[0].slug);
+  }, [benches, bench, lastBench]);
+  // Still being read (from here or elsewhere), even after leaving and coming back.
+  const reading = adding || pendingSources.some((p) => p.id === id && p.bench === bench);
 
   const add = async () => {
     if (!paper || !bench) return;
     setAdding(true);
     setAddError(null);
     try {
-      const r = await sources.add(bench, paper.id);
+      const r = await addSource(bench, { id: paper.id, title: paper.title, hasPdf: !!paper.pdfUrl });
       if (r.ok) setAdded({ bench, source: r.source });
       else setAddError(libraryErrorText(r.error.code));
     } catch (err) {
@@ -332,8 +334,8 @@ function PaperDetail({ id, onClose }: { id: number; onClose: () => void }) {
                     </option>
                   ))}
                 </select>
-                <button className="lib-btn-dark" onClick={() => void add()} disabled={adding || !bench}>
-                  {adding ? (paper.pdfUrl ? "Leyendo el PDF…" : "Agregando…") : "Agregar"}
+                <button className="lib-btn-dark" onClick={() => void add()} disabled={reading || !bench}>
+                  {reading ? (paper.pdfUrl ? "Leyendo el PDF…" : "Agregando…") : "Agregar"}
                 </button>
               </div>
             )}
@@ -342,6 +344,7 @@ function PaperDetail({ id, onClose }: { id: number; onClose: () => void }) {
                 Nuevo benchmark con este paper
               </button>
             )}
+            {reading && <p className="lib-fine">Podés seguir navegando: el benchmark lo muestra apenas termina de leerse.</p>}
             {!added && !paper.pdfUrl && <p className="lib-fine">Sin PDF abierto: el agente va a tener solo el resumen. Si tenés el PDF, subilo desde el benchmark.</p>}
             {addError && <p className="lib-error">{addError}</p>}
           </div>
@@ -352,7 +355,7 @@ function PaperDetail({ id, onClose }: { id: number; onClose: () => void }) {
             <>
               <p className="lib-eyebrow">Palabras clave</p>
               <div className="lib-subjects">
-                {paper.subjects.map((s) => (
+                {[...new Set(paper.subjects)].map((s) => (
                   <span key={s} className="lib-chip static">
                     {s}
                   </span>
@@ -393,7 +396,7 @@ export function LibraryBrowser({
   onAdded: (s: Source) => void;
   disabled: boolean;
 }) {
-  const { me } = usePlatform();
+  const { me, addSource, pendingSources } = usePlatform();
   const myName = me?.user.name?.trim() || "";
   const [text, setText] = useState("");
   const [mine, setMine] = useState(false);
@@ -403,9 +406,10 @@ export function LibraryBrowser({
   const [page, setPage] = useState(0);
   const [loading, setLoading] = useState(false);
   const [open, setOpen] = useState<number | null>(null);
-  const [busy, setBusy] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
   const seq = useRef(0);
+  // Several can be read at once; each row says its own state.
+  const reading = new Set(pendingSources.filter((p) => p.bench === bench).map((p) => p.id));
 
   const added = new Set(inBench.map(libraryId).filter((x): x is number => x !== null));
   const fromLibrary: Row[] = inBench
@@ -438,16 +442,13 @@ export function LibraryBrowser({
   }, [load, text]);
 
   const add = async (h: Row) => {
-    setBusy(h.id);
     setError(null);
     try {
-      const r = await sources.add(bench, h.id);
+      const r = await addSource(bench, { id: h.id, title: h.title, hasPdf: h.hasPdf });
       if (r.ok) onAdded(r.source);
-      else setError(libraryErrorText(r.error.code));
+      else setError(`«${h.title.slice(0, 60)}»: ${libraryErrorText(r.error.code)}`);
     } catch (err) {
       setError(err instanceof ApiError && !err.code.startsWith("AGENT") && err.code !== "NETWORK" ? libraryErrorText(err.code) : errorText(err));
-    } finally {
-      setBusy(null);
     }
   };
 
@@ -518,9 +519,11 @@ export function LibraryBrowser({
               </button>
               {isIn ? (
                 <span className="lb-in">en el benchmark</span>
+              ) : reading.has(h.id) ? (
+                <span className="lb-reading">{h.hasPdf ? "leyendo el PDF…" : "agregando…"}</span>
               ) : (
-                <button className="lb-add" disabled={disabled || busy !== null} onClick={() => void add(h)}>
-                  {busy === h.id ? (h.hasPdf ? "leyendo…" : "agregando…") : "+ agregar"}
+                <button className="lb-add" disabled={disabled} onClick={() => void add(h)}>
+                  + agregar
                 </button>
               )}
             </li>

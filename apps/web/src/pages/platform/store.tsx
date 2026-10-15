@@ -3,6 +3,7 @@ import {
   api,
   ApiError,
   benchesFrom,
+  errorText,
   readBenchYaml,
   type Bench,
   type BenchDoc,
@@ -11,6 +12,7 @@ import {
   type Validation,
   type WorkspaceFile,
 } from "./data";
+import { libraryErrorText, sources, type SourceResult } from "./library-data";
 
 // Shared state for the platform: who is signed in, the org workspace, a summary
 // per benchmark, and comparison runs in flight (which must survive switching
@@ -33,6 +35,11 @@ export type ComparisonRun = {
   error?: string;
 };
 
+/** A library paper being added to a benchmark: the container is fetching and reading it. */
+export type PendingSource = { bench: string; id: number; title: string; hasPdf: boolean };
+/** A paper that could not be added, kept until dismissed so the benchmark can say so. */
+export type FailedSource = PendingSource & { message: string };
+
 type Store = {
   me: Me | null;
   files: WorkspaceFile[] | null;
@@ -42,6 +49,15 @@ type Store = {
   refresh: () => Promise<void>;
   runs: Record<string, ComparisonRun>;
   setRun: (slug: string, run: ComparisonRun | null) => void;
+  /** Papers being added, wherever they were added from: every view shows them. */
+  pendingSources: PendingSource[];
+  failedSources: FailedSource[];
+  dismissFailedSource: (bench: string, id: number) => void;
+  /** Add a library paper to a benchmark; the workspace listing reloads when it is in. */
+  addSource: (bench: string, paper: { id: number; title: string; hasPdf: boolean }) => Promise<SourceResult>;
+  /** The benchmark last opened, so the library offers it first. */
+  lastBench: string | null;
+  setLastBench: (slug: string) => void;
 };
 
 const Ctx = createContext<Store | null>(null);
@@ -105,6 +121,10 @@ export function PlatformProvider({ children }: { children: ReactNode }) {
   const [notProvisioned, setNotProvisioned] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [runs, setRuns] = useState<Record<string, ComparisonRun>>({});
+  const [pendingSources, setPendingSources] = useState<PendingSource[]>([]);
+  const [failedSources, setFailedSources] = useState<FailedSource[]>([]);
+  const dismissFailedSource = useCallback((bench: string, id: number) => setFailedSources((f) => f.filter((x) => !(x.bench === bench && x.id === id))), []);
+  const [lastBench, setLastBench] = useState<string | null>(null);
   const cache = useRef(new Map<string, BenchSummary>());
 
   const refresh = useCallback(async () => {
@@ -132,6 +152,41 @@ export function PlatformProvider({ children }: { children: ReactNode }) {
     void api.me().then(setMe).catch(() => {});
     void refresh();
   }, [refresh]);
+
+  // The workspace changes behind the page (the agent, a colleague, a paper read in
+  // the background): look again every 30 s while the tab is visible, and on return.
+  useEffect(() => {
+    const look = () => {
+      if (document.visibilityState === "visible") void refresh();
+    };
+    const timer = setInterval(look, 30_000);
+    document.addEventListener("visibilitychange", look);
+    return () => {
+      clearInterval(timer);
+      document.removeEventListener("visibilitychange", look);
+    };
+  }, [refresh]);
+
+  const addSource = useCallback(
+    async (bench: string, paper: { id: number; title: string; hasPdf: boolean }) => {
+      const same = (x: PendingSource) => x.bench === bench && x.id === paper.id;
+      setPendingSources((p) => [...p.filter((x) => !same(x)), { bench, ...paper }]);
+      setFailedSources((f) => f.filter((x) => !same(x)));
+      const fail = (message: string) => setFailedSources((f) => [...f.filter((x) => !same(x)), { bench, ...paper, message }]);
+      try {
+        const r = await sources.add(bench, paper.id);
+        if (!r.ok) fail(libraryErrorText(r.error.code));
+        return r;
+      } catch (err) {
+        fail(err instanceof ApiError && !err.code.startsWith("AGENT") && err.code !== "NETWORK" ? libraryErrorText(err.code) : errorText(err));
+        throw err;
+      } finally {
+        setPendingSources((p) => p.filter((x) => !(x.bench === bench && x.id === paper.id)));
+        await refresh();
+      }
+    },
+    [refresh],
+  );
 
   const setRun = useCallback((slug: string, run: ComparisonRun | null) => {
     setRuns((r) => {
@@ -168,8 +223,8 @@ export function PlatformProvider({ children }: { children: ReactNode }) {
   }, [running]);
 
   const value = useMemo(
-    () => ({ me, files, benches, notProvisioned, loadError, refresh, runs, setRun }),
-    [me, files, benches, notProvisioned, loadError, refresh, runs, setRun],
+    () => ({ me, files, benches, notProvisioned, loadError, refresh, runs, setRun, pendingSources, failedSources, dismissFailedSource, addSource, lastBench, setLastBench }),
+    [me, files, benches, notProvisioned, loadError, refresh, runs, setRun, pendingSources, failedSources, dismissFailedSource, addSource, lastBench],
   );
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
 }

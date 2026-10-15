@@ -139,4 +139,9 @@
 .lib .lb-empty { padding: 14px 4px; font-size: 13px; color: var(--body); }
 .lib .lb-more { align-self: center; border: 1px solid var(--line); background: #fff; border-radius: 999px; padding: 6px 16px; font-size: 13px; color: var(--ink-soft); }
 .lib .lb-more:hover:not(:disabled) { border-color: var(--ink-soft); }
+.lib .lb-reading { flex: none; margin-top: 1px; font: 400 11.5px var(--mono); color: var(--amber-ink); white-space: nowrap; }
+.lib .lib-source.reading { border-style: dashed; }
+.lib .lib-source.reading .m { color: var(--amber-ink); }
+.lib .lib-source.failed { border-color: #f0cfcb; background: #fdf6f5; }
+.lib .lib-source.failed .m { color: var(--fail, #b4342a); }
 

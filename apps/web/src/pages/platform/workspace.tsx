@@ -4,7 +4,7 @@ import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { api, errorText, newestPerModel, REGIONS, splitAsk, type CatalogModel, type Evaluation, type Message } from "./data";
 import { useAgentChat } from "./agent-chat";
-import { usePlatform, type BenchSummary } from "./store";
+import { usePlatform, type BenchSummary, type PendingSource } from "./store";
 import { useEvaluation, useExam, useRunResults, useSelectedModels, type EvaluationState, type ExamState } from "./use-exam";
 import {
   addCriterion,
@@ -67,13 +67,14 @@ function batchPrompt(n: number, slug: string, fromPapers: boolean): string {
 }
 
 export default function Workspace({ slug, stage: stageParam }: { slug: string; stage?: string }) {
-  const { me, benches, files, refresh } = usePlatform();
+  const { me, benches, files, refresh, setLastBench, pendingSources } = usePlatform();
   const [, navigate] = useLocation();
   const bench = benches.find((b) => b.slug === slug);
   const stage = (STAGES.some(([k]) => k === stageParam) ? stageParam : "autoria") as Stage;
   const go = useCallback((s: Stage) => navigate(`/app/b/${encodeURIComponent(slug)}/${s}`), [navigate, slug]);
 
   const exam = useExam(bench);
+  useEffect(() => setLastBench(slug), [slug, setLastBench]);
   // Runs in the container, not in the chat: a model or the report finishing reloads the files.
   const evaluation = useEvaluation(bench, () => void refresh());
   const chat = useAgentChat(slug);
@@ -86,6 +87,9 @@ export default function Workspace({ slug, stage: stageParam }: { slug: string; s
   const [papersOpen, setPapersOpen] = useState(false);
   const [reviewing, setReviewing] = useState(false);
   const [generating, setGenerating] = useState<number | null>(null);
+  // The exam is read-only only while the agent writes questions the app asked for
+  // (a batch, a draft): never just because the researcher is chatting with it.
+  const [drafting, setDrafting] = useState(false);
   // "Ejecutar evaluación" from the toolbar or B: Evaluation starts it once mounted.
   const [runRequest, setRunRequest] = useState(0);
   const requestRun = useCallback(() => {
@@ -273,7 +277,8 @@ export default function Workspace({ slug, stage: stageParam }: { slug: string; s
                 q={q}
                 qIndex={qIndex}
                 setQIndex={setQIndex}
-                locked={chat.pending}
+                locked={generating !== null || drafting}
+                reading={pendingSources.filter((p) => p.bench === slug).length}
                 generating={generating}
                 pushEvent={pushEvent}
                 onRubric={() => setRubricOpen(true)}
@@ -287,17 +292,18 @@ export default function Workspace({ slug, stage: stageParam }: { slug: string; s
                   setGenerating(null);
                   setQIndex(before);
                 }}
-                onDraft={(question) =>
+                onDraft={(question) => {
+                  setDrafting(true);
                   void ask(
                     `Escribí un borrador para la pregunta ${question.num} del examen (fila ${question.index + 1} de exam.jsonl)${question.text ? `: «${question.text}»` : ""}. Completá la pregunta y la respuesta experta, y en questions.json el porqué y las fuentes, con status draft.`,
-                  ).then(() => bringFront("B"))
-                }
+                  ).finally(() => setDrafting(false));
+                }}
               />
             ) : stage === "revision" ? (
               <ReviewStage
                 exam={exam}
                 openExam={openExam}
-                busy={busy}
+                busy={reviewing}
                 ready={ready}
                 onNext={() => go("evaluacion")}
                 onReview={async () => {
@@ -345,7 +351,8 @@ export default function Workspace({ slug, stage: stageParam }: { slug: string; s
                 onClose={() => setPapersOpen(false)}
                 bench={slug}
                 list={papers}
-                locked={chat.pending}
+                reading={pendingSources.filter((p) => p.bench === slug)}
+                locked={false}
                 onChange={(change) => {
                   pushEvent({ who: "Vos", path: "papers", change, open: () => setPapersOpen(true) });
                   void exam.reload();
@@ -359,7 +366,7 @@ export default function Workspace({ slug, stage: stageParam }: { slug: string; s
                 onClose={() => setRubricOpen(false)}
                 criteria={exam.criteria!}
                 total={qs.length}
-                locked={chat.pending}
+                locked={false}
                 onChange={(c, patch, label) => {
                   void exam.saveYaml(setCriterion(exam.yamlText, c.key, patch));
                   pushEvent({ who: "Vos", path: `rúbrica.${c.key}.${label}`, change: "editado → guardado", open: () => setRubricOpen(true) });
@@ -463,6 +470,7 @@ function Authoring({
   qIndex,
   setQIndex,
   locked,
+  reading,
   generating,
   pushEvent,
   onRubric,
@@ -480,6 +488,8 @@ function Authoring({
   qIndex: number;
   setQIndex: (i: number) => void;
   locked: boolean;
+  /** Papers of this benchmark still being read. */
+  reading: number;
   generating: number | null;
   pushEvent: (e: Omit<Event, "id" | "at">) => void;
   onRubric: () => void;
@@ -644,6 +654,12 @@ function Authoring({
                 </select>
               </label>
             </div>
+            {reading > 0 && (
+              <p className="ws-batch-note">
+                Todavía se está leyendo {reading === 1 ? "1 paper" : `${reading} papers`}: el lote usa los que ya están listos. Esperá unos segundos si
+                querés incluirlo.
+              </p>
+            )}
             {papers.length === 0 && (
               <p className="ws-batch-note">
                 Sin papers, el agente escribe de lo que sabe y no puede citar.{" "}
@@ -686,6 +702,11 @@ function Authoring({
       </aside>
 
       <div className="ws-editor">
+        {locked && (
+          <p className="ws-locked" role="status">
+            <span className="mono amber">[···]</span> El agente está escribiendo preguntas en este examen: los campos se habilitan apenas termina.
+          </p>
+        )}
         <select className="ws-qselect" value={q?.index ?? 0} onChange={(e) => setQIndex(Number(e.target.value))} aria-label="Pregunta">
           {qs.map((x) => (
             <option key={x.index} value={x.index}>
@@ -880,7 +901,7 @@ function QuestionEditor({
       <div className="ws-col">
         <div className="ws-col-head">
           <span className="ws-eyebrow">Pregunta {q.num}</span>
-          {(q.meta.tags ?? []).map((t) => (
+          {[...new Set(q.meta.tags ?? [])].map((t) => (
             <span key={t} className="ws-chip">{t}</span>
           ))}
           {q.status === "new" && <span className="ws-flag amber">propuesta del agente · revisala</span>}
@@ -1255,6 +1276,7 @@ function PapersDrawer({
   onClose,
   bench,
   list,
+  reading,
   locked,
   onChange,
 }: {
@@ -1262,9 +1284,13 @@ function PapersDrawer({
   onClose: () => void;
   bench: string;
   list: Source[];
+  /** Papers being added right now, from here or from the library page. */
+  reading: PendingSource[];
   locked: boolean;
   onChange: (change: string) => void;
 }) {
+  const { failedSources, dismissFailedSource } = usePlatform();
+  const failed = failedSources.filter((p) => p.bench === bench);
   const [tab, setTab] = useState<"library" | "upload">("library");
   const [uploads, setUploads] = useState<Upload[]>([]);
   const [removing, setRemoving] = useState<string | null>(null);
@@ -1312,7 +1338,10 @@ function PapersDrawer({
       <aside className={`ws-drawer wide${open ? " open" : ""}`} role="dialog" aria-label="Papers del benchmark" aria-hidden={!open}>
         <div className="ws-drawer-head">
           <span className="t">Papers del benchmark</span>
-          <span className="mono muted">{list.length === 1 ? "1 paper" : `${list.length} papers`}</span>
+          <span className="mono muted">
+            {list.length === 1 ? "1 paper" : `${list.length} papers`}
+            {reading.length ? ` · ${reading.length} leyéndose` : ""}
+          </span>
           <button onClick={onClose} aria-label="Cerrar">✕</button>
         </div>
         <div className="ws-drawer-body">
@@ -1332,7 +1361,28 @@ function PapersDrawer({
                 }
               />
             ))}
-            {list.length === 0 && <p className="ws-note muted">Todavía no hay papers en este benchmark.</p>}
+            {reading.map((p) => (
+              <div key={p.id} className="lib-source reading">
+                <span className="lib-tag conicet">…</span>
+                <span className="b">
+                  <span className="t">{p.title}</span>
+                  <span className="m">{p.hasPdf ? "leyendo el PDF: puede tardar un minuto" : "agregando el resumen"}</span>
+                </span>
+              </div>
+            ))}
+            {failed.map((p) => (
+              <div key={p.id} className="lib-source failed">
+                <span className="lib-tag">×</span>
+                <span className="b">
+                  <span className="t">{p.title}</span>
+                  <span className="m">No se pudo agregar: {p.message}</span>
+                </span>
+                <button className="lib-btn-line sm" onClick={() => dismissFailedSource(bench, p.id)}>
+                  Cerrar
+                </button>
+              </div>
+            ))}
+            {list.length === 0 && reading.length === 0 && <p className="ws-note muted">Todavía no hay papers en este benchmark.</p>}
             {error && <p className="lib-error">{error}</p>}
           </div>
 
@@ -1938,7 +1988,7 @@ function AgentWindow({
                 Revisá las respuestas expertas
               </button>
             )}
-            <button disabled={chat.pending} onClick={onRun}>
+            <button onClick={onRun}>
               Corré la evaluación
             </button>
           </div>
