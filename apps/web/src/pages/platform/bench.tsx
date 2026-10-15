@@ -373,7 +373,7 @@ export default function BenchPage({ slug, tab }: { slug: string; tab?: string })
   );
 }
 
-export function useSelectedModels(slug: string, models: string[]): [Set<string>, (s: Set<string>) => void] {
+export function useSelectedModels(slug: string, models: string[], defaults?: string[]): [Set<string>, (s: Set<string>) => void] {
   const key = `benchy-sys:${slug}`;
   const [sel, setSel] = useState<Set<string> | null>(() => {
     try {
@@ -383,7 +383,8 @@ export function useSelectedModels(slug: string, models: string[]): [Set<string>,
       return null;
     }
   });
-  const effective = sel ?? new Set(models);
+  // Until the researcher picks: the catalog's defaults (one model per region), else all.
+  const effective = sel ?? new Set(defaults?.length ? defaults.filter((m) => models.includes(m)) : models);
   const set = (s: Set<string>) => {
     setSel(s);
     try {

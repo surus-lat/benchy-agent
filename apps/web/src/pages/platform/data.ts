@@ -39,6 +39,12 @@ export type RunResult = {
 };
 export type Me = { user: { id: string; name: string; email: string }; org: { id: string; name: string } | null };
 
+/** A model a benchmark may run, with its maker and region (apps/agent/mcp/benchy_shared.py). */
+export type CatalogModel = { id: string; name: string; maker: string; region: string; default: boolean };
+
+/** Regions in the order the app lists them. */
+export const REGIONS = ["Norteamérica", "Europa", "China", "Otras"];
+
 /** The results beyond the score (apps/agent/mcp/benchy_analysis.py). */
 export type Analysis = {
   ok: true;
@@ -48,6 +54,9 @@ export type Analysis = {
   papers: { id: string; title: string; year: number | null }[];
   models: {
     model: string;
+    name: string;
+    maker: string;
+    region: string;
     file: string;
     run_at: number;
     score: number | null;
@@ -68,12 +77,13 @@ export type Analysis = {
     models: Record<string, { score: number; status: string; answer: string; missed: { criterion: string; justification: string }[]; error: string | null }>;
   }[];
   hardest: number[];
+  regions: Record<string, number | null>;
 };
 
 export const api = {
   ...chatApi,
   me: () => get<Me>("/api/me"),
-  models: () => get<{ provider: string; models: string[] }>("/api/models"),
+  models: () => get<{ provider: string; models: string[]; catalog?: CatalogModel[] }>("/api/models"),
   validate: (path: string) => get<Validation>(`/api/workspace/validate?path=${encodeURIComponent(path)}`),
   exam: (path: string) => get<ExamCheck>(`/api/workspace/exam?path=${encodeURIComponent(path)}`),
   analysis: (path: string) => get<Analysis | { ok: false; error: EngineError }>(`/api/workspace/analysis?path=${encodeURIComponent(path)}`),

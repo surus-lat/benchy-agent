@@ -13,10 +13,12 @@ publish: an academic paper, a note for the press, a talk.
 Call `benchy_analysis("<slug>/benchmark.yaml")` before saying anything about
 the results. It reads the newest run of each model and returns:
 
-- `models`: score, `summary` (valid / invalid_outputs / execution_errors),
+- `models`: name, maker and region (Norteamérica, Europa, China), score,
+  `summary` (valid / invalid_outputs / execution_errors),
   `criteria` (share of questions where each rubric criterion was met),
   `groups` (mean score by topic), `papers` (mean score by cited paper), and
   `stale` when the exam changed after that run.
+- `regions`: the mean score of each region's models.
 - `criteria`: each criterion's key, weight (importance 1–5) and description.
 - `questions`: each question, its expert answer, topic, cited papers, and per
   model the answer, the score and the missed criteria with the grader's
@@ -38,6 +40,13 @@ of art read in its everyday sense, a date or place off, a claim the paper
 contradicts), a model that writes fluently and says nothing. Distinguish what
 the models do not know from what the rubric or the expert answer may be
 measuring badly — the latter is a finding about the exam, worth fixing.
+
+Compare regions when the run covers more than one: do models from one region
+place a Latin American case in another region's history or geography, use
+another country's terms or institutions, miss local authors? Latin America is
+often answered through a North American or European lens; that is a finding
+when the evidence shows it. With one or two models per region, say it is a
+first look, not a measurement of the region.
 
 ## The report: `<slug>/report.md`
 

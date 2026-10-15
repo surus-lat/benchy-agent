@@ -25,7 +25,13 @@
   ],
   // PDFs of library papers that are not in the Hugging Face dataset (KV:
   // up to 25 MB a value; R2 is not enabled on the account).
-  "kv_namespaces": [{ "binding": "LIBRARY_FILES", "id": "7000c21ad11b40748c95938799468136" }],
+  "kv_namespaces": [
+    { "binding": "LIBRARY_FILES", "id": "7000c21ad11b40748c95938799468136" },
+    // Daily .tar.gz of every org's workspace (src/backup.ts), kept 35 days.
+    { "binding": "BACKUPS", "id": "7e7692f75d2a4ee4bcf227266aac1686" }
+  ],
+  // 03:17 in Buenos Aires: the daily workspace backup.
+  "triggers": { "crons": ["17 6 * * *"] },
   "send_email": [{ "name": "EMAIL" }],
   "vars": {
     "BETTER_AUTH_URL": "https://getbenchy.lat",

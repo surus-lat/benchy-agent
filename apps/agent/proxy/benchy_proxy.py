@@ -10,6 +10,7 @@ Hermes's API server listens on 127.0.0.1 only; this process fronts it:
   PUT /benchy/file               write one benchmark text file (the app's editors)
   POST /benchy/review?path=...   grade the expert answers against the rubric
   GET /benchy/analysis?path=...  the results beyond the score: criteria, topics, papers, answers
+  GET /benchy/backup             the whole workspace as a .tar.gz (the Worker's daily backup)
   POST /benchy/sources           add a library paper to a benchmark (fetches its PDF)
   POST /benchy/sources/upload?bench=...&name=...   add an uploaded PDF to a benchmark
   DELETE /benchy/sources?bench=...&id=...          take a paper out of a benchmark
@@ -24,11 +25,14 @@ it (the agent may have written it meanwhile).
 
 from __future__ import annotations
 
+import asyncio
 import hmac
+import io
 import json
 import os
 import re
 import sys
+import tarfile
 import tempfile
 from pathlib import Path
 
@@ -38,7 +42,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "mcp"))  # /opt/
 import benchy_sources  # noqa: E402
 from benchy_analysis import analyze  # noqa: E402
 from benchy_review import review as review_answers  # noqa: E402
-from benchy_shared import MODELS  # noqa: E402
+from benchy_shared import MODELS, catalog  # noqa: E402
 
 from benchy import types  # noqa: E402
 from benchy.compiler import compile_benchmark  # noqa: E402
@@ -49,6 +53,8 @@ UPSTREAM = f"http://127.0.0.1:{os.environ.get('API_SERVER_PORT', '8642')}"
 KEY = os.environ["API_SERVER_KEY"]
 MAX_FILE_BYTES = 1_000_000
 MAX_ENTRIES = 2000
+# A backup is one KV value on the Worker's side (25 MiB at most).
+MAX_BACKUP_BYTES = 24 * 1024 * 1024
 WRITABLE = {".yaml", ".yml", ".jsonl", ".json", ".md", ".txt"}
 HOP_BY_HOP = {
     "connection", "keep-alive", "proxy-authenticate", "proxy-authorization", "te",
@@ -173,7 +179,7 @@ async def exam(request: web.Request) -> web.Response:
 async def models(request: web.Request) -> web.Response:
     if not _authorized(request):
         return web.json_response({"error": "unauthorized"}, status=401)
-    return web.json_response({"provider": "bedrock", "models": MODELS})
+    return web.json_response({"provider": "bedrock", "models": MODELS, "catalog": catalog()})
 
 
 async def write_file(request: web.Request) -> web.Response:
@@ -234,6 +240,26 @@ async def analysis(request: web.Request) -> web.Response:
     except BenchyError as exc:
         return web.json_response({"ok": False, "error": exc.to_dict()})
     return web.json_response(analyze(ir, source))
+
+
+def _archive() -> bytes:
+    buf = io.BytesIO()
+    with tarfile.open(fileobj=buf, mode="w:gz", compresslevel=9) as tar:
+        if WORKSPACE.is_dir():
+            for path in sorted(WORKSPACE.rglob("*")):
+                if path.is_file() and not path.is_symlink() and not path.name.startswith(".write-"):
+                    tar.add(path, arcname=str(path.relative_to(WORKSPACE)), recursive=False)
+    return buf.getvalue()
+
+
+async def backup(request: web.Request) -> web.Response:
+    """The workspace (benchmarks, papers, runs, reports) as one .tar.gz."""
+    if not _authorized(request):
+        return web.json_response({"error": "unauthorized"}, status=401)
+    data = await asyncio.to_thread(_archive)
+    if len(data) > MAX_BACKUP_BYTES:
+        return web.json_response({"error": "too_large", "bytes": len(data)}, status=413)
+    return web.Response(body=data, content_type="application/gzip")
 
 
 async def add_source(request: web.Request) -> web.Response:
@@ -320,6 +346,7 @@ def main() -> None:
     app.router.add_put("/benchy/file", write_file)
     app.router.add_post("/benchy/review", review)
     app.router.add_get("/benchy/analysis", analysis)
+    app.router.add_get("/benchy/backup", backup)
     app.router.add_post("/benchy/sources", add_source)
     app.router.add_post("/benchy/sources/upload", upload_source)
     app.router.add_delete("/benchy/sources", remove_source)

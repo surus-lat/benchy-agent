@@ -177,13 +177,15 @@ function AnalysisView({
           return (
             <div key={m.model}>
               <div className="ws-bar-row">
-                <span className="m" title={m.model}>{m.model}</span>
+                <span className="m" title={`${m.model} · ${m.maker} · ${m.region}`}>{m.name}</span>
                 <span className="track">
                   <span className={i === 0 ? "top" : ""} style={{ width: `${(m.score ?? 0) * 100}%` }} />
                 </span>
                 <span className="v">{num(m.score)}</span>
               </div>
               <p className="ws-bar-line">
+                {m.region}
+                {m.maker ? ` · ${m.maker}` : ""} ·{" "}
                 {bad === 0 ? `todas válidas · ${s.examples ?? "?"} preguntas` : `${bad} sin respuesta válida de ${s.examples ?? "?"}`}
                 {m.stale && <span className="amber"> · corrida de una versión anterior del examen</span>}
               </p>
@@ -191,6 +193,22 @@ function AnalysisView({
           );
         })}
       </section>
+
+      {Object.keys(analysis.regions ?? {}).length > 1 && (
+        <section className="ws-card ws-pad">
+          <p className="ws-eyebrow">Por región · puntaje medio de sus modelos</p>
+          <div className="ws-regions">
+            {Object.entries(analysis.regions).map(([r, v]) => (
+              <div key={r}>
+                <span className="r">{r}</span>
+                <span className="v">{num(v)}</span>
+                <span className="n">{models.filter((m) => m.region === r).map((m) => m.name).join(", ")}</span>
+              </div>
+            ))}
+          </div>
+          <p className="ws-note">Con uno o dos modelos por región es una primera mirada, no una medición de la región.</p>
+        </section>
+      )}
 
       {analysis.criteria.length > 0 && (
         <section className="ws-card ws-clip">
@@ -203,7 +221,7 @@ function AnalysisView({
                 <tr>
                   <th>Criterio</th>
                   {models.map((m) => (
-                    <th key={m.model} title={m.model}>{m.model}</th>
+                    <th key={m.model} title={`${m.model} · ${m.region}`}>{m.name}</th>
                   ))}
                 </tr>
               </thead>
@@ -236,7 +254,7 @@ function AnalysisView({
                 <tr>
                   <th>Tema</th>
                   {models.map((m) => (
-                    <th key={m.model} title={m.model}>{m.model}</th>
+                    <th key={m.model} title={`${m.model} · ${m.region}`}>{m.name}</th>
                   ))}
                 </tr>
               </thead>
@@ -266,7 +284,7 @@ function AnalysisView({
                 <tr>
                   <th>Paper</th>
                   {models.map((m) => (
-                    <th key={m.model} title={m.model}>{m.model}</th>
+                    <th key={m.model} title={`${m.model} · ${m.region}`}>{m.name}</th>
                   ))}
                 </tr>
               </thead>
@@ -316,7 +334,7 @@ function AnalysisView({
                     return (
                       <div key={m.model} className="ws-hard-model">
                         <p className="ws-eyebrow">
-                          {m.model} · {num(r.score)}
+                          {m.name} · {m.region} · {num(r.score)}
                         </p>
                         <p>{r.error ? `Sin respuesta válida: ${r.error}` : r.answer || "(vacía)"}</p>
                         {r.missed.map((x) => (

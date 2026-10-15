@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } fro
 import { Link, useLocation } from "wouter";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
-import { api, errorText, newestPerModel, splitAsk, type Message } from "./data";
+import { api, errorText, newestPerModel, REGIONS, splitAsk, type CatalogModel, type Message } from "./data";
 import { useAgentChat, useSelectedModels } from "./bench";
 import { usePlatform, type BenchSummary } from "./store";
 import { useExam, useRunResults, type ExamState } from "./use-exam";
@@ -1330,10 +1330,22 @@ function EvaluationStage({
 }) {
   const { runs } = usePlatform();
   const [models, setModels] = useState<string[]>([]);
+  const [catalog, setCatalog] = useState<CatalogModel[]>([]);
   useEffect(() => {
-    void api.models().then((r) => setModels(r.models)).catch(() => {});
+    void api
+      .models()
+      .then((r) => {
+        setModels(r.models);
+        setCatalog(r.catalog ?? r.models.map((id) => ({ id, name: id, maker: "", region: "Otras", default: false })));
+      })
+      .catch(() => {});
   }, []);
-  const [selected, setSelected] = useSelectedModels(bench.slug, models);
+  const [selected, setSelected] = useSelectedModels(
+    bench.slug,
+    models,
+    catalog.filter((c) => c.default).map((c) => c.id),
+  );
+  const byRegion = REGIONS.map((region) => ({ region, items: catalog.filter((c) => c.region === region) })).filter((g) => g.items.length);
   const results = useRunResults(bench);
   const board = newestPerModel(results, bench.doc?.model);
   const run = runs[bench.slug];
@@ -1368,7 +1380,10 @@ function EvaluationStage({
       <div className="ws-card ws-clip">
         <div className="ws-pad">
           <p className="ws-eyebrow">Sistemas de IA</p>
-          <p className="ws-note">Lo que se evalúa. Empezamos por modelos puros; los demás tipos llegan pronto.</p>
+          <p className="ws-note">
+            Modelos de distintas regiones, para ver cómo responde cada una sobre tu campo: América Latina suele quedar contestada desde la
+            mirada de otra región. Por defecto, uno de cada región.
+          </p>
         </div>
         <div role="tablist" aria-label="Tipos de sistema" className="ws-systypes">
           {(
@@ -1386,31 +1401,39 @@ function EvaluationStage({
           ))}
         </div>
         <div className="ws-systems">
-          {models.map((m) => {
-            const on = selected.has(m);
-            return (
-              <div key={m} className="ws-system">
-                <div>
-                  <p className="m">{m}</p>
-                  <p className="d">modelo · bedrock</p>
-                </div>
-                <button
-                  role="switch"
-                  aria-checked={on}
-                  aria-label={`Incluir ${m}`}
-                  className={`ws-switch${on ? " on" : ""}`}
-                  onClick={() => {
-                    const next = new Set(selected);
-                    if (on) next.delete(m);
-                    else next.add(m);
-                    setSelected(next);
-                  }}
-                >
-                  <span />
-                </button>
-              </div>
-            );
-          })}
+          {byRegion.map((g) => (
+            <div key={g.region}>
+              <p className="ws-region">{g.region}</p>
+              {g.items.map((c) => {
+                const on = selected.has(c.id);
+                return (
+                  <div key={c.id} className="ws-system">
+                    <div>
+                      <p className="m">
+                        {c.name}
+                        {c.maker && <span className="mk"> · {c.maker}</span>}
+                      </p>
+                      <p className="d">{c.id} · bedrock</p>
+                    </div>
+                    <button
+                      role="switch"
+                      aria-checked={on}
+                      aria-label={`Incluir ${c.name}`}
+                      className={`ws-switch${on ? " on" : ""}`}
+                      onClick={() => {
+                        const next = new Set(selected);
+                        if (on) next.delete(c.id);
+                        else next.add(c.id);
+                        setSelected(next);
+                      }}
+                    >
+                      <span />
+                    </button>
+                  </div>
+                );
+              })}
+            </div>
+          ))}
           {models.length === 0 && <p className="ws-note" style={{ padding: "11px 0" }}>Cargando modelos…</p>}
         </div>
         {unapproved > 0 && (

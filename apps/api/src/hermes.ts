@@ -34,6 +34,8 @@ export interface HermesClient {
   uploadSource(bench: string, filename: string, pdf: ArrayBuffer): Promise<SourceResult>;
   /** Take a paper out of a benchmark (questions that cite it keep the citation). */
   removeSource(bench: string, id: string): Promise<{ ok: boolean }>;
+  /** The whole workspace as a .tar.gz, for the daily backup. */
+  backup(): Promise<ArrayBuffer>;
 }
 
 /** A paper in a benchmark, as the container lists it in <bench>/sources.json. */
@@ -199,6 +201,11 @@ export function hermesClient(baseUrl: string, apiKey: string): HermesClient {
     async removeSource(bench, id) {
       const res = await send("DELETE", `/benchy/sources?bench=${encodeURIComponent(bench)}&id=${encodeURIComponent(id)}`, {}, SESSION_TIMEOUT_MS);
       return (await json(res)) as { ok: boolean };
+    },
+    async backup() {
+      const res = await send("GET", "/benchy/backup", {}, SOURCE_TIMEOUT_MS);
+      if (!res.ok) throw new HermesError(`agent returned ${res.status}`, 502);
+      return res.arrayBuffer();
     },
     async createSession(userId) {
       const data = await call("/api/sessions", userId, {}, SESSION_TIMEOUT_MS);

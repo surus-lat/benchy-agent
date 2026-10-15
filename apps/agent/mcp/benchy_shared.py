@@ -8,16 +8,44 @@ from pathlib import Path
 
 WORKSPACE = Path(os.environ.get("BENCHY_WORKSPACE", "/opt/data/workspace")).resolve()
 
-# gpt-oss is left out on purpose: it prefixes its reasoning to the JSON
-# answer, so every structured output scores invalid_output.
+# The models a benchmark may run, by where they are made: a field's knowledge,
+# and its biases, change with the lab's region, and Latin America is often
+# answered through another region's lens. Each was checked through the engine
+# (Bedrock's chat-completions endpoint with structured output); also in the
+# IAM policy of benchy-agent-bedrock. Left out, after trying them:
+#   gpt-oss, magistral        prefix reasoning or ```json fences: every output invalid
+#   llama 4, nova             not served on the chat-completions endpoint (Converse only)
+#   minimax m2.5              spends max_tokens reasoning before it answers
+#   gpt-5/6, grok, claude     not available to this AWS account
+#   jamba (AI21, Israel)      retired by the provider
+#   ministral 3 14b           valid but empty answers (a title, no content)
+CATALOG = [
+    {"id": "nvidia.nemotron-super-3-120b", "name": "Nemotron Super 3 120B", "maker": "NVIDIA", "region": "Norteamérica"},
+    {"id": "google.gemma-3-27b-it", "name": "Gemma 3 27B", "maker": "Google", "region": "Norteamérica"},
+    {"id": "mistral.mistral-large-3-675b-instruct", "name": "Mistral Large 3", "maker": "Mistral AI", "region": "Europa"},
+    {"id": "us.moonshotai.kimi-k3", "name": "Kimi K3", "maker": "Moonshot AI", "region": "China"},
+    {"id": "qwen.qwen3-next-80b-a3b", "name": "Qwen3 Next 80B", "maker": "Alibaba", "region": "China"},
+    {"id": "qwen.qwen3-32b-v1:0", "name": "Qwen3 32B", "maker": "Alibaba", "region": "China"},
+    {"id": "deepseek.v3.2", "name": "DeepSeek V3.2", "maker": "DeepSeek", "region": "China"},
+    {"id": "zai.glm-5", "name": "GLM-5", "maker": "Z.ai", "region": "China"},
+]
+# One per region: what an evaluation runs unless the researcher picks.
+DEFAULT_MODELS = ["nvidia.nemotron-super-3-120b", "mistral.mistral-large-3-675b-instruct", "us.moonshotai.kimi-k3"]
+
 MODELS = [
     m.strip()
-    for m in os.environ.get(
-        "BENCHY_MODELS",
-        "us.moonshotai.kimi-k3,qwen.qwen3-next-80b-a3b,qwen.qwen3-32b-v1:0,deepseek.v3.2",
-    ).split(",")
+    for m in os.environ.get("BENCHY_MODELS", ",".join(c["id"] for c in CATALOG)).split(",")
     if m.strip()
 ]
+
+
+def catalog() -> list[dict]:
+    """The models this deployment allows, with maker and region, default ones marked."""
+    known = {c["id"]: c for c in CATALOG}
+    return [
+        {**known.get(m, {"id": m, "name": m, "maker": "", "region": "Otras"}), "default": m in DEFAULT_MODELS}
+        for m in MODELS
+    ]
 
 
 def inside(rel: str) -> Path | None:

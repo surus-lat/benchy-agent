@@ -5,6 +5,7 @@ interface __BaseEnv_Env {
 	DB: D1Database;
 	LIBRARY: D1Database;
 	LIBRARY_FILES: KVNamespace;
+	BACKUPS: KVNamespace;
 	EMAIL: SendEmail;
 	BETTER_AUTH_URL: "https://getbenchy.lat";
 	EMAIL_FROM: "auth@getbenchy.lat";

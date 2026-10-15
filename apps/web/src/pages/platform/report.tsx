@@ -116,6 +116,7 @@ export default function ReportPage({ slug }: { slug: string }) {
                   <thead>
                     <tr>
                       <th>Modelo</th>
+                      <th>Región</th>
                       <th>Puntaje</th>
                       <th>Respuestas válidas</th>
                     </tr>
@@ -124,9 +125,11 @@ export default function ReportPage({ slug }: { slug: string }) {
                     {models.map((m) => (
                       <tr key={m.model}>
                         <td>
-                          {m.model}
+                          {m.name}
+                          {m.maker ? ` (${m.maker})` : ""}
                           {m.stale ? " *" : ""}
                         </td>
+                        <td>{m.region}</td>
                         <td>{m.score?.toFixed(2) ?? "—"}</td>
                         <td>
                           {m.summary.valid ?? "—"} de {m.summary.examples ?? "—"}
@@ -141,7 +144,7 @@ export default function ReportPage({ slug }: { slug: string }) {
                       <tr>
                         <th>Criterio (importancia)</th>
                         {models.map((m) => (
-                          <th key={m.model}>{m.model}</th>
+                          <th key={m.model}>{m.name}</th>
                         ))}
                       </tr>
                     </thead>
@@ -165,7 +168,7 @@ export default function ReportPage({ slug }: { slug: string }) {
                       <tr>
                         <th>Tema</th>
                         {models.map((m) => (
-                          <th key={m.model}>{m.model}</th>
+                          <th key={m.model}>{m.name}</th>
                         ))}
                       </tr>
                     </thead>

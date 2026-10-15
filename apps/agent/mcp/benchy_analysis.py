@@ -19,6 +19,8 @@ from pathlib import Path
 
 from benchy import score
 
+from benchy_shared import CATALOG
+
 CITED = re.compile(r"^((?:conicet|bicyt|pdf)-[a-z0-9-]+?)(?=[\s,;:]|$)", re.I)
 
 
@@ -141,8 +143,12 @@ def analyze(ir: dict, source: Path, answer_chars: int = 1500) -> dict:
             for p in q["papers"]:
                 by_paper.setdefault(p, []).append(s)
         summary = result.get("summary") or {}
+        known = next((c for c in CATALOG if c["id"] == model), {})
         models.append({
             "model": model,
+            "name": known.get("name", model),
+            "maker": known.get("maker", ""),
+            "region": known.get("region", "Otras"),
             "file": str(file.relative_to(folder.parent)),
             "run_at": int(file.stat().st_mtime),
             "score": result.get("benchmark_score"),
@@ -154,6 +160,9 @@ def analyze(ir: dict, source: Path, answer_chars: int = 1500) -> dict:
             "papers": {p: _mean(v) for p, v in by_paper.items()},
         })
     models.sort(key=lambda m: -(m["score"] or 0))
+    regions: dict[str, list[float]] = {}
+    for m in models:
+        regions.setdefault(m["region"], []).append(m["score"] or 0.0)
 
     for q in questions:
         q["mean"] = _mean([m["score"] for m in q["models"].values()])
@@ -169,6 +178,8 @@ def analyze(ir: dict, source: Path, answer_chars: int = 1500) -> dict:
             for pid in sorted({p for q in questions for p in q["papers"]})
         ],
         "models": models,
+        # Mean score of each region's models: a first look at regional differences.
+        "regions": {r: _mean(v) for r, v in regions.items()},
         "questions": questions,
         "hardest": hardest,
     }

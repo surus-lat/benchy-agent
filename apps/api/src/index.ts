@@ -7,6 +7,7 @@ import { createAccessRequestsApp } from "./access-requests";
 import { createConversationsApp } from "./conversations";
 import { createLibraryApp, getPaper } from "./library";
 import { agentOrgFor } from "./agent-auth";
+import { backupAll } from "./backup";
 import { hermesClient } from "./hermes";
 import { enabledProviders } from "./social-providers";
 import { eq } from "drizzle-orm";
@@ -48,6 +49,23 @@ async function currentUser(request: Request) {
 
 const publicUrl = env.BETTER_AUTH_URL.replace(/\/+$/, "");
 
+/** The org's Hermes, or null when the org has not been provisioned. */
+async function agentFor(orgId: string) {
+  const [endpoint] = await db
+    .select()
+    .from(schema.orgAgentEndpoints)
+    .where(eq(schema.orgAgentEndpoints.orgId, orgId))
+    .limit(1);
+  if (!endpoint) return null;
+  // D1 holds only the secret's name; the key lives in Worker secrets.
+  const key = (env as unknown as Record<string, unknown>)[endpoint.apiKeyRef];
+  if (typeof key !== "string" || !key) {
+    console.error(`org ${orgId}: Worker secret ${endpoint.apiKeyRef} is not set`);
+    return null;
+  }
+  return hermesClient(endpoint.baseUrl, key);
+}
+
 /** The org whose agent container is calling, by its key; null for anything else. */
 async function callingAgentOrg(request: Request): Promise<string | null> {
   if (!request.headers.get("authorization")?.startsWith("Bearer ")) return null;
@@ -75,21 +93,7 @@ app.route(
     db,
     currentUser,
     paper: (id) => getPaper(env.LIBRARY, id, publicUrl),
-    async agentFor(orgId) {
-      const [endpoint] = await db
-        .select()
-        .from(schema.orgAgentEndpoints)
-        .where(eq(schema.orgAgentEndpoints.orgId, orgId))
-        .limit(1);
-      if (!endpoint) return null;
-      // D1 holds only the secret's name; the key lives in Worker secrets.
-      const key = (env as unknown as Record<string, unknown>)[endpoint.apiKeyRef];
-      if (typeof key !== "string" || !key) {
-        console.error(`org ${orgId}: Worker secret ${endpoint.apiKeyRef} is not set`);
-        return null;
-      }
-      return hermesClient(endpoint.baseUrl, key);
-    },
+    agentFor,
   }),
 );
 
@@ -97,4 +101,15 @@ app.get("/health", (c) => c.json({ ok: true }));
 // Reachable through the Pages proxy; the Worker has no public URL of its own.
 app.get("/api/health", (c) => c.json({ ok: true }));
 
-export default app;
+export default {
+  fetch: app.fetch,
+  // The daily backup of every org's workspace (src/backup.ts).
+  async scheduled(_controller: ScheduledController, _env: Env, ctx: ExecutionContext) {
+    const endpoints = await db.select({ orgId: schema.orgAgentEndpoints.orgId }).from(schema.orgAgentEndpoints);
+    ctx.waitUntil(
+      backupAll({ endpoints, agentFor, store: env.BACKUPS }).then((outcomes) =>
+        console.log(`backup: ${outcomes.map((o) => `${o.orgId} ${o.ok ? `${o.bytes} B` : o.error}`).join("; ")}`),
+      ),
+    );
+  },
+};

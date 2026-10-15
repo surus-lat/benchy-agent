@@ -46,13 +46,21 @@ browser ──► getbenchy.lat (Pages) ──/api/*──► Worker benchy-api 
 | UI | `apps/web/src/pages/platform/` | `/app`: benchmarks home; `/app/b/:slug/:stage` one benchmark as two windows, A · Interfaz (autoría, revisión, evaluación, publicación) and B · Agente, ⌘J swaps them (`workspace.tsx`, design "Plataforma AB v3"); `/app/biblioteca` the paper library (`library.tsx`), also inside each benchmark as its Papers drawer; `/app/nuevo` (`?paper=<id>` starts from a library paper), `/app/cuenta`; `/app/v1/b/:slug/:tab` keeps the previous tabbed view and `/app/chat` the first chat + files view. An exam is "listo" when it compiles and every question has the grader's review of its current text and the researcher's approval. |
 
 **Models.** The agent itself runs on `us.moonshotai.kimi-k3` (only invocable
-through that inference profile). Benchmarks may name, as
-`ai-system: {type: model, provider: bedrock, model: …}`, exactly
-`us.moonshotai.kimi-k3`, `qwen.qwen3-next-80b-a3b`, `qwen.qwen3-32b-v1:0`,
-`deepseek.v3.2` — enforced twice: `BENCHY_MODELS` in the MCP server and the
-IAM policy. gpt-oss is excluded (it prefixes reasoning to JSON, so every
-structured output is invalid). **Claude is not entitled on the AWS account**
-(354918377724); not needed for now — Kimi K3 is the model.
+through that inference profile), which is also the rubric grader. Benchmarks
+may name, as `ai-system: {type: model, provider: bedrock, model: …}`, the
+models in `CATALOG` (`apps/agent/mcp/benchy_shared.py`), chosen by region so
+a field can see how labs from each answer it — Norteamérica:
+`nvidia.nemotron-super-3-120b`, `google.gemma-3-27b-it`; Europa:
+`mistral.mistral-large-3-675b-instruct`; China: `us.moonshotai.kimi-k3`,
+`qwen.qwen3-next-80b-a3b`, `qwen.qwen3-32b-v1:0`, `deepseek.v3.2`,
+`zai.glm-5`. One per region is the default selection. Enforced twice:
+`BENCHY_MODELS`/`CATALOG` in the MCP server and the IAM policy. Every one was
+run through the engine (Bedrock's chat-completions endpoint with structured
+output) before being added; the ones left out and why are in the comment
+above `CATALOG` (Converse-only models such as Llama 4 and Nova need Converse
+support in llm-client; OpenAI's, xAI's and Anthropic's models are not
+available to the AWS account, 354918377724). No Latin American model is
+served by Bedrock.
 
 **Credentials.** One secret per org container for inference:
 `AWS_BEARER_TOKEN_BEDROCK`, a long-term Bedrock API key (365 days; rotated 2026-10-12, next due
@@ -104,8 +112,13 @@ workspace on the volume and are visible to every member of the org.
   the abstract; researchers can upload the PDF). BICyT records are added by
   hand with `bicyt.py` for now. Search is lexical (FTS5); the dataset's
   embeddings cover too few papers for semantic search yet.
-- **Each org's workspace lives on one Railway volume.** D1 has Cloudflare's
-  30-day point-in-time recovery; the volume needs Railway's backups turned on.
+- **Each org's workspace lives on one Railway volume.** Railway's own
+  backups need its Pro plan (the workspace is on Hobby), so the Worker backs
+  every workspace up itself: a cron at 06:17 UTC asks each agent for
+  `GET /benchy/backup` (a .tar.gz of `/opt/data/workspace`) and keeps it 35
+  days in the `BACKUPS` KV namespace (`apps/api/src/backup.ts`, restore steps
+  there). Hermes's own home (sessions, memory) is not in it. D1 has
+  Cloudflare's 30-day point-in-time recovery.
 - **Turns are synchronous.** A very long benchmark run could hit the 14-minute
   turn timeout; results still land in `runs/`. Streaming
   (`/chat/stream`) or async runs are the next step if that bites.
@@ -126,11 +139,16 @@ which is why the build needs no secret at all.
 
 ### Provisioning a new organization (runbook)
 
-1. `pnpm invite --org "<Name>" --email <first researcher>` — creates the org.
+1. `pnpm invite --org "<Name>" --email <first researcher>` — creates the org
+   (or insert the `orgs` row first and invite later: the invite reuses it by slug).
 2. Railway service `agent-<slug>` in project `benchy-agent`, with variables
    `API_SERVER_KEY` (`openssl rand -hex 32`), `AWS_BEARER_TOKEN_BEDROCK` (the
-   shared scoped key), `PORT=8080`; a volume at `/opt/data`; deploy as above;
-   `railway domain --service agent-<slug> --port 8080`.
+   shared scoped key), `PORT=8080`, `BENCHY_ORG=<slug>`; set secrets with
+   `railway variable set KEY --stdin`; a volume at `/opt/data` (link the
+   service first: `railway service agent-<slug>`, then
+   `railway volume add --mount-path /opt/data`; relink `agent-surus` after);
+   deploy as above; `railway domain --service agent-<slug> --port 8080`.
+   Every image deploy now goes to each `agent-*` service.
 3. `wrangler secret put AGENT_KEY_<SLUG>` with the same `API_SERVER_KEY`.
 4. `INSERT INTO orgAgentEndpoints (orgId, baseUrl, apiKeyRef, createdAt)`
    with the org id, the Railway URL, and `AGENT_KEY_<SLUG>`.
