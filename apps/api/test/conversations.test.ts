@@ -360,6 +360,7 @@ it("keeps the org's record of who did what, never what was said to the agent", a
   await req(app, "PUT", "/api/workspace/file", beto, { path: "qa/questions.json", content: "{}" });
   await req(app, "POST", "/api/workspace/review?path=qa/benchmark.yaml", beto);
   await req(app, "POST", "/api/workspace/sources", ana, { bench: "qa", paperId: 179477 });
+  expect((await req(app, "POST", "/api/activity", ana, { bench: "qa", kind: "create", detail: "creó el benchmark" })).status).toBe(201);
   expect((await req(app, "POST", "/api/activity", ana, { bench: "qa", kind: "approve", detail: "aprobó la pregunta 01" })).status).toBe(201);
   expect((await req(app, "POST", "/api/activity", ana, { bench: "qa", kind: "edit", detail: "x" })).status).toBe(400);
 
@@ -372,6 +373,7 @@ it("keeps the org's record of who did what, never what was said to the agent", a
       "beto@uni.edu|edit|questions.json",
       "beto@uni.edu|review|revisión del juez de las respuestas expertas",
       "Ana Pérez|paper|agregó «Paisajes mesetarios en Patagonia»",
+      "Ana Pérez|create|creó el benchmark",
       "Ana Pérez|approve|aprobó la pregunta 01",
     ].sort(),
   );

@@ -230,7 +230,7 @@ export default function Workspace({ slug, stage: stageParam }: { slug: string; s
               )}
               <button
                 className="ws-btn-dark"
-                disabled={!bench.validation?.ok || running || busy}
+                disabled={!bench.validation?.ok || running || busy || (openExam && qs.length === 0)}
                 onClick={requestRun}
               >
                 {running ? "Evaluando…" : "Ejecutar evaluación"}

@@ -2,7 +2,8 @@ import { Link, useLocation, useRoute } from "wouter";
 import AgentApp from "../app/agent-app";
 import { PlatformProvider, usePlatform } from "./store";
 import Home from "./home";
-import BenchPage, { NewBench } from "./bench";
+import BenchPage from "./bench";
+import { NewBench } from "./new-bench";
 import Account from "./account";
 import Workspace from "./workspace";
 import LibraryPage from "./library";
@@ -11,7 +12,7 @@ import "./platform.css";
 
 // /app — the platform. Routes:
 //   /app                    benchmarks home
-//   /app/nuevo              a new benchmark, started with the agent
+//   /app/nuevo              a new benchmark: name, field, language; opens in A
 //   /app/b/:slug/:stage?    one benchmark as two windows, A · Interfaz and
 //                           B · Agente (autoria|revision|evaluacion|publicacion)
 //   /app/b/:slug/informe    the findings report on the SURUS letterhead (prints to PDF)

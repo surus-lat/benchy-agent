@@ -17,7 +17,6 @@ import {
 } from "./data";
 import { conversationFor, rememberConversation, usePlatform, type BenchSummary } from "./store";
 import { Pip } from "./home";
-import { authorsLine, library, sources, type Paper } from "./library-data";
 
 const TABS = [
   ["definicion", "Definición"],
@@ -29,7 +28,7 @@ const TABS = [
 ] as const;
 type Tab = (typeof TABS)[number][0];
 
-// ---- The agent chat (Definición, and Nuevo benchmark) -----------------------
+// ---- The agent chat (Definición, and B in the workspace) ---------------------
 
 export function useAgentChat(convKey: string) {
   const [convId, setConvId] = useState<string | null>(() => conversationFor(convKey));
@@ -40,7 +39,7 @@ export function useAgentChat(convKey: string) {
   // Not remembered in this browser: the researcher's latest conversation about
   // this benchmark, kept in D1, so the work follows them across devices.
   useEffect(() => {
-    if (convId || convKey === "new") return;
+    if (convId) return;
     let cancelled = false;
     api
       .conversations(convKey)
@@ -65,7 +64,7 @@ export function useAgentChat(convKey: string) {
         if (cancelled) return;
         setMessages(r.messages);
         // A conversation this browser remembered from before D1 kept the benchmark.
-        if (convKey !== "new") void api.tagConversation(convId, convKey).catch(() => {});
+        void api.tagConversation(convId, convKey).catch(() => {});
       })
       .catch(() => {
         // Gone or not ours: start fresh.
@@ -197,96 +196,6 @@ function Composer({ disabled, onSend, placeholder = "Escribile al agente…" }: 
         Enviar
       </button>
     </form>
-  );
-}
-
-// ---- New benchmark -------------------------------------------------------------
-
-export function NewBench() {
-  const { benches, refresh } = usePlatform();
-  const [, navigate] = useLocation();
-  const chat = useAgentChat("new");
-  // The benchmarks that existed before this conversation started; whatever
-  // appears beyond them was created by the agent here. Taken at the first
-  // message, once the workspace list has loaded.
-  const known = useRef<Set<string> | null>(null);
-  // Started from a paper in the library (/app/nuevo?paper=<id>): the app adds
-  // it to the benchmark as soon as the agent creates the folder.
-  const paperId = useMemo(() => {
-    const id = Number(new URLSearchParams(window.location.search).get("paper"));
-    return Number.isSafeInteger(id) && id > 0 ? id : null;
-  }, []);
-  const [paper, setPaper] = useState<Paper | null>(null);
-  useEffect(() => {
-    if (paperId) void library.paper(paperId).then(setPaper, () => {});
-  }, [paperId]);
-
-  const send = (text: string) => {
-    const first = !known.current;
-    if (!known.current) known.current = new Set(benches.map((b) => b.slug));
-    const message =
-      first && paper
-        ? `${text}\n\n(Paper de partida, que la app agrega al benchmark apenas crees la carpeta: «${paper.title}», conicet-${paper.id}.)`
-        : text;
-    void chat.send(message).then(afterTurn, () => {});
-  };
-  const afterTurn = useCallback(async () => {
-    await refresh();
-  }, [refresh]);
-
-  // When the agent creates a benchmark folder, move this conversation there.
-  useEffect(() => {
-    if (!known.current || !chat.convId || chat.pending) return;
-    const created = benches.find((b) => !known.current!.has(b.slug));
-    if (created) {
-      rememberConversation(created.slug, chat.convId);
-      rememberConversation("new", null);
-      void api.tagConversation(chat.convId, created.slug).catch(() => {});
-      const open = () => navigate(`/app/b/${encodeURIComponent(created.slug)}/autoria`);
-      if (paperId) void sources.add(created.slug, paperId).then(open, open);
-      else open();
-    }
-  }, [benches, chat.convId, chat.pending, navigate, paperId]);
-
-  return (
-    <div className="bp-bench">
-      <div className="bp-bench-head" style={{ paddingBottom: 16 }}>
-        <h1>Nuevo benchmark</h1>
-        <div className="bp-bench-meta">El agente crea la carpeta y el benchmark.yaml con vos.</div>
-      </div>
-      <div className="bp-split">
-        <div className="bp-chat">
-          {chat.messages.length === 0 && !chat.pending ? (
-            <div className="bp-welcome">
-              <Pip variant="idle" />
-              <h2 style={{ margin: "18px 0 0", fontSize: 22, fontWeight: 500 }}>¿Qué querés evaluar?</h2>
-              <p className="body" style={{ marginTop: 8, lineHeight: 1.6 }}>
-                Contale al agente qué sabe tu campo que los modelos deberían saber. Diseña el programa, los pesos y el examen
-                con vos, y valida todo con el motor.
-              </p>
-              {paper && (
-                <div className="bp-start-paper">
-                  <span className="eyebrow">Paper de partida</span>
-                  <span className="t">{paper.title}</span>
-                  <span className="body">{authorsLine(paper.creators, 3)}{paper.year ? ` · ${paper.year}` : ""}</span>
-                  <span className="muted">Se agrega al benchmark apenas el agente lo cree; las preguntas salen de él.</span>
-                </div>
-              )}
-            </div>
-          ) : (
-            <Thread chat={chat} onAnswered={afterTurn} />
-          )}
-          <Composer disabled={chat.pending} onSend={send} />
-        </div>
-        <div className="bp-yaml">
-          <div className="bp-yaml-head">
-            <span className="eyebrow">benchmark.yaml</span>
-            <span style={{ fontSize: 12 }} className="muted">todavía no existe</span>
-          </div>
-          <div className="bp-yaml-note">La persona, el agente y el motor trabajan sobre este mismo archivo. Nada se infiere a tus espaldas.</div>
-        </div>
-      </div>
-    </div>
   );
 }
 

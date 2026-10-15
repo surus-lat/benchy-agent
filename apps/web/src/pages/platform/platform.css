@@ -200,6 +200,19 @@ button.bp-row:hover { background: var(--paper); }
 .bp-field { display: grid; gap: 6px; font-size: 13px; color: var(--body); }
 .bp-field input { border: 1px solid var(--line); border-radius: 10px; padding: 10px 14px; font: 15px var(--sans); color: var(--ink); background: #fff; }
 .bp-field .v { font-size: 15px; color: var(--ink); }
+.bp-field select { border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; font: 15px var(--sans); color: var(--ink); background: #fff; min-width: 0; }
+.bp-field .hint { font-size: 12.5px; color: var(--muted); }
+.bp-field .hint code { font: 12.5px var(--mono); color: var(--ink-soft); }
+
+/* Nuevo benchmark */
+.bp-newbench { max-width: 640px; display: flex; flex-direction: column; gap: 14px; }
+.bp-newbench > .body { margin: 0; line-height: 1.6; }
+.bp-newbench-form { padding: 22px; display: grid; gap: 18px; }
+.bp-newbench-row { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+.bp-newbench-form .bp-start-paper { margin-top: 0; max-width: none; }
+.bp-newbench-error { margin: 0; font-size: 13.5px; color: var(--fail); }
+.bp-newbench-foot { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
+@media (max-width: 560px) { .bp-newbench-row { grid-template-columns: 1fr; } }
 .bp-method { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 14px 22px; border-bottom: 1px solid var(--line-soft); }
 .bp-method:last-child { border-bottom: 0; }
 
