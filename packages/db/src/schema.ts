@@ -21,6 +21,16 @@ export const invites = sqliteTable("invites", {
   expiresAt: integer("expiresAt", { mode: "timestamp" }).notNull(),
 });
 
+// An org's own email domain: anyone with a verified address there may sign in
+// and joins that org, no invite needed. Stored lowercased, without the "@".
+export const orgDomains = sqliteTable("orgDomains", {
+  domain: text("domain").primaryKey(),
+  orgId: text("orgId")
+    .notNull()
+    .references(() => orgs.id),
+  createdAt: integer("createdAt", { mode: "timestamp" }).notNull(),
+});
+
 // Public "Request Access" submissions from the landing page. One row per
 // email; the owner reviews them (pnpm access-requests) and mints invites.
 export const accessRequests = sqliteTable("accessRequests", {

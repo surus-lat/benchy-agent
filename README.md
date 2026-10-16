@@ -87,7 +87,7 @@ pnpm access-requests                                   # solicitudes pendientes 
 pnpm invite --org "Universidad X" --email persona@universidad.edu
 ```
 
-`invite` crea la organización si no existe, emite una invitación de 7 días, la envía por mail y marca la solicitud como `invited`. Una dirección solo puede ingresar si tiene una invitación pendiente o ya es usuaria: no hay registro abierto.
+`invite` crea la organización si no existe, emite una invitación de 7 días, la envía por mail y marca la solicitud como `invited`. Una dirección solo puede ingresar si tiene una invitación pendiente, ya es usuaria o es un mail verificado de un dominio propio de una organización (tabla `orgDomains`, p. ej. `surus.lat` → SURUS): no hay registro abierto.
 
 Despliegue:
 

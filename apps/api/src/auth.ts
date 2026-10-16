@@ -71,12 +71,13 @@ export const auth = betterAuth({
     user: {
       create: {
         before: async (user) => {
-          const invite = await requireInviteForSignup(db, user.email);
+          // An invite, or a verified address in an org's domain (orgDomains).
+          const { orgId } = await requireInviteForSignup(db, user.email, user.emailVerified === true);
           return {
             data: {
               ...user,
               email: user.email.toLowerCase(),
-              orgId: invite.orgId,
+              orgId,
             },
           };
         },

@@ -84,7 +84,9 @@ when its Worker secrets exist (`GOOGLE_CLIENT_ID/SECRET`,
 which buttons to show. OAuth redirect URIs:
 `https://getbenchy.lat/api/auth/callback/google` and `…/callback/microsoft`.
 All three pass the invite gate; account linking joins them on a verified
-email. Microsoft is multi-tenant (`common`), so its unverified `email` claim
+email. An org may also own an email domain (`orgDomains`: `surus.lat` →
+SURUS): any verified address there signs in without an invite and joins that
+org; an invite, when there is one, decides the org instead. Microsoft is multi-tenant (`common`), so its unverified `email` claim
 is never trusted (nOAuth): see `apps/api/src/social-providers.ts`.
 
 **Conversations.** Per user (a colleague's id is a 404); the org always comes
@@ -148,6 +150,8 @@ which is why the build needs no secret at all.
 
 1. `pnpm invite --org "<Name>" --email <first researcher>` — creates the org
    (or insert the `orgs` row first and invite later: the invite reuses it by slug).
+   To let a whole email domain in instead, `INSERT INTO orgDomains (domain,
+   orgId, createdAt)` with the domain lowercased and without the `@`.
 2. Railway service `agent-<slug>` in project `benchy-agent`, with variables
    `API_SERVER_KEY` (`openssl rand -hex 32`), `AWS_BEARER_TOKEN_BEDROCK` (the
    shared scoped key), `PORT=8080`, `BENCHY_ORG=<slug>`; set secrets with
@@ -278,10 +282,11 @@ Two things to know about that snippet:
   (`pnpm invite --org "Stanford" --email someone@stanford.edu`). There is no
   org-creation endpoint and no admin role in the app; the authorization
   boundary is "can run that script with Cloudflare credentials".
-- Sign-up is invite-only and enforced in `databaseHooks.user.create.before`,
+- Sign-up needs an invite, or a verified address in a domain the org owns
+  (`orgDomains`), and is enforced in `databaseHooks.user.create.before`,
   which covers every creation path including Google OAuth. You do not need to
   re-check invites in your own routes; if a session exists, that user was
-  invited.
+  let in.
 
 ## Adding tables
 
