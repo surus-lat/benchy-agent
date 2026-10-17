@@ -6,6 +6,7 @@ import { db } from "./db";
 import { createAccessRequestsApp } from "./access-requests";
 import { createConversationsApp } from "./conversations";
 import { createLibraryApp, getPaper } from "./library";
+import { createProcessesApp } from "./processes";
 import { agentOrgFor } from "./agent-auth";
 import { backupAll } from "./backup";
 import { hermesClient } from "./hermes";
@@ -95,6 +96,12 @@ app.route(
     paper: (id) => getPaper(env.LIBRARY, id, publicUrl),
     agentFor,
   }),
+);
+
+// Global process indicators: the caller's own processes plus their org's evaluations.
+app.route(
+  "/",
+  createProcessesApp({ db, currentUser, agentFor }),
 );
 
 app.get("/health", (c) => c.json({ ok: true }));
