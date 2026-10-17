@@ -1,5 +1,5 @@
 import { expect, it } from "vitest";
-import { benchmarkYaml, slugify, uniqueSlug } from "./new-bench-model";
+import { benchmarkYaml, slugify, togglePaper, uniqueSlug, type PickedPaper } from "./new-bench-model";
 import { isOpenQuestionExam, parseBenchDoc, readCriteria } from "./exam-model";
 import { readBenchYaml } from "./data";
 
@@ -30,4 +30,15 @@ it("writes a benchmark the editors read as an open-question exam with its rubric
     ["c3", 2],
   ]);
   expect(isOpenQuestionExam(doc.task, criteria)).toBe(true);
+});
+
+it("paso 0's bibliography keeps each paper once and toggles it in and out", () => {
+  const a: PickedPaper = { id: 1, title: "Morfología verbal del mapudungun", creators: ["Pérez, M."], year: 2019 };
+  const b: PickedPaper = { id: 2, title: "Corrientes teóricas en etnografía", creators: [], year: null };
+  // Picking adds, in order, without dropping what was already picked.
+  expect(togglePaper([], a)).toEqual([a]);
+  expect(togglePaper([a], b).map((p) => p.id)).toEqual([1, 2]);
+  // Picking the same paper again takes it out: it is never twice in the list.
+  expect(togglePaper([a, b], a).map((p) => p.id)).toEqual([2]);
+  expect(togglePaper([a], a)).toEqual([]);
 });
