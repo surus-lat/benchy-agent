@@ -56,6 +56,20 @@ one enum output leaf; `answer` needs `ontology_version: "1.1"`); `language` is `
 `agriculture`, `engineering`, `medicine`, `public_health`. Pick the closest;
 use `general` only when none fits.
 
+## Cultural content: run the cultural workflow first
+
+If the benchmark touches cultural axes — knowledge or practices of a specific
+community: regional or indigenous traditions, community practices (food, work,
+ritual, craft), local language varieties and registers, cultural heritage,
+local informal norms — apply `benchy-cultural-benchmark-design` **before
+writing exam rows**: its 8-stage workflow runs alongside the four questions,
+and its checks (nationality-as-culture, trivia-only, translation-as-substitute,
+stereotyped answer keys) produce warnings and a cultural quality score in
+`<slug>/cultural-design.md`. Those checks are advisory by design: they never
+block the exam — but their warnings must reach the researcher and, later, the
+report's `Limitaciones`. Universal disciplinary knowledge (a physics exam, a
+national legal code) does not trigger it.
+
 ## Open questions: the `answer` task with a rubric (the default for exams)
 
 Most university exams are open questions whose answers a professor grades
