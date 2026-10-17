@@ -58,10 +58,36 @@
   .rp-foot { flex-direction: column; align-items: flex-start; }
 }
 
+/* ---- Hand editing (the edited layer over the generated report) ---- */
+
+.rp-edit-start, .rp-edit-cancel { border: 1px solid var(--rp-rule); border-radius: 999px; background: transparent; color: var(--rp-ink); padding: 6px 14px; font: 500 13px var(--rp-sans); cursor: pointer; }
+.rp-edit-start:hover, .rp-edit-cancel:hover { border-color: var(--rp-ink); }
+.rp-print:disabled, .rp-edit-start:disabled, .rp-edit-cancel:disabled { opacity: 0.5; cursor: default; }
+.rp-flag { font-family: var(--rp-mono); font-size: 9px; letter-spacing: 0.18em; text-transform: uppercase; color: var(--rp-teal); border: 1px dashed var(--rp-teal); border-radius: 4px; padding: 4px 9px; white-space: nowrap; }
+
+.rp-edited-note { box-sizing: border-box; width: min(210mm, calc(100% - 32px)); margin: 18px auto -8px; padding: 10px 14px; background: #fff; border: 1px dashed var(--rp-teal); border-radius: 6px; font-size: 13px; line-height: 1.55; color: var(--rp-soft); }
+.rp-link { border: 0; background: none; padding: 0; color: var(--rp-teal); font: inherit; cursor: pointer; text-decoration: none; }
+.rp-link:hover { text-decoration: underline; }
+.rp-edit-error { color: oklch(0.5 0.15 25); }
+
+.rp-edit { box-sizing: border-box; width: min(1200px, calc(100% - 32px)); margin: 8px auto 48px; }
+.rp-edit-note { max-width: 60rem; margin: 12px 0; color: var(--rp-soft); font-size: 14px; line-height: 1.6; }
+.rp-edit-cols { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; align-items: start; }
+.rp-edit-src { box-sizing: border-box; width: 100%; min-height: 70vh; padding: 14px 16px; border: 1px solid var(--rp-rule); border-radius: 6px; background: #fff; color: var(--rp-ink); font: 400 13px/1.65 var(--rp-mono); resize: vertical; }
+.rp-edit-src:focus { outline: 1px solid var(--rp-teal); border-color: var(--rp-teal); }
+.rp-edit-preview { box-sizing: border-box; min-height: 70vh; padding: 20mm; background: #fff; border: 1px solid var(--rp-rule); border-radius: 6px; font-size: 11pt; line-height: 1.6; overflow-wrap: anywhere; }
+.rp-edit-preview h1 { font-family: var(--rp-serif); font-style: italic; font-weight: 400; font-size: 22pt; line-height: 1.15; color: var(--rp-deep); margin: 0 0 20px; }
+
+@media (max-width: 900px) {
+  .rp-edit-cols { grid-template-columns: 1fr; }
+  .rp-edit-src, .rp-edit-preview { min-height: 40vh; }
+}
+
 @page { size: A4; margin: 20mm 20mm 18mm; }
 @media print {
   .rp { background: #fff; }
   .rp-bar { display: none; }
   .rp-page { width: auto; margin: 0; padding: 0; box-shadow: none; }
+  .rp-edited-note, .rp-edit { display: none; }
   .rp * { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
 }
