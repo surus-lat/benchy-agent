@@ -124,6 +124,25 @@ export const benchJudgeOverrides = sqliteTable(
   (t) => [primaryKey({ columns: [t.orgId, t.bench] })],
 );
 
+// A benchmark's findings report edited by hand in the platform. A row is the
+// current edit (no history): it wins over the report.md the agent writes in
+// the workspace, which stays intact; deleting the row shows the generated
+// report again.
+export const benchReportEdits = sqliteTable(
+  "benchReportEdits",
+  {
+    orgId: text("orgId")
+      .notNull()
+      .references(() => orgs.id),
+    // The benchmark (workspace folder) whose report this edit is for.
+    bench: text("bench").notNull(),
+    // The full edited markdown, title included.
+    markdown: text("markdown").notNull(),
+    updatedAt: integer("updatedAt", { mode: "timestamp" }).notNull(),
+  },
+  (t) => [primaryKey({ columns: [t.orgId, t.bench] })],
+);
+
 // A chat thread with the agent. Per-user: read with userId, never orgId.
 // Not keyed on the login session — sessions rotate, conversations persist.
 export const conversations = sqliteTable("conversations", {
