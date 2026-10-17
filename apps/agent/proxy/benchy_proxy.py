@@ -278,7 +278,9 @@ async def _write_report(bench: str) -> None:
 
 
 async def evaluation(request: web.Request) -> web.Response:
-    """GET: the benchmark's last evaluation. POST {path, models}: start one."""
+    """GET: the benchmark's last evaluation. POST {path, models, grader_model?}: start one.
+    `grader_model` (the org's judge config) judges these runs instead of the
+    benchmark's own scoring.grader; without it, the benchmark's grader judges."""
     if not _authorized(request):
         return web.json_response({"error": "unauthorized"}, status=401)
     if request.method == "GET":
@@ -290,15 +292,18 @@ async def evaluation(request: web.Request) -> web.Response:
     try:
         body = await request.json()
         path, models = body["path"], body["models"]
+        grader_model = body.get("grader_model")
         if not isinstance(path, str) or not isinstance(models, list) or not models or len(models) > len(MODELS):
             raise TypeError
         if not all(isinstance(m, str) for m in models):
+            raise TypeError
+        if grader_model is not None and (not isinstance(grader_model, str) or not grader_model):
             raise TypeError
     except (ValueError, KeyError, TypeError):
         return web.json_response({"error": "bad_request"}, status=400)
     try:
         source, ir = _compile(path)
-        state = benchy_evaluation.start(source, ir, list(dict.fromkeys(models)), _write_report)
+        state = benchy_evaluation.start(source, ir, list(dict.fromkeys(models)), _write_report, grader_model=grader_model)
     except benchy_evaluation.Busy as busy:
         return web.json_response({"error": "busy", "evaluation": busy.status}, status=409)
     except BenchyError as exc:

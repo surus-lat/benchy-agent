@@ -38,7 +38,7 @@ browser ──► getbenchy.lat (Pages) ──/api/*──► Worker benchy-api 
 | Core skills | `apps/agent/skills/benchy-*` | Root-owned, read-only in the image (`skills.external_dirs`). `.github/CODEOWNERS` gates the path. |
 | Pinned config | `apps/agent/config.yaml`, `SOUL.md` | Copied over `$HERMES_HOME` on every boot by `rootfs/etc/cont-init.d/03-benchy-setup`. |
 | Public port | `apps/agent/proxy/benchy_proxy.py` (s6 longrun) | Only thing on `0.0.0.0`; Hermes listens on loopback. Same bearer key for both. |
-| Worker routes | `apps/api/src/conversations.ts`, `hermes.ts` | `/api/conversations*` (`?bench=` and `PATCH {bench}`: a conversation belongs to a benchmark, so it follows the researcher across devices), `/api/workspace/{files,file,validate,exam,analysis}`, `PUT /api/workspace/file`, `POST /api/workspace/review`, `GET/POST /api/workspace/evaluation` and `POST /api/workspace/report` (409 `EVALUATION_RUNNING` while one runs), `POST/DELETE /api/workspace/sources`, `POST /api/workspace/sources/upload`, `GET/POST /api/activity`, `/api/models`, `/api/me`, all authenticated. Writes are limited to benchmark text files inside a benchmark folder (never `runs/`), and refused with 409 `CONFLICT` if the file changed after the caller read it. |
+| Worker routes | `apps/api/src/conversations.ts`, `hermes.ts` | `/api/conversations*` (`?bench=` and `PATCH {bench}`: a conversation belongs to a benchmark, so it follows the researcher across devices), `/api/workspace/{files,file,validate,exam,analysis}`, `PUT /api/workspace/file`, `POST /api/workspace/review`, `GET/POST /api/workspace/evaluation` and `POST /api/workspace/report` (409 `EVALUATION_RUNNING` while one runs), `POST/DELETE /api/workspace/sources`, `POST /api/workspace/sources/upload`, `GET/POST /api/activity`, `GET/PUT /api/org/judge` and `GET/PUT /api/workspace/judge` (the judge model config: the org's default, each benchmark's override), `/api/models`, `/api/me`, all authenticated. Writes are limited to benchmark text files inside a benchmark folder (never `runs/`), and refused with 409 `CONFLICT` if the file changed after the caller read it. |
 | Paper library | `apps/api/src/library.ts`, `apps/api/library/` | D1 `benchy-library`: CONICET Digital's 263k publications from the `UNRN/ri-conicet` dataset (SURUS + CITA-UNRN), plus researchers' BICyT records that are not in the repository (`bicyt.py` → `external.json`, PDFs in the `LIBRARY_FILES` KV namespace; R2 is not enabled on the account), FTS5 over title, authors, subjects and abstract; an author search lists that author's papers first. `GET /api/library/{search,papers/:id,stats,files/*}` for anyone signed in and for each org's agent, which authenticates with its own `AGENT_KEY_<ORG>` (`agent-auth.ts`). Refresh: `uv run --with duckdb apps/api/library/build.py metadata.parquet out.sql [--since <ISO>]`, then `wrangler d1 execute benchy-library --remote --file out.sql` (a full import is ~10,600 statements, under 2 minutes). |
 | Results analysis and report | `apps/agent/mcp/benchy_analysis.py`, skill `benchy-report-findings` | From the newest run of each model: criteria met, score by topic and by paper, every answer with its missed criteria. One implementation for the app (`GET /benchy/analysis`) and the agent (`benchy_analysis`). An evaluation runs in the container, not in a chat (`benchy_evaluation.py`, `POST /benchy/evaluation`): the models two at a time, each run the same as the agent's `benchy_run`, then the findings report, which the agent writes in a session of its own (never a researcher's conversation, so it neither waits nor blocks); its state is `<slug>/evaluation.json`, polled by the app, so it survives a reload, and a state left `running` by a restart reads `interrupted`. Rewriting the report keeps the last one as `report.previous.md`. The agent writes `<slug>/report.md`; the app renders it on the SURUS letterhead ("SURUS × <org>") at `/app/b/:slug/informe`, printable to PDF, with result tables built from the analysis. A published benchmark lives at `getbenchy.lat/b/<org>/<benchmark>` (the org's slug). |
 | A benchmark's papers | `apps/agent/mcp/benchy_sources.py` | `<slug>/sources.json` plus `<slug>/sources/<id>.md`: metadata, abstract and the PDF's text with `[p. N]` markers (pypdfium2), written by the container when the app adds a library paper (it fetches the open PDF from Hugging Face) or an uploaded PDF. No open PDF, or a scan: the abstract only. The agent writes questions from them and cites `<id> p. N` in `questions.json`. |
@@ -60,7 +60,13 @@ output) before being added; the ones left out and why are in the comment
 above `CATALOG` (Converse-only models such as Llama 4 and Nova need Converse
 support in llm-client; OpenAI's, xAI's and Anthropic's models are not
 available to the AWS account, 354918377724). No Latin American model is
-served by Bedrock.
+served by Bedrock. The judge is configurable: an org picks its default judge
+and any benchmark may override it, both chosen from this same catalog (no
+free field) and kept in D1 (`orgs.judgeModel`, `benchJudgeOverrides`;
+`GET/PUT /api/org/judge`, `GET/PUT /api/workspace/judge`). The Worker resolves
+override → org default → the benchmark's own `scoring.grader`, and the choice
+travels as `grader_model` on `POST /benchy/evaluation`, judging that
+evaluation's runs only.
 
 **Credentials.** One secret per org container for inference:
 `AWS_BEARER_TOKEN_BEDROCK`, a long-term Bedrock API key (365 days; rotated 2026-10-12, next due
@@ -98,7 +104,9 @@ workspace on the volume and are visible to every member of the org.
 **Known limits, deliberately not solved yet.**
 - **Open questions are graded by a model.** The engine's `answer` task
   (ontology 1.1, merged into surus-lat/benchy main) grades each answer against the expert answer with the
-  benchmark's rubric; the grader is `scoring.grader`, Kimi K3 on Bedrock. A
+  benchmark's rubric; the grader is `scoring.grader`, Kimi K3 on Bedrock —
+  unless the org set its own judge or the benchmark overrides it (`grader_model`
+  on `POST /benchy/evaluation`; see **Models**). A
   run costs one model call plus two grader calls per question. The app's
   editors expect binary criteria (`levels {0, 1}`) weighted 1–5, one to ten of
   them, which the researcher adds, rewords and removes in A (a new one is named

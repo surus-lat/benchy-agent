@@ -109,11 +109,16 @@ def _busy(folder: Path) -> bool:
     return task is not None and not task.done()
 
 
-def start(source: Path, ir: dict, models: list[str], write_report: ReportWriter | None) -> dict:
-    """Start an evaluation of the benchmark at `source` with `models`; returns its first state."""
+def start(source: Path, ir: dict, models: list[str], write_report: ReportWriter | None, grader_model: str | None = None) -> dict:
+    """Start an evaluation of the benchmark at `source` with `models`; returns its first state.
+    `grader_model`, when given, is the judge these runs grade with instead of the
+    benchmark's own scoring.grader (the org's judge config); a benchmark with no
+    rubric judge ignores it."""
     folder = source.parent
     if _busy(folder):
         raise Busy(status(folder) or {})
+    if grader_model and ir["scoring"].get("grader"):
+        ir = {**ir, "scoring": {**ir["scoring"], "grader": {**ir["scoring"]["grader"], "model": grader_model}}}
     for m in models:  # refuse a model this deployment cannot call before starting anything
         check_models({**ir, "ai-system": {**ir["ai-system"], "model": m}})
     if exam_rows(source, ir) == 0:
