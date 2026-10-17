@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState, type FormEvent, type ReactNode } from "react";
 import { useLocation } from "wouter";
+import { toast } from "@/hooks/use-toast";
 import { ApiError, errorText } from "./data";
 import { usePlatform } from "./store";
 import {
@@ -409,6 +410,9 @@ export function LibraryBrowser({
   const [loading, setLoading] = useState(false);
   const [open, setOpen] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // Rows with an add in flight: the button disables on the click, before the
+  // store's pending list catches up, so a fast double click can't add twice.
+  const [addingIds, setAddingIds] = useState<ReadonlySet<number>>(new Set());
   const seq = useRef(0);
   // Several can be read at once; each row says its own state.
   const reading = new Set(pendingSources.filter((p) => p.bench === bench).map((p) => p.id));
@@ -444,6 +448,14 @@ export function LibraryBrowser({
   }, [load, text]);
 
   const add = async (h: Row) => {
+    // Already in the benchmark (can happen while sources.json refreshes after
+    // an add): never add the same paper twice.
+    if (added.has(h.id)) {
+      toast({ title: "Este paper ya fue agregado." });
+      return;
+    }
+    if (addingIds.has(h.id)) return;
+    setAddingIds((ids) => new Set(ids).add(h.id));
     setError(null);
     try {
       const r = await addSource(bench, { id: h.id, title: h.title, hasPdf: h.hasPdf });
@@ -451,6 +463,12 @@ export function LibraryBrowser({
       else setError(`«${h.title.slice(0, 60)}»: ${libraryErrorText(r.error.code)}`);
     } catch (err) {
       setError(err instanceof ApiError && !err.code.startsWith("AGENT") && err.code !== "NETWORK" ? libraryErrorText(err.code) : errorText(err));
+    } finally {
+      setAddingIds((ids) => {
+        const next = new Set(ids);
+        next.delete(h.id);
+        return next;
+      });
     }
   };
 
@@ -525,8 +543,8 @@ export function LibraryBrowser({
               ) : reading.has(h.id) ? (
                 <span className="lb-reading">{h.hasPdf ? "leyendo el PDF…" : "agregando…"}</span>
               ) : (
-                <button className="lb-add" disabled={disabled} onClick={() => void add(h)}>
-                  + agregar
+                <button className="lb-add" disabled={disabled || addingIds.has(h.id)} onClick={() => void add(h)}>
+                  {addingIds.has(h.id) ? "agregando…" : "+ agregar"}
                 </button>
               )}
             </li>

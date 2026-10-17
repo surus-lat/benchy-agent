@@ -414,6 +414,7 @@ export default function Workspace({ slug, stage: stageParam }: { slug: string; s
           openExam={openExam}
           onRun={requestRun}
           generatePrompt={batchPrompt(5, slug, papers.length > 0)}
+          papers={papers}
         />
       </main>
     </div>
@@ -682,7 +683,7 @@ function Authoring({
             <div className="ws-batch-foot">
               <button
                 className="ws-btn-dark sm"
-                disabled={locked || !openExam}
+                disabled={locked || !openExam || papers.length === 0}
                 onClick={() => {
                   setBatchOpen(false);
                   onBatch(batchN, fromPapers);
@@ -934,7 +935,7 @@ function QuestionEditor({
         </div>
       </div>
 
-      {/* What the grader checks, where the question comes from, and why it is asked. */}
+      {/* What the grader checks, why the question is asked, and where it comes from. */}
       <div className="ws-col">
         <div className="ws-col-head">
           <span className="ws-eyebrow">Rúbrica</span>
@@ -962,17 +963,17 @@ function QuestionEditor({
         </div>
 
         <div className="ws-col-head sub">
-          <span className="ws-eyebrow">Fuentes</span>
-        </div>
-        <div className="ws-card ws-pad">
-          <SourcesEditor sources={q.meta.sources ?? []} papers={papers} locked={locked} onChange={setSources} />
-        </div>
-
-        <div className="ws-col-head sub">
           <span className="ws-eyebrow">Por qué esta pregunta</span>
         </div>
         <div className="ws-card ws-pad">
           <AutoText className="soft" value={q.meta.why ?? ""} onChange={(v) => edit("why", v)} label="Por qué esta pregunta" disabled={locked} placeholder="Qué error de los modelos busca exponer…" />
+        </div>
+
+        <div className="ws-col-head sub">
+          <span className="ws-eyebrow">Fuentes</span>
+        </div>
+        <div className="ws-card ws-pad">
+          <SourcesEditor sources={q.meta.sources ?? []} papers={papers} locked={locked} onChange={setSources} />
         </div>
       </div>
     </div>
@@ -1868,6 +1869,7 @@ function AgentWindow({
   openExam,
   onRun,
   generatePrompt,
+  papers,
 }: {
   front: "A" | "B";
   instant: boolean;
@@ -1879,6 +1881,7 @@ function AgentWindow({
   openExam: boolean;
   onRun: () => void;
   generatePrompt: string;
+  papers: Source[];
 }) {
   const [draft, setDraft] = useState("");
   const thread = useRef<HTMLDivElement>(null);
@@ -1987,7 +1990,7 @@ function AgentWindow({
         <div className="ws-b-foot">
           <div className="ws-chips">
             {openExam && (
-              <button disabled={chat.pending} onClick={() => void ask(generatePrompt)}>
+              <button disabled={chat.pending || papers.length === 0} onClick={() => void ask(generatePrompt)}>
                 Generá 5 preguntas nuevas
               </button>
             )}
