@@ -50,6 +50,10 @@ const activitySchema = z.object({
 /** Edits to the same file by the same person within this window are one entry. */
 const COALESCE_MS = 15 * 60 * 1000;
 const turnSchema = z.object({ message: z.string().trim().min(1).max(20_000) });
+/** A judge model id from the agent's catalog (the container checks it against
+ *  its catalog when the evaluation starts; the Worker checks shape only), or
+ *  null to clear the setting. */
+const judgeModelSchema = z.string().trim().min(1).max(100);
 
 function newId(prefix: string): string {
   const bytes = crypto.getRandomValues(new Uint8Array(10));
@@ -74,6 +78,7 @@ export function createConversationsApp(deps: ConversationsDeps) {
   app.use("/api/conversations/*", authed);
   app.use("/api/conversations", authed);
   app.use("/api/workspace/*", authed);
+  app.use("/api/org/*", authed);
   app.use("/api/models", authed);
   app.use("/api/me", authed);
   app.use("/api/activity", authed);
@@ -335,10 +340,15 @@ export function createConversationsApp(deps: ConversationsDeps) {
     if (!Array.isArray(models) || models.length === 0 || models.length > 20 || !models.every((m) => typeof m === "string" && m && m.length <= 100)) {
       return c.json({ error: "INVALID_BODY" }, 400);
     }
-    const agent = await deps.agentFor(c.get("user").orgId);
+    const user = c.get("user");
+    const agent = await deps.agentFor(user.orgId);
     if (!agent) return c.json({ error: "AGENT_NOT_PROVISIONED" }, 503);
+    // The judge these runs grade with: the benchmark's override, else the
+    // org's default, else nothing — the container keeps the benchmark's own
+    // scoring.grader (the system's default).
+    const judge = await judgeFor(user.orgId, path.split("/")[0]);
     try {
-      const result = await agent.startEvaluation(path, models as string[]);
+      const result = await agent.startEvaluation(path, models as string[], judge.effective ?? undefined);
       if (result.status === "busy") return c.json({ ...(result.body as object), error: "EVALUATION_RUNNING" }, 409);
       if (result.status === "started") {
         await log(c.get("user"), path.split("/")[0], "evaluate", `evaluó ${models.length === 1 ? "un modelo" : `${models.length} modelos`}: ${models.join(", ")}`);
@@ -481,6 +491,58 @@ export function createConversationsApp(deps: ConversationsDeps) {
     }
   });
 
+  // The judge model an evaluation grades with. The org's default lives on its
+  // row; a benchmark may override it (the override wins); with neither, the
+  // benchmark's own scoring.grader judges (the system's default). Any member
+  // may read and change both, like the rest of the org's workspace.
+  app.get("/api/org/judge", async (c) => {
+    const user = c.get("user");
+    const [org] = await db
+      .select({ judgeModel: schema.orgs.judgeModel })
+      .from(schema.orgs)
+      .where(eq(schema.orgs.id, user.orgId))
+      .limit(1);
+    return c.json({ judgeModel: org?.judgeModel ?? null });
+  });
+
+  app.put("/api/org/judge", async (c) => {
+    const user = c.get("user");
+    const parsed = z
+      .object({ judgeModel: judgeModelSchema.nullable() })
+      .safeParse(await c.req.json().catch(() => null));
+    if (!parsed.success) return c.json({ error: "INVALID_BODY" }, 400);
+    await db.update(schema.orgs).set({ judgeModel: parsed.data.judgeModel }).where(eq(schema.orgs.id, user.orgId));
+    return c.json({ judgeModel: parsed.data.judgeModel });
+  });
+
+  // One benchmark's judge config: its override, the org's default, and which
+  // of them the next evaluation runs with (source: "override" | "org" | "system").
+  app.get("/api/workspace/judge", async (c) => {
+    const bench = c.req.query("bench") ?? "";
+    if (!BENCH.test(bench)) return c.json({ error: "INVALID_BENCH" }, 400);
+    return c.json(await judgeFor(c.get("user").orgId, bench));
+  });
+
+  app.put("/api/workspace/judge", async (c) => {
+    const user = c.get("user");
+    const parsed = z
+      .object({ bench: benchSchema, judgeModel: judgeModelSchema.nullable() })
+      .safeParse(await c.req.json().catch(() => null));
+    if (!parsed.success) return c.json({ error: "INVALID_BODY" }, 400);
+    const { bench, judgeModel } = parsed.data;
+    const where = and(eq(schema.benchJudgeOverrides.orgId, user.orgId), eq(schema.benchJudgeOverrides.bench, bench));
+    if (judgeModel === null) {
+      // No row: the org's default applies again.
+      await db.delete(schema.benchJudgeOverrides).where(where);
+    } else {
+      await db
+        .insert(schema.benchJudgeOverrides)
+        .values({ orgId: user.orgId, bench, judgeModel, updatedAt: new Date() })
+        .onConflictDoUpdate({ target: [schema.benchJudgeOverrides.orgId, schema.benchJudgeOverrides.bench], set: { judgeModel, updatedAt: new Date() } });
+    }
+    return c.json(await judgeFor(user.orgId, bench));
+  });
+
   // Who is signed in, and their organization's display name.
   app.get("/api/me", async (c) => {
     const user = c.get("user");
@@ -531,6 +593,22 @@ export function createConversationsApp(deps: ConversationsDeps) {
       .where(and(eq(schema.conversations.id, id), eq(schema.conversations.userId, userId)))
       .limit(1);
     return row ?? null;
+  }
+
+  /** The judge for one benchmark's next evaluation, always within the caller's
+   *  org: the benchmark's override, else the org's default, else null — the
+   *  benchmark's own scoring.grader ("system"). */
+  async function judgeFor(orgId: string, bench: string) {
+    const [override] = await db
+      .select({ judgeModel: schema.benchJudgeOverrides.judgeModel })
+      .from(schema.benchJudgeOverrides)
+      .where(and(eq(schema.benchJudgeOverrides.orgId, orgId), eq(schema.benchJudgeOverrides.bench, bench)))
+      .limit(1);
+    const [org] = await db.select({ judgeModel: schema.orgs.judgeModel }).from(schema.orgs).where(eq(schema.orgs.id, orgId)).limit(1);
+    const orgDefault = org?.judgeModel ?? null;
+    if (override) return { override: override.judgeModel, orgDefault, effective: override.judgeModel, source: "override" as const };
+    if (orgDefault) return { override: null, orgDefault, effective: orgDefault, source: "org" as const };
+    return { override: null, orgDefault, effective: null, source: "system" as const };
   }
 
   function agentFailure(c: any, err: unknown) {

@@ -2,7 +2,7 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useRef, use
 import { Link, useLocation } from "wouter";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
-import { api, errorText, newestPerModel, REGIONS, spellcheckFor, splitAsk, type CatalogModel, type Evaluation, type Message } from "./data";
+import { api, errorText, newestPerModel, REGIONS, spellcheckFor, splitAsk, type CatalogModel, type Evaluation, type JudgeConfig, type Message } from "./data";
 import { useAgentChat } from "./agent-chat";
 import { usePlatform, type BenchSummary, type PendingSource } from "./store";
 import { useEvaluation, useExam, useRunResults, useSelectedModels, type EvaluationState, type ExamState } from "./use-exam";
@@ -1653,6 +1653,35 @@ function EvaluationStage({
     catalog.filter((c) => c.default).map((c) => c.id),
   );
   const byRegion = REGIONS.map((region) => ({ region, items: catalog.filter((c) => c.region === region) })).filter((g) => g.items.length);
+  // The judge of the next evaluation: this benchmark's override ("" when none),
+  // else the org's default, else the benchmark's own grader. Saved on change.
+  const [judge, setJudge] = useState<JudgeConfig | null>(null);
+  const [judgePick, setJudgePick] = useState("");
+  const [judgeSaving, setJudgeSaving] = useState<"idle" | "saving" | "error">("idle");
+  useEffect(() => {
+    setJudge(null);
+    setJudgePick("");
+    void api
+      .benchJudge(bench.slug)
+      .then((j) => {
+        setJudge(j);
+        setJudgePick(j.override ?? "");
+      })
+      .catch(() => {});
+  }, [bench.slug]);
+  async function pickJudge(id: string) {
+    setJudgePick(id);
+    setJudgeSaving("saving");
+    try {
+      const j = await api.setBenchJudge(bench.slug, id || null);
+      setJudge(j);
+      setJudgePick(j.override ?? "");
+      setJudgeSaving("idle");
+    } catch {
+      setJudgeSaving("error");
+    }
+  }
+  const judgeName = (id: string) => catalog.find((c) => c.id === id)?.name ?? id;
   const results = useRunResults(bench);
   const board = newestPerModel(results, bench.doc?.model);
   const start = useCallback(async () => {
@@ -1731,6 +1760,29 @@ function EvaluationStage({
           ))}
           {models.length === 0 && <p className="ws-note" style={{ padding: "11px 0" }}>Cargando modelos…</p>}
         </div>
+        {judge && (
+          <div className="ws-pad" style={{ display: "grid", gap: 6 }}>
+            <p className="ws-eyebrow" style={{ margin: 0 }}>Modelo juez</p>
+            <p className="ws-note" style={{ margin: 0 }}>Califica cada respuesta contra la rúbrica.</p>
+            <select value={judgePick} onChange={(e) => void pickJudge(e.target.value)} disabled={judgeSaving === "saving"}>
+              <option value="">
+                {judge.orgDefault ? `Sin override — ${judgeName(judge.orgDefault)} (default de la organización)` : "Sin override — el del benchmark (default del sistema)"}
+              </option>
+              {catalog.map((c) => (
+                <option key={c.id} value={c.id}>
+                  {c.name}
+                  {c.maker ? ` · ${c.maker}` : ""}
+                </option>
+              ))}
+              {judgePick && !catalog.some((c) => c.id === judgePick) && <option value={judgePick}>{judgePick}</option>}
+            </select>
+            <p className="ws-note" style={{ margin: 0 }}>
+              Juez de la próxima evaluación: {judge.effective ? judgeName(judge.effective) : "el del benchmark"} ·{" "}
+              {judge.source === "override" ? "override de esta evaluación" : judge.source === "org" ? "default de la organización" : "default del sistema"}
+              {judgeSaving === "saving" ? " · guardando…" : judgeSaving === "error" ? " · no se pudo guardar" : ""}
+            </p>
+          </div>
+        )}
         {unapproved > 0 && (
           <p className="ws-eval-warn">
             {unapproved === 1 ? "Falta aprobar 1 pregunta" : `Faltan aprobar ${unapproved} preguntas`}: el examen todavía no está listo. Podés evaluar igual
