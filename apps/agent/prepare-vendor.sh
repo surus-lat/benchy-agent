@@ -7,16 +7,21 @@
 # It is excluded via .git/info/exclude, which `railway up` does not read, so
 # the wheel is uploaded with the build context but stays out of git.
 #
-# Needs: gh (authenticated with access to surus-lat/llm-client) and uv.
+# Needs: gh (authenticated with access to surus-lat/llm-client) and uv; or,
+# as in CI, LLM_CLIENT_SRC set to a full clone of it (then gh is not needed).
 set -eu
 LLM_CLIENT_REF="${LLM_CLIENT_REF:-d00cdbbbb63d831687942a279af9760207a51695}"
 here="$(cd "$(dirname "$0")" && pwd)"
 work="$(mktemp -d)"
 trap 'rm -rf "$work"' EXIT
 
-gh repo clone surus-lat/llm-client "$work/llm-client" -- -q
-git -C "$work/llm-client" checkout -q "$LLM_CLIENT_REF"
+src="${LLM_CLIENT_SRC:-}"
+if [ -z "$src" ]; then
+  gh repo clone surus-lat/llm-client "$work/llm-client" -- -q
+  src="$work/llm-client"
+fi
+git -C "$src" checkout -q "$LLM_CLIENT_REF"
 rm -rf "$here/vendor" && mkdir -p "$here/vendor"
-uv build --wheel --out-dir "$here/vendor" "$work/llm-client" >/dev/null
+uv build --wheel --out-dir "$here/vendor" "$src" >/dev/null
 git -C "$here" check-ignore -q vendor/ || { echo "vendor/ is not git-ignored — refusing" >&2; exit 1; }
 ls "$here/vendor"

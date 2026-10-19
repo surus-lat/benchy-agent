@@ -89,7 +89,7 @@ pnpm invite --org "Universidad X" --email persona@universidad.edu
 
 `invite` crea la organización si no existe, emite una invitación de 7 días, la envía por mail y marca la solicitud como `invited`. Una dirección solo puede ingresar si tiene una invitación pendiente, ya es usuaria o es un mail verificado de un dominio propio de una organización (tabla `orgDomains`, p. ej. `surus.lat` → SURUS): no hay registro abierto.
 
-Despliegue:
+Despliegue: cada push a `main` despliega lo que cambió ([`.github/workflows/deploy.yml`](.github/workflows/deploy.yml)): primero los tests; después las migraciones de D1 y el Worker si cambió `apps/api` o `packages/`, el sitio si cambió `apps/web`, y el agente en cada servicio `agent-*` de Railway si cambió `apps/agent`. También se puede correr a mano desde Actions → Deploy. No despliegues desde tu máquina: producción quedaría corriendo código que no está en `main`. Solo si CI no anda:
 
 ```bash
 pnpm deploy:api   # wrangler deploy → Worker benchy-api

@@ -136,6 +136,18 @@ workspace on the volume and are visible to every member of the org.
 
 ### Deploying
 
+A push to `main` deploys it (`.github/workflows/deploy.yml`): tests, then
+D1 migrations and the Worker if `apps/api` or `packages/` changed, the site if
+`apps/web` changed, and the agent image on every `agent-*` service, SURUS
+first, if `apps/agent` changed. Run it by hand from the Actions tab
+("Deploy", choose a part). Repo secrets: `CLOUDFLARE_API_TOKEN`,
+`RAILWAY_TOKEN` (project token, `benchy-agent` / production),
+`LLM_CLIENT_DEPLOY_KEY` (read-only deploy key of `surus-lat/llm-client`);
+variable `CLOUDFLARE_ACCOUNT_ID`. Do not deploy from a laptop: production
+would then run code that is not on `main`.
+
+By hand, only if CI is down:
+
 ```bash
 pnpm deploy:api && pnpm deploy:web                     # Cloudflare
 apps/agent/prepare-vendor.sh                            # once per llm-client bump
@@ -159,7 +171,8 @@ which is why the build needs no secret at all.
    service first: `railway service agent-<slug>`, then
    `railway volume add --mount-path /opt/data`; relink `agent-surus` after);
    deploy as above; `railway domain --service agent-<slug> --port 8080`.
-   Every image deploy now goes to each `agent-*` service.
+   Add `agent-<slug>` to the agent matrix in `.github/workflows/deploy.yml`,
+   so every image deploy reaches it.
 3. `wrangler secret put AGENT_KEY_<SLUG>` with the same `API_SERVER_KEY`.
 4. `INSERT INTO orgAgentEndpoints (orgId, baseUrl, apiKeyRef, createdAt)`
    with the org id, the Railway URL, and `AGENT_KEY_<SLUG>`.
