@@ -20,7 +20,16 @@ export default defineConfig(async () => {
         cloudflareTest({
           wrangler: { configPath: "./wrangler.jsonc" },
           miniflare: {
-            bindings: { TEST_MIGRATIONS: migrations },
+            // The suite brings its own values, so it runs the same in CI and
+            // on a fresh clone as with a local apps/api/.dev.vars. None is a
+            // real credential: the Turnstile one is Cloudflare's always-pass
+            // test secret.
+            bindings: {
+              TEST_MIGRATIONS: migrations,
+              BETTER_AUTH_SECRET: "test-only-secret-never-used-outside-vitest",
+              BETTER_AUTH_URL: "http://localhost:21707",
+              TURNSTILE_SECRET_KEY: "1x0000000000000000000000000000000AA",
+            },
           },
         }),
       ],
