@@ -8,6 +8,7 @@ import Account from "./account";
 import Workspace from "./workspace";
 import LibraryPage from "./library";
 import ReportPage from "./report";
+import { ProcessIndicator } from "./processes";
 import "./platform.css";
 
 // /app — the platform. Routes:
@@ -27,9 +28,16 @@ export default function PlatformApp() {
   const [isChat] = useRoute("/app/chat");
   const [isReport, rp] = useRoute("/app/b/:slug/informe");
   const [isWorkspace, ws] = useRoute("/app/b/:slug/:stage?");
-  if (isChat) return <AgentApp />;
+  if (isChat)
+    return (
+      <>
+        <AgentApp />
+        <ProcessIndicator />
+      </>
+    );
   return (
     <PlatformProvider>
+      <ProcessIndicator />
       {isReport ? (
         <ReportPage slug={decodeURIComponent(rp!.slug)} />
       ) : isWorkspace ? (
