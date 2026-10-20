@@ -5,7 +5,7 @@ CREATE TABLE `sourceChecklistItems` (
 	`position` integer NOT NULL,
 	`createdAt` integer NOT NULL,
 	PRIMARY KEY(`orgId`, `id`),
-	FOREIGN KEY (`orgId`) REFERENCES `orgs`(`id`) ON UPDATE no action ON DELETE no action
+	FOREIGN KEY (`orgId`) REFERENCES `orgs`(`id`) ON UPDATE no action ON DELETE cascade
 );
 --> statement-breakpoint
 CREATE TABLE `sourceValidations` (
@@ -18,7 +18,7 @@ CREATE TABLE `sourceValidations` (
 	`validatedByName` text,
 	`updatedAt` integer NOT NULL,
 	PRIMARY KEY(`orgId`, `bench`, `sourceId`),
-	FOREIGN KEY (`orgId`) REFERENCES `orgs`(`id`) ON UPDATE no action ON DELETE no action
+	FOREIGN KEY (`orgId`) REFERENCES `orgs`(`id`) ON UPDATE no action ON DELETE cascade
 );
 --> statement-breakpoint
 -- Every org that already exists starts with the placeholder checklist (the

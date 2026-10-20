@@ -61,6 +61,33 @@ const reportEditSchema = z.object({
   markdown: z.string().trim().min(1).max(100_000).nullable(),
 });
 
+/** A source's id in <bench>/sources.json ("conicet-179477", "pdf-…"). */
+const SOURCE_ID = /^[a-z0-9-]{1,120}$/;
+/** A checklist item's id ("respaldo", "it-4f2a…"): kept when the item is renamed. */
+const ITEM_ID = /^[a-z0-9-]{1,40}$/;
+/** The org's checklist for validating new material: 1–20 items. */
+const checklistSchema = z.object({
+  items: z
+    .array(z.object({ id: z.string().regex(ITEM_ID).optional(), label: z.string().trim().min(1).max(200) }))
+    .min(1)
+    .max(20),
+});
+/** The items a member ticked for one source of a benchmark. */
+const sourceValidationSchema = z.object({
+  bench: benchSchema,
+  sourceId: z.string().regex(SOURCE_ID),
+  checked: z.array(z.string().regex(ITEM_ID)).max(50),
+});
+
+/** The placeholder checklist every org starts with (the issue's three
+ *  examples; the concrete list is still to be defined). Migration 0007 seeded
+ *  the orgs that existed at deploy; this covers orgs created after. */
+const DEFAULT_CHECKLIST = [
+  { id: "respaldo", label: "Respaldo editorial o institucional" },
+  { id: "formato", label: "Formato legible: PDF con texto seleccionable" },
+  { id: "trazabilidad", label: "Trazabilidad de la fuente: autoría, año y procedencia identificables" },
+];
+
 function newId(prefix: string): string {
   const bytes = crypto.getRandomValues(new Uint8Array(10));
   return prefix + Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("");
@@ -454,7 +481,13 @@ export function createConversationsApp(deps: ConversationsDeps) {
     if (!agent) return c.json({ error: "AGENT_NOT_PROVISIONED" }, 503);
     try {
       const result = await agent.addSource(body.bench, paper);
-      if (result.ok) await log(c.get("user"), body.bench, "paper", `agregó «${paper.title}»`);
+      if (result.ok) {
+        const user = c.get("user");
+        await log(user, body.bench, "paper", `agregó «${paper.title}»`);
+        // New material starts pending: it passes the org's checklist before
+        // the agent writes questions from it.
+        await markPending(user.orgId, body.bench, result.source.id);
+      }
       return c.json(result);
     } catch (err) {
       return agentFailure(c, err);
@@ -477,7 +510,11 @@ export function createConversationsApp(deps: ConversationsDeps) {
     if (!agent) return c.json({ error: "AGENT_NOT_PROVISIONED" }, 503);
     try {
       const result = await agent.uploadSource(bench, name, pdf);
-      if (result.ok) await log(c.get("user"), bench, "paper", `subió «${result.source.title}»`);
+      if (result.ok) {
+        const user = c.get("user");
+        await log(user, bench, "paper", `subió «${result.source.title}»`);
+        await markPending(user.orgId, bench, result.source.id);
+      }
       return c.json(result);
     } catch (err) {
       return agentFailure(c, err);
@@ -493,11 +530,83 @@ export function createConversationsApp(deps: ConversationsDeps) {
     if (!agent) return c.json({ error: "AGENT_NOT_PROVISIONED" }, 503);
     try {
       const result = await agent.removeSource(bench, id);
-      if (result.ok) await log(c.get("user"), bench, "paper", `quitó ${id}`);
+      if (result.ok) {
+        const user = c.get("user");
+        await log(user, bench, "paper", `quitó ${id}`);
+        await db
+          .delete(schema.sourceValidations)
+          .where(
+            and(
+              eq(schema.sourceValidations.orgId, user.orgId),
+              eq(schema.sourceValidations.bench, bench),
+              eq(schema.sourceValidations.sourceId, id),
+            ),
+          );
+      }
       return c.json(result);
     } catch (err) {
       return agentFailure(c, err);
     }
+  });
+
+  // The validation state of a benchmark's sources, newest edits last. A source
+  // without a row predates this feature: it counts as validated
+  // (grandfathered) — the app shows it as such.
+  app.get("/api/workspace/sources/validation", async (c) => {
+    const bench = c.req.query("bench") ?? "";
+    if (!BENCH.test(bench)) return c.json({ error: "INVALID_BENCH" }, 400);
+    const rows = await db
+      .select()
+      .from(schema.sourceValidations)
+      .where(and(eq(schema.sourceValidations.orgId, c.get("user").orgId), eq(schema.sourceValidations.bench, bench)));
+    return c.json({ validations: rows.map(validationOut) });
+  });
+
+  // Ticks of the org's checklist for one source. The source is validated the
+  // moment every item of the current checklist is ticked (who and when are
+  // kept); once validated it stays validated — unticking later, or editing the
+  // checklist after, does not take it back.
+  app.put("/api/workspace/sources/validation", async (c) => {
+    const user = c.get("user");
+    const parsed = sourceValidationSchema.safeParse(await c.req.json().catch(() => null));
+    if (!parsed.success) return c.json({ error: "INVALID_BODY" }, 400);
+    const { bench, sourceId } = parsed.data;
+    const items = await checklistFor(user.orgId);
+    const known = new Set(items.map((i) => i.id));
+    const checked = [...new Set(parsed.data.checked.filter((id) => known.has(id)))];
+    const done = items.every((i) => checked.includes(i.id));
+    const now = new Date();
+    const where = and(
+      eq(schema.sourceValidations.orgId, user.orgId),
+      eq(schema.sourceValidations.bench, bench),
+      eq(schema.sourceValidations.sourceId, sourceId),
+    );
+    const [existing] = await db.select().from(schema.sourceValidations).where(where).limit(1);
+    const firstTime = !existing?.validatedAt && done;
+    const row = {
+      orgId: user.orgId,
+      bench,
+      sourceId,
+      checked: JSON.stringify(checked),
+      validatedAt: existing?.validatedAt ?? (done ? now : null),
+      validatedBy: existing?.validatedBy ?? (firstTime ? user.id : null),
+      validatedByName: existing?.validatedByName ?? (firstTime ? user.name.trim() || user.email : null),
+      updatedAt: now,
+    };
+    await db
+      .insert(schema.sourceValidations)
+      .values(row)
+      .onConflictDoUpdate({
+        target: [schema.sourceValidations.orgId, schema.sourceValidations.bench, schema.sourceValidations.sourceId],
+        set: {
+          checked: row.checked,
+          validatedAt: row.validatedAt,
+          validatedBy: row.validatedBy,
+          validatedByName: row.validatedByName,
+          updatedAt: row.updatedAt,
+        },
+      });
+    return c.json({ validation: validationOut(row) });
   });
 
   // The org's record of its work: who did what on which benchmark, newest first.
@@ -597,6 +706,32 @@ export function createConversationsApp(deps: ConversationsDeps) {
     return c.json(await judgeFor(user.orgId, bench));
   });
 
+  // The org's checklist for validating new material before it can be a source.
+  // Any member may read or edit it; only the latest version is kept (no
+  // history), and editing it never re-validates material that already passed.
+  app.get("/api/org/source-checklist", async (c) => {
+    return c.json({ items: await checklistFor(c.get("user").orgId) });
+  });
+
+  app.put("/api/org/source-checklist", async (c) => {
+    const user = c.get("user");
+    const parsed = checklistSchema.safeParse(await c.req.json().catch(() => null));
+    if (!parsed.success) return c.json({ error: "INVALID_BODY" }, 400);
+    const ids = parsed.data.items.flatMap((i) => (i.id ? [i.id] : []));
+    if (new Set(ids).size !== ids.length) return c.json({ error: "INVALID_BODY" }, 400);
+    const now = new Date();
+    const items = parsed.data.items.map((it, i) => ({
+      orgId: user.orgId,
+      id: it.id ?? newId("it-"),
+      label: it.label,
+      position: i,
+      createdAt: now,
+    }));
+    await db.delete(schema.sourceChecklistItems).where(eq(schema.sourceChecklistItems.orgId, user.orgId));
+    await db.insert(schema.sourceChecklistItems).values(items);
+    return c.json({ items: items.map((it) => ({ id: it.id, label: it.label })) });
+  });
+
   // Who is signed in, and their organization's display name.
   app.get("/api/me", async (c) => {
     const user = c.get("user");
@@ -663,6 +798,48 @@ export function createConversationsApp(deps: ConversationsDeps) {
     if (override) return { override: override.judgeModel, orgDefault, effective: override.judgeModel, source: "override" as const };
     if (orgDefault) return { override: null, orgDefault, effective: orgDefault, source: "org" as const };
     return { override: null, orgDefault, effective: null, source: "system" as const };
+  }
+
+  /** The org's checklist, materializing the placeholder one on first read
+   *  (orgs created after migration 0007 seeded theirs). */
+  async function checklistFor(orgId: string) {
+    const existing = await db
+      .select({ id: schema.sourceChecklistItems.id, label: schema.sourceChecklistItems.label })
+      .from(schema.sourceChecklistItems)
+      .where(eq(schema.sourceChecklistItems.orgId, orgId))
+      .orderBy(asc(schema.sourceChecklistItems.position));
+    if (existing.length) return existing;
+    const now = new Date();
+    await db
+      .insert(schema.sourceChecklistItems)
+      .values(DEFAULT_CHECKLIST.map((it, i) => ({ orgId, id: it.id, label: it.label, position: i, createdAt: now })))
+      .onConflictDoNothing();
+    return DEFAULT_CHECKLIST.map((it) => ({ id: it.id, label: it.label }));
+  }
+
+  /** A source added from the platform starts pending: it passes the org's
+   *  checklist before the agent writes questions from it. Re-adding one that
+   *  was removed starts it over. */
+  async function markPending(orgId: string, bench: string, sourceId: string) {
+    const now = new Date();
+    await db
+      .insert(schema.sourceValidations)
+      .values({ orgId, bench, sourceId, checked: "[]", validatedAt: null, validatedBy: null, validatedByName: null, updatedAt: now })
+      .onConflictDoUpdate({
+        target: [schema.sourceValidations.orgId, schema.sourceValidations.bench, schema.sourceValidations.sourceId],
+        set: { checked: "[]", validatedAt: null, validatedBy: null, validatedByName: null, updatedAt: now },
+      });
+  }
+
+  function validationOut(r: typeof schema.sourceValidations.$inferSelect) {
+    let checked: string[] = [];
+    try {
+      const v = JSON.parse(r.checked) as unknown;
+      if (Array.isArray(v)) checked = v.filter((x): x is string => typeof x === "string");
+    } catch {
+      // Our own writes are JSON; a corrupted row reads as nothing ticked.
+    }
+    return { sourceId: r.sourceId, checked, validatedAt: r.validatedAt, validatedByName: r.validatedByName };
   }
 
   function agentFailure(c: any, err: unknown) {
