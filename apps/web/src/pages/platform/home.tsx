@@ -46,7 +46,7 @@ export default function Home() {
         </button>
       </div>
 
-      {loadError && <p className="bp-error" style={{ marginTop: 16 }}>No pudimos leer el workspace ({loadError}).</p>}
+      {loadError && <p className="bp-error" style={{ marginTop: 16 }}>No pudimos cargar los benchmarks de tu organización. {loadError}</p>}
 
       {benches.length > 0 && (
         <div className="card" style={{ marginTop: 24, overflow: "hidden" }}>

@@ -1,7 +1,9 @@
-// A new benchmark, made by the app without the agent: the folder, a
-// benchmark.yaml for open questions with a starting rubric, an empty exam and
-// its notes. The researcher lands in A · Interfaz with it; the agent is there in
-// B if they want it, never in the way.
+// A new benchmark, made by the app without the agent: the wizard asks only
+// for the benchmark itself — the folder, a benchmark.yaml for open questions
+// with a starting rubric, an empty exam and its notes — and the researcher
+// lands in 01 · Fuentes to curate the bibliography (the papers and
+// publications the questions are written from). The agent is there in B if
+// they want it, never in the way.
 
 /** The engine's academic domains (its closed vocabulary), with their names in Spanish. */
 export const DOMAINS: [string, string][] = [
@@ -39,6 +41,14 @@ export const LANGUAGES: [string, string][] = [
   ["pt", "Português"],
   ["en", "English"],
 ];
+
+/** A paper picked from the library: what the chosen list shows. hasPdf tells the benchmark's pending note whether the agent reads the full text or just the abstract. */
+export type PickedPaper = { id: number; title: string; creators: string[]; year: number | null; hasPdf?: boolean };
+
+/** A picked bibliography (the benchmark's Fuentes, via the shared picker): a paper toggles in or out of the list and is never in it twice. */
+export function togglePaper(list: PickedPaper[], paper: PickedPaper): PickedPaper[] {
+  return list.some((p) => p.id === paper.id) ? list.filter((p) => p.id !== paper.id) : [...list, paper];
+}
 
 /** A folder name from the benchmark's name: lowercase ASCII words joined by hyphens. */
 export function slugify(name: string): string {

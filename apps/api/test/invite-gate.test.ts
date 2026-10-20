@@ -44,7 +44,12 @@ async function seedInvite(overrides: {
   });
 }
 
+async function seedDomain(domain: string, orgId: string) {
+  await db.insert(schema.orgDomains).values({ domain, orgId, createdAt: new Date() });
+}
+
 beforeEach(async () => {
+  await db.delete(schema.orgDomains);
   await db.delete(schema.invites);
   await db.delete(schema.user);
   await db.delete(schema.orgs);
@@ -155,6 +160,36 @@ it("requireInviteForSignup returns the invite when one is pending", async ({
 
   const invite = await requireInviteForSignup(db, "invited@example.com");
   expect(invite.orgId).toBe(orgId);
+});
+
+it("requireInviteForSignup lets a verified address in an org's domain in, to that org", async ({
+  expect,
+}) => {
+  const orgId = await seedOrg("org_surus");
+  await seedDomain("surus.lat", orgId);
+
+  expect(await requireInviteForSignup(db, "Colega@SURUS.lat", true)).toEqual({ orgId });
+  // An address its owner never proved (a Google account can carry one) is not enough.
+  await expect(requireInviteForSignup(db, "colega@surus.lat", false)).rejects.toThrow(/no pending invite/i);
+  // Only that exact domain: not a lookalike, not a subdomain.
+  await expect(requireInviteForSignup(db, "x@notsurus.lat", true)).rejects.toThrow(/no pending invite/i);
+  await expect(requireInviteForSignup(db, "x@mail.surus.lat", true)).rejects.toThrow(/no pending invite/i);
+});
+
+it("requireInviteForSignup prefers an invite's org over the domain's", async ({ expect }) => {
+  const surus = await seedOrg("org_surus");
+  const other = await seedOrg("org_other");
+  await seedDomain("surus.lat", surus);
+  await seedInvite({ id: "invite_1", orgId: other, email: "colega@surus.lat" });
+
+  expect((await requireInviteForSignup(db, "colega@surus.lat", true)).orgId).toBe(other);
+});
+
+it("requireInviteOrExistingUser sends a code to an address in an org's domain", async ({ expect }) => {
+  await seedDomain("surus.lat", await seedOrg("org_surus"));
+
+  await expect(requireInviteOrExistingUser(db, "nuevo@surus.lat")).resolves.toBeUndefined();
+  await expect(requireInviteOrExistingUser(db, "nuevo@gmail.com")).rejects.toThrow(/no pending invite/i);
 });
 
 it("requireInviteOrExistingUser allows a returning user with no pending invite", async ({
