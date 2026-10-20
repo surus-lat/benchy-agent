@@ -183,6 +183,7 @@
 .ws-batch-grid { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 8px; align-items: end; padding: 8px 12px; }
 .ws-batch-grid label { display: grid; gap: 4px; min-width: 0; font: 400 10.5px var(--mono); letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); }
 .ws-batch-grid select { width: 100%; border: 1px solid var(--line); border-radius: 8px; background: #fff; padding: 5px 6px; font: 13px var(--sans); color: var(--muted); text-transform: none; letter-spacing: 0; }
+.ws-batch-grid .ws-batch-src { font: 13px var(--sans); color: var(--body); text-transform: none; letter-spacing: 0; padding: 5px 0; }
 .ws-batch-foot { display: flex; gap: 6px; padding: 8px 12px 12px; border-top: 1px solid var(--line-soft); }
 .ws-batch-foot .ws-btn-dark { flex: 1; }
 

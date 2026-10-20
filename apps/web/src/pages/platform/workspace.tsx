@@ -75,10 +75,8 @@ const CONTEXT = /^\(Benchmark abierto en la app: [^)]*\)\n\n/;
 /** What the agent is asked for a batch: from the benchmark's papers when it has
  *  them. Only the validated papers are named (ids): a pending one stays out of
  *  generation until the org ticks it off in the Papers drawer. */
-function batchPrompt(n: number, slug: string, fromPapers: boolean, ids: string[] = []): string {
+function batchPrompt(n: number, slug: string, ids: string[] = []): string {
   const tail = `Agregalas al final de exam.jsonl y de questions.json (status draft, by agente, con su group). No toques las preguntas existentes.`;
-  if (!fromPapers)
-    return `Generá ${n} preguntas nuevas para este examen, cada una con su respuesta experta, por qué la pregunta importa y sus fuentes. ${tail}`;
   const which =
     ids.length > 0
       ? `estos papers del benchmark: ${ids.join(", ")} (la lista en ${slug}/sources.json, el texto de cada uno en ${slug}/sources/)`
@@ -343,10 +341,10 @@ export default function Workspace({ slug, stage: stageParam }: { slug: string; s
                 validPapers={validPapers}
                 onPapers={() => setPapersOpen(true)}
                 onDelete={deleteQuestion}
-                onBatch={async (n, fromPapers) => {
+                onBatch={async (n) => {
                   setGenerating(n);
                   const before = qs.length;
-                  await ask(batchPrompt(n, slug, fromPapers, validPapers.map((s) => s.id)));
+                  await ask(batchPrompt(n, slug, validPapers.map((s) => s.id)));
                   setGenerating(null);
                   setQIndex(before);
                 }}
@@ -472,8 +470,7 @@ export default function Workspace({ slug, stage: stageParam }: { slug: string; s
           ask={ask}
           openExam={openExam}
           onRun={requestRun}
-          generatePrompt={batchPrompt(5, slug, validPapers.length > 0, validPapers.map((s) => s.id))}
-          papers={papers}
+          generatePrompt={validPapers.length > 0 ? batchPrompt(5, slug, validPapers.map((s) => s.id)) : null}
         />
       </main>
     </div>
@@ -563,7 +560,7 @@ function Authoring({
   /** The papers whose validation passed: the only ones the agent may write from. */
   validPapers: Source[];
   onPapers: () => void;
-  onBatch: (n: number, fromPapers: boolean) => void;
+  onBatch: (n: number) => void;
   onDraft: (q: Question) => void;
   onDelete: (q: Question) => void;
 }) {
@@ -571,8 +568,6 @@ function Authoring({
   const [filter, setFilter] = useState<"all" | "pend" | "issues">("all");
   const [batchOpen, setBatchOpen] = useState(false);
   const [batchN, setBatchN] = useState(5);
-  const [batchFrom, setBatchFrom] = useState<"papers" | "none">("papers");
-  const fromPapers = batchFrom === "papers" && validPapers.length > 0;
   // Papers waiting for the org's checklist: they stay out of generation.
   const pendingCount = papers.length - validPapers.length;
   const [writing, setWriting] = useState<number | null>(null);
@@ -712,17 +707,14 @@ function Authoring({
                   ))}
                 </div>
               </label>
-              <label>
-                Fuente
-                <select value={fromPapers ? "papers" : "none"} onChange={(e) => setBatchFrom(e.target.value as "papers" | "none")}>
-                  {validPapers.length > 0 && (
-                    <option value="papers">
-                      {validPapers.length === 1 ? "El paper validado del benchmark" : `Los ${validPapers.length} papers validados del benchmark`}
-                    </option>
-                  )}
-                  <option value="none">Sin papers: lo que sabe el agente</option>
-                </select>
-              </label>
+              {validPapers.length > 0 && (
+                <label>
+                  Fuente
+                  <span className="ws-batch-src">
+                    {validPapers.length === 1 ? "El paper validado del benchmark" : `Los ${validPapers.length} papers validados del benchmark`}
+                  </span>
+                </label>
+              )}
             </div>
             {reading > 0 && (
               <p className="ws-batch-note">
@@ -747,7 +739,7 @@ function Authoring({
             )}
             {papers.length === 0 && (
               <p className="ws-batch-note">
-                Sin papers, el agente escribe de lo que sabe y no puede citar.{" "}
+                Sin papers no se genera el lote: el agente escribe solo desde los papers validados, con cita.{" "}
                 <button
                   className="ws-link"
                   onClick={() => {
@@ -765,7 +757,7 @@ function Authoring({
                 disabled={locked || !openExam || validPapers.length === 0}
                 onClick={() => {
                   setBatchOpen(false);
-                  onBatch(batchN, fromPapers);
+                  onBatch(batchN);
                 }}
               >
                 Generar {batchN}
@@ -824,7 +816,7 @@ function Authoring({
             <EmptyCard
               title="Todavía no hay preguntas"
               text={`El agente puede escribir un primer lote a partir de ${validPapers.length === 1 ? "tu paper validado" : `tus ${validPapers.length} papers validados`}, cada pregunta con su respuesta experta y la página que la respalda. O escribí la primera vos.`}
-              onAgent={() => onBatch(5, true)}
+              onAgent={() => onBatch(5)}
               agentLabel="Pedile 5 preguntas al agente"
               onSelf={addQuestion}
               locked={locked}
@@ -2177,7 +2169,6 @@ function AgentWindow({
   openExam,
   onRun,
   generatePrompt,
-  papers,
 }: {
   front: "A" | "B";
   instant: boolean;
@@ -2188,8 +2179,8 @@ function AgentWindow({
   ask: (t: string) => Promise<void>;
   openExam: boolean;
   onRun: () => void;
-  generatePrompt: string;
-  papers: Source[];
+  /** Null when the benchmark has no validated papers: generation stays off. */
+  generatePrompt: string | null;
 }) {
   const [draft, setDraft] = useState("");
   const thread = useRef<HTMLDivElement>(null);
@@ -2298,7 +2289,13 @@ function AgentWindow({
         <div className="ws-b-foot">
           <div className="ws-chips">
             {openExam && (
-              <button disabled={chat.pending || papers.length === 0} onClick={() => void ask(generatePrompt)}>
+              <button
+                disabled={chat.pending || !generatePrompt}
+                title={generatePrompt ? undefined : "Validá un paper primero: el agente escribe solo desde los papers validados"}
+                onClick={() => {
+                  if (generatePrompt) void ask(generatePrompt);
+                }}
+              >
                 Generá 5 preguntas nuevas
               </button>
             )}
