@@ -88,6 +88,17 @@ export function rememberConversation(slug: string, id: string | null) {
   }
 }
 
+/** The workspace listing, asked twice before giving up: one failed request is not an outage. */
+async function filesWithRetry(): Promise<{ files: WorkspaceFile[] }> {
+  try {
+    return await api.files();
+  } catch (err) {
+    if (err instanceof ApiError && (err.code === "AGENT_NOT_PROVISIONED" || err.code === "UNAUTHENTICATED")) throw err;
+    await new Promise((r) => setTimeout(r, 1500));
+    return api.files();
+  }
+}
+
 async function summarize(b: Bench, cache: Map<string, BenchSummary>): Promise<BenchSummary> {
   const key = `${b.slug}@${b.modified}`;
   const hit = cache.get(key);
@@ -126,10 +137,12 @@ export function PlatformProvider({ children }: { children: ReactNode }) {
   const dismissFailedSource = useCallback((bench: string, id: number) => setFailedSources((f) => f.filter((x) => !(x.bench === bench && x.id === id))), []);
   const [lastBench, setLastBench] = useState<string | null>(null);
   const cache = useRef(new Map<string, BenchSummary>());
+  const loaded = useRef(false);
 
   const refresh = useCallback(async () => {
     try {
-      const { files } = await api.files();
+      const { files } = await filesWithRetry();
+      loaded.current = true;
       setFiles(files);
       setNotProvisioned(false);
       setLoadError(null);
@@ -141,10 +154,12 @@ export function PlatformProvider({ children }: { children: ReactNode }) {
       if (err instanceof ApiError && err.code === "AGENT_NOT_PROVISIONED") {
         setNotProvisioned(true);
         setFiles([]);
-      } else {
-        setLoadError(err instanceof ApiError ? err.code : "UNKNOWN");
+      } else if (!loaded.current || (err instanceof ApiError && err.code === "UNAUTHENTICATED")) {
+        setLoadError(`${errorText(err)} (${err instanceof ApiError ? err.code : "UNKNOWN"})`);
         setFiles((f) => f ?? []);
       }
+      // Otherwise a background look failed (a network blip, the tab waking up):
+      // what is on screen stays, and the next look tries again.
     }
   }, []);
 

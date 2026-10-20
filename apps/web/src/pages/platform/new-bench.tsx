@@ -1,14 +1,18 @@
-import { useEffect, useMemo, useState, type FormEvent } from "react";
+import { useMemo, useState, type FormEvent } from "react";
 import { useLocation } from "wouter";
 import { api, ApiError, errorText, spellcheckFor } from "./data";
 import { serializeMeta } from "./exam-model";
 import { usePlatform } from "./store";
-import { authorsLine, library, sources, type Paper } from "./library-data";
+import { sources } from "./library-data";
 import { benchmarkYaml, DOMAINS, LANGUAGES, slugify, uniqueSlug } from "./new-bench-model";
 
-// /app/nuevo — a new benchmark: its name, field and language, and the app
-// creates it and opens it in A · Interfaz, where the researcher writes the
-// questions or adds papers. The agent waits in B; nothing here talks to it.
+// /app/nuevo — a new benchmark, name-first: the form is the whole wizard.
+// Creating it lands in 01 · Fuentes, where the bibliography is chosen (the
+// papers and publications the questions are written from); Autoría comes
+// after, with the agent writing the questions over those sources. Started
+// from a paper in the library (/app/nuevo?paper=<id>), that paper goes in as
+// the first source when the benchmark is created. The agent waits in B;
+// nothing here talks to it.
 
 export function NewBench() {
   const { files, benches, refresh } = usePlatform();
@@ -16,19 +20,16 @@ export function NewBench() {
   const [name, setName] = useState("");
   const [domain, setDomain] = useState("general");
   const [language, setLanguage] = useState("es");
-  const [state, setState] = useState<"idle" | "creating" | "paper">("idle");
+  const [state, setState] = useState<"idle" | "creating">("idle");
   const [error, setError] = useState<string | null>(null);
 
-  // Started from a paper in the library (/app/nuevo?paper=<id>): it is added
-  // to the benchmark right after it is created.
+  // Started from a paper in the library (/app/nuevo?paper=<id>): the wizard
+  // still asks only for the benchmark — the paper is added as its first
+  // source on creation and shows up in Fuentes.
   const paperId = useMemo(() => {
     const id = Number(new URLSearchParams(window.location.search).get("paper"));
     return Number.isSafeInteger(id) && id > 0 ? id : null;
   }, []);
-  const [paper, setPaper] = useState<Paper | null>(null);
-  useEffect(() => {
-    if (paperId) void library.paper(paperId).then(setPaper, () => {});
-  }, [paperId]);
 
   // Every folder in the workspace, with or without a benchmark.yaml.
   const taken = useMemo(
@@ -60,13 +61,11 @@ export function NewBench() {
       }
       await Promise.all([api.write(`${folder}/exam.jsonl`, "", 0), api.write(`${folder}/questions.json`, serializeMeta([]), 0)]);
       void api.logActivity(folder, "create", "creó el benchmark");
-      if (paperId) {
-        setState("paper");
-        // A paper that cannot be added now can be added from Papers in A.
-        await sources.add(folder, paperId).catch(() => null);
-      }
+      // The paper this was started from becomes the first source; if it
+      // cannot be added now, it can be added from 01 · Fuentes.
+      if (paperId) await sources.add(folder, paperId).catch(() => null);
       await refresh();
-      navigate(`/app/b/${encodeURIComponent(folder)}/autoria`);
+      navigate(`/app/b/${encodeURIComponent(folder)}/fuentes`);
     } catch (err) {
       setError(errorText(err));
       setState("idle");
@@ -77,11 +76,13 @@ export function NewBench() {
     <section className="bp-page bp-newbench">
       <h1 className="bp-h1">Nuevo benchmark</h1>
       <p className="body">
-        Le ponés un nombre y se abre el examen para que escribas las preguntas o agregues los papers de los que salen. La rúbrica arranca con
-        tres criterios que podés cambiar.
+        Le ponés un nombre y se crea: las fuentes las elegís en la pestaña Fuentes, apenas se crea. Después, en Autoría, el agente escribe
+        las preguntas sobre esas fuentes. La rúbrica arranca con tres criterios que podés cambiar.
       </p>
 
       <form className="card-plain bp-newbench-form" onSubmit={(e) => void create(e)}>
+        <span className="eyebrow">El benchmark</span>
+
         <label className="bp-field">
           Nombre
           <input
@@ -121,18 +122,6 @@ export function NewBench() {
           </label>
         </div>
 
-        {paper && (
-          <div className="bp-start-paper">
-            <span className="eyebrow">Paper de partida</span>
-            <span className="t">{paper.title}</span>
-            <span className="body">
-              {authorsLine(paper.creators, 3)}
-              {paper.year ? ` · ${paper.year}` : ""}
-            </span>
-            <span className="muted">Se agrega al benchmark apenas se crea.</span>
-          </div>
-        )}
-
         {error && (
           <p className="bp-newbench-error" role="alert">
             {error}
@@ -141,7 +130,7 @@ export function NewBench() {
 
         <div className="bp-newbench-foot">
           <button type="submit" className="btn" disabled={!name.trim() || state !== "idle"}>
-            {state === "creating" ? "Creando…" : state === "paper" ? "Agregando el paper…" : "Crear y abrir"}
+            {state === "creating" ? "Creando…" : "Crear y abrir"}
           </button>
           <button type="button" className="btn-ghost" onClick={() => navigate("/app")} disabled={state !== "idle"}>
             Cancelar

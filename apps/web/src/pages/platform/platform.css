@@ -240,3 +240,48 @@ button.bp-row:hover { background: var(--paper); }
   .bp-res-row { grid-template-columns: minmax(0, 1fr) 3.5rem; }
   .bp-res-row .bp-res-bar { grid-column: 1 / -1; grid-row: 2; }
 }
+
+/* Global process indicator (issue #7): a badge over every platform view.
+   Self-scoped — it also mounts outside .bp (workspace, report, legacy chat),
+   so it redeclares the handful of tokens it uses. */
+.bp-procs {
+  --ink: #2a2e3a; --muted: #756e66; --line-soft: #ede7e0;
+  --amber-ink: #c97a10; --fail: #b4342a; --ok-dot: #1f8a5b;
+  --sans: "Hanken Grotesk", system-ui, sans-serif; --mono: "JetBrains Mono", ui-monospace, monospace;
+  position: fixed; right: 16px; bottom: 16px; z-index: 90;
+  display: flex; flex-direction: column; align-items: flex-end; gap: 8px;
+  font-family: var(--sans); color: var(--ink);
+}
+.bp-procs button { font: inherit; color: inherit; cursor: pointer; }
+.bp-procs-badge {
+  display: flex; align-items: center; gap: 8px; max-width: 320px;
+  border: 1px solid var(--line-soft); border-radius: 999px; background: #fff;
+  padding: 8px 14px; font-size: 13px;
+  box-shadow: 0 1px 2px rgba(42, 46, 58, 0.06), 0 12px 28px -14px rgba(42, 46, 58, 0.22);
+}
+.bp-procs-badge.on { border-color: #f0dfc0; background: #fffdf8; }
+.bp-procs-text { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.bp-procs-dot { width: 8px; height: 8px; flex: none; border-radius: 999px; background: #d9d2ca; }
+.bp-procs-dot.pulse { background: var(--amber-ink); animation: bp-procs-pulse 1.6s ease-in-out infinite; }
+.bp-procs-badge.warn .bp-procs-dot { background: var(--fail); }
+@keyframes bp-procs-pulse { 50% { opacity: 0.35; } }
+.bp-procs-panel {
+  width: 340px; max-width: calc(100vw - 32px); max-height: 60vh; overflow: auto;
+  background: #fff; border: 1px solid var(--line-soft); border-radius: 14px;
+  box-shadow: 0 2px 4px rgba(42, 46, 58, 0.06), 0 18px 44px -18px rgba(42, 46, 58, 0.3);
+  padding: 10px 12px;
+}
+.bp-procs-head { display: flex; align-items: center; justify-content: space-between; font-weight: 600; font-size: 14px; padding: 2px 4px 8px; }
+.bp-procs-close { border: 0; background: none; font-size: 18px; line-height: 1; color: var(--muted); padding: 2px 6px; border-radius: 8px; }
+.bp-procs-close:hover { background: rgba(42, 46, 58, 0.06); }
+.bp-procs-eyebrow { font: 400 11px var(--mono); letter-spacing: 0.08em; text-transform: uppercase; color: var(--amber-ink); margin: 8px 4px 4px; }
+.bp-procs-empty { color: var(--muted); font-size: 13px; margin: 4px; }
+.bp-procs-row { display: flex; gap: 10px; align-items: flex-start; padding: 6px 4px; border-top: 1px solid var(--line-soft); }
+.bp-procs-eyebrow + .bp-procs-row { border-top: 0; }
+.bp-procs-row-dot { width: 7px; height: 7px; flex: none; border-radius: 999px; background: var(--amber-ink); margin-top: 6px; }
+.bp-procs-row-dot.done { background: var(--ok-dot); }
+.bp-procs-row-dot.failed { background: var(--fail); }
+.bp-procs-row-main { display: flex; flex-direction: column; min-width: 0; }
+.bp-procs-row-title { font-size: 13px; font-weight: 600; }
+.bp-procs-row-sub { font-size: 12px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+@media print { .bp-procs { display: none; } }

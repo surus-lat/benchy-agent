@@ -56,6 +56,18 @@ export async function findPendingInvite(db: Db, email: string) {
   return invite;
 }
 
+/** The org whose email domain this address is in (orgDomains), or null. */
+export async function findDomainOrg(db: Db, email: string): Promise<string | null> {
+  const domain = email.toLowerCase().split("@").pop();
+  if (!domain) return null;
+  const [row] = await db
+    .select({ orgId: schema.orgDomains.orgId })
+    .from(schema.orgDomains)
+    .where(eq(schema.orgDomains.domain, domain))
+    .limit(1);
+  return row?.orgId ?? null;
+}
+
 async function userExists(db: Db, email: string): Promise<boolean> {
   const [row] = await db
     .select({ id: schema.user.id })
@@ -65,25 +77,36 @@ async function userExists(db: Db, email: string): Promise<boolean> {
   return Boolean(row);
 }
 
-/** Authoritative gate: a user row may only be created for an invited email. */
-export async function requireInviteForSignup(db: Db, email: string) {
+/**
+ * Authoritative gate: a user row may only be created for an invited email, or
+ * for a verified address in an org's domain. An invite wins: it names the org.
+ * The domain path needs `emailVerified` because a Google account can carry an
+ * address its owner never proved (the code sign-in always proves it).
+ */
+export async function requireInviteForSignup(
+  db: Db,
+  email: string,
+  emailVerified = false,
+): Promise<{ orgId: string }> {
   const invite = await findPendingInvite(db, email);
-  if (!invite) {
-    throw new APIError("FORBIDDEN", {
-      message: NO_INVITE_MESSAGE,
-      code: NO_INVITE_CODE,
-    });
-  }
-  return invite;
+  if (invite) return invite;
+  const orgId = emailVerified ? await findDomainOrg(db, email) : null;
+  if (orgId) return { orgId };
+  throw new APIError("FORBIDDEN", {
+    message: NO_INVITE_MESSAGE,
+    code: NO_INVITE_CODE,
+  });
 }
 
 /**
  * Request-time gate. A returning user has no pending invite any more — theirs
  * was accepted at signup — so their existing user row is what lets them back in.
+ * An address in an org's domain may ask for a code: receiving it proves it.
  */
 export async function requireInviteOrExistingUser(db: Db, email: string) {
   if (await userExists(db, email)) return;
   if (await findPendingInvite(db, email)) return;
+  if (await findDomainOrg(db, email)) return;
   throw new APIError("FORBIDDEN", {
     message: NO_INVITE_MESSAGE,
     code: NO_INVITE_CODE,

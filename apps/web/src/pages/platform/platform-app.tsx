@@ -8,13 +8,14 @@ import Account from "./account";
 import Workspace from "./workspace";
 import LibraryPage from "./library";
 import ReportPage from "./report";
+import { ProcessIndicator } from "./processes";
 import "./platform.css";
 
 // /app — the platform. Routes:
 //   /app                    benchmarks home
 //   /app/nuevo              a new benchmark: name, field, language; opens in A
 //   /app/b/:slug/:stage?    one benchmark as two windows, A · Interfaz and
-//                           B · Agente (autoria|revision|evaluacion|publicacion)
+//                           B · Agente (fuentes|autoria|revision|evaluacion|publicacion)
 //   /app/b/:slug/informe    the findings report on the SURUS letterhead (prints to PDF)
 //   /app/biblioteca         the paper library (CONICET Digital): search, read,
 //                           add a paper to a benchmark
@@ -27,9 +28,16 @@ export default function PlatformApp() {
   const [isChat] = useRoute("/app/chat");
   const [isReport, rp] = useRoute("/app/b/:slug/informe");
   const [isWorkspace, ws] = useRoute("/app/b/:slug/:stage?");
-  if (isChat) return <AgentApp />;
+  if (isChat)
+    return (
+      <>
+        <AgentApp />
+        <ProcessIndicator />
+      </>
+    );
   return (
     <PlatformProvider>
+      <ProcessIndicator />
       {isReport ? (
         <ReportPage slug={decodeURIComponent(rp!.slug)} />
       ) : isWorkspace ? (
