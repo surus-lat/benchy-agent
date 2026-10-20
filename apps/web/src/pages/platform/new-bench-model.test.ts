@@ -32,7 +32,7 @@ it("writes a benchmark the editors read as an open-question exam with its rubric
   expect(isOpenQuestionExam(doc.task, criteria)).toBe(true);
 });
 
-it("paso 0's bibliography keeps each paper once and toggles it in and out", () => {
+it("the picked bibliography keeps each paper once and toggles it in and out", () => {
   const a: PickedPaper = { id: 1, title: "Morfología verbal del mapudungun", creators: ["Pérez, M."], year: 2019 };
   const b: PickedPaper = { id: 2, title: "Corrientes teóricas en etnografía", creators: [], year: null };
   // Picking adds, in order, without dropping what was already picked.
