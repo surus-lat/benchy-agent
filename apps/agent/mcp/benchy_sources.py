@@ -27,6 +27,7 @@ import io
 import json
 import os
 import re
+import shutil
 import tempfile
 import threading
 import time
@@ -307,3 +308,10 @@ async def remove(bench: str, sid: str) -> bool:
             target.unlink()
         _save_index(folder, keep)
     return True
+
+
+async def remove_benchmark(bench: str) -> None:
+    """Delete a benchmark: the whole folder — exam, sources, runs, report."""
+    folder = bench_dir(bench)
+    async with _locked(folder):
+        await asyncio.to_thread(shutil.rmtree, folder)

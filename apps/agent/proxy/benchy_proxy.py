@@ -17,6 +17,7 @@ Hermes's API server listens on 127.0.0.1 only; this process fronts it:
   POST /benchy/sources           add a library paper to a benchmark (fetches its PDF)
   POST /benchy/sources/upload?bench=...&name=...   add an uploaded PDF to a benchmark
   DELETE /benchy/sources?bench=...&id=...          take a paper out of a benchmark
+  DELETE /benchy/benchmark?bench=...               delete a benchmark and everything in it
   everything else                reverse-proxied to Hermes, streamed, unmodified
 
 The /benchy routes check the same bearer key Hermes does (API_SERVER_KEY), so
@@ -389,6 +390,21 @@ async def remove_source(request: web.Request) -> web.Response:
     return web.json_response({"ok": removed})
 
 
+async def remove_benchmark(request: web.Request) -> web.Response:
+    """Delete one benchmark and everything it produced: exam, sources, runs,
+    report. Domain failures (no such benchmark) are {ok: false, error}."""
+    if not _authorized(request):
+        return web.json_response({"error": "unauthorized"}, status=401)
+    bench = request.query.get("bench", "")
+    if not bench:
+        return web.json_response({"error": "bad_request"}, status=400)
+    try:
+        await benchy_sources.remove_benchmark(bench)
+    except benchy_sources.SourceError as exc:
+        return web.json_response({"ok": False, "error": exc.to_dict()})
+    return web.json_response({"ok": True})
+
+
 async def proxy(request: web.Request) -> web.StreamResponse:
     session: ClientSession = request.app["client"]
     headers = {k: v for k, v in request.headers.items() if k.lower() not in HOP_BY_HOP}
@@ -435,6 +451,7 @@ def main() -> None:
     app.router.add_post("/benchy/sources", add_source)
     app.router.add_post("/benchy/sources/upload", upload_source)
     app.router.add_delete("/benchy/sources", remove_source)
+    app.router.add_delete("/benchy/benchmark", remove_benchmark)
     app.router.add_route("*", "/{tail:.*}", proxy)
     port = int(os.environ.get("PORT", "8080"))
     print(f"[benchy-proxy] :{port} -> {UPSTREAM}, workspace {WORKSPACE}", flush=True)
