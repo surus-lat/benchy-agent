@@ -1,5 +1,5 @@
 import { expect, it } from "vitest";
-import { pickedFromSources, sourceOfPaper } from "./fuentes-model";
+import { coverage, coverageNote, pickedFromSources, sourceOfPaper } from "./fuentes-model";
 import { togglePaper, type PickedPaper } from "./new-bench-model";
 import type { Source } from "./library-data";
 
@@ -42,4 +42,17 @@ it("toggles a paper against the sources the same way the wizard toggles its list
   // Toggling off an elegido leaves the list empty; toggling on adds it back once.
   expect(togglePaper(picked, paper)).toEqual([]);
   expect(togglePaper([], paper).map((p) => p.id)).toEqual([179477]);
+});
+
+it("summarizes what the collection hands the agent: full texts vs abstracts only", () => {
+  expect(coverage([])).toEqual({ total: 0, full: 0, abstract: 0 });
+  expect(coverage([conicet])).toEqual({ total: 1, full: 1, abstract: 0 });
+  expect(coverage([conicet, bicyt, upload])).toEqual({ total: 3, full: 2, abstract: 1 });
+});
+
+it("words the collection summary, empty and mixed", () => {
+  expect(coverageNote(coverage([]))).toBe("");
+  expect(coverageNote(coverage([conicet]))).toBe("1 con texto completo");
+  expect(coverageNote(coverage([bicyt]))).toBe("1 solo con el resumen");
+  expect(coverageNote(coverage([conicet, bicyt, upload]))).toBe("2 con texto completo · 1 solo con el resumen");
 });
