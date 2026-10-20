@@ -18,3 +18,19 @@ export function pickedFromSources(list: Source[]): PickedPaper[] {
 export function sourceOfPaper(list: Source[], paper: PickedPaper): Source | undefined {
   return list.find((s) => libraryId(s) === paper.id);
 }
+
+/** What the collection hands the agent: full texts it can cite page-by-page vs abstracts only. */
+export function coverage(list: Source[]): { total: number; full: number; abstract: number } {
+  let full = 0;
+  for (const s of list) if (s.text === "full") full++;
+  return { total: list.length, full, abstract: list.length - full };
+}
+
+/** The collection's one-line summary for the panel head: "2 con texto completo · 1 solo con el resumen". */
+export function coverageNote(cov: { total: number; full: number; abstract: number }): string {
+  if (cov.total === 0) return "";
+  const parts: string[] = [];
+  if (cov.full > 0) parts.push(`${cov.full} con texto completo`);
+  if (cov.abstract > 0) parts.push(`${cov.abstract} solo con el resumen`);
+  return parts.join(" · ");
+}
