@@ -27,7 +27,16 @@ import {
 import { LibraryBrowser, SourceRow } from "./library";
 import { SourcesStage } from "./fuentes";
 import { PublicationStage } from "./publication";
-import { citation, sources as sourcesApi, libraryErrorText, type Source } from "./library-data";
+import {
+  citation,
+  sources as sourcesApi,
+  libraryErrorText,
+  sourceState,
+  validation as validationApi,
+  type ChecklistItem,
+  type Source,
+  type SourceValidation,
+} from "./library-data";
 import { ApiError } from "./data";
 import "./workspace.css";
 
@@ -63,12 +72,18 @@ const ExamLang = createContext("es");
 /** First message of a conversation tells the agent which benchmark is open. Hidden in the thread. */
 const CONTEXT = /^\(Benchmark abierto en la app: [^)]*\)\n\n/;
 
-/** What the agent is asked for a batch: from the benchmark's papers when it has them. */
-function batchPrompt(n: number, slug: string, fromPapers: boolean): string {
+/** What the agent is asked for a batch: from the benchmark's papers when it has
+ *  them. Only the validated papers are named (ids): a pending one stays out of
+ *  generation until the org ticks it off in the Papers drawer. */
+function batchPrompt(n: number, slug: string, fromPapers: boolean, ids: string[] = []): string {
   const tail = `Agregalas al final de exam.jsonl y de questions.json (status draft, by agente, con su group). No toques las preguntas existentes.`;
-  return fromPapers
-    ? `Generá ${n} preguntas nuevas para este examen a partir de los papers del benchmark (${slug}/sources.json): leé los papers primero y escribí cada pregunta desde lo que el paper sostiene, con su respuesta experta y por qué la pregunta importa. En questions.json, sources lleva el id del paper y la página (por ejemplo "conicet-179477 p. 4"). ${tail}`
-    : `Generá ${n} preguntas nuevas para este examen, cada una con su respuesta experta, por qué la pregunta importa y sus fuentes. ${tail}`;
+  if (!fromPapers)
+    return `Generá ${n} preguntas nuevas para este examen, cada una con su respuesta experta, por qué la pregunta importa y sus fuentes. ${tail}`;
+  const which =
+    ids.length > 0
+      ? `estos papers del benchmark: ${ids.join(", ")} (la lista en ${slug}/sources.json, el texto de cada uno en ${slug}/sources/)`
+      : `los papers del benchmark (${slug}/sources.json)`;
+  return `Generá ${n} preguntas nuevas para este examen a partir de ${which}: leé los papers primero y escribí cada pregunta desde lo que el paper sostiene, con su respuesta experta y por qué la pregunta importa. En questions.json, sources lleva el id del paper y la página (por ejemplo "conicet-179477 p. 4"). ${tail}`;
 }
 
 export default function Workspace({ slug, stage: stageParam }: { slug: string; stage?: string }) {
@@ -101,6 +116,27 @@ export default function Workspace({ slug, stage: stageParam }: { slug: string; s
     go("evaluacion");
     setRunRequest((n) => n + 1);
   }, [go]);
+
+  // The org's checklist for validating new material, and this bench's
+  // per-source state against it. A source without a row predates the feature:
+  // it counts as validated (grandfathered).
+  const [checklist, setChecklist] = useState<ChecklistItem[] | null>(null);
+  const [validations, setValidations] = useState<Record<string, SourceValidation>>({});
+  const reloadValidation = useCallback(async () => {
+    try {
+      const [c, v] = await Promise.all([validationApi.checklist(), validationApi.forBench(slug)]);
+      setChecklist(c.items);
+      setValidations(Object.fromEntries(v.validations.map((x) => [x.sourceId, x])));
+    } catch {
+      // Same semantics as a missing row: without the state, sources read as
+      // validated; the next render of the drawer retries the fetch.
+    }
+  }, [slug]);
+  useEffect(() => {
+    setChecklist(null);
+    setValidations({});
+    void reloadValidation();
+  }, [reloadValidation]);
 
   const bringFront = useCallback((f: "A" | "B", fast = false) => {
     setFront(f);
@@ -190,6 +226,11 @@ export default function Workspace({ slug, stage: stageParam }: { slug: string; s
   const q = qs[Math.min(qIndex, Math.max(qs.length - 1, 0))];
   const approved = qs.filter((x) => x.status === "done").length;
   const papers = exam.sources;
+  // The papers the agent may write questions from: the validated ones. A
+  // pending paper waits for the org's checklist in the Papers drawer and stays
+  // out of generation (the batch prompt names only the validated ids).
+  const validPapers = papers.filter((s) => sourceState(validations[s.id]) === "validated");
+  const pendingPapers = papers.length - validPapers.length;
   // The exam is "concretado" when the grader has reviewed every question as it
   // stands, the researcher approved each one, and it compiles.
   const ready = openExam && qs.length > 0 && qs.every((x) => x.status === "done" && x.review) && !!bench.validation?.ok;
@@ -245,8 +286,9 @@ export default function Workspace({ slug, stage: stageParam }: { slug: string; s
             <div className="ws-toolbar-right">
               <span className="ws-saved">{savedLabel(exam.save, exam.savedAt)}</span>
               {openExam && (
-                <button className="ws-btn-line" onClick={() => setPapersOpen(true)}>
+                <button className="ws-btn-line" onClick={() => setPapersOpen(true)} title={pendingPapers ? `${pendingPapers} pendiente(s) de validación` : undefined}>
                   <span className="mono amber">{papers.length}</span>Papers
+                  {pendingPapers > 0 && <span className="ws-pend">{pendingPapers} pend.</span>}
                 </button>
               )}
               {openExam && (
@@ -298,12 +340,13 @@ export default function Workspace({ slug, stage: stageParam }: { slug: string; s
                 pushEvent={pushEvent}
                 onRubric={() => setRubricOpen(true)}
                 papers={papers}
+                validPapers={validPapers}
                 onPapers={() => setPapersOpen(true)}
                 onDelete={deleteQuestion}
                 onBatch={async (n, fromPapers) => {
                   setGenerating(n);
                   const before = qs.length;
-                  await ask(batchPrompt(n, slug, fromPapers));
+                  await ask(batchPrompt(n, slug, fromPapers, validPapers.map((s) => s.id)));
                   setGenerating(null);
                   setQIndex(before);
                 }}
@@ -368,9 +411,14 @@ export default function Workspace({ slug, stage: stageParam }: { slug: string; s
                 list={papers}
                 reading={pendingSources.filter((p) => p.bench === slug)}
                 locked={false}
+                checklist={checklist}
+                validations={validations}
+                onValidation={(v) => setValidations((all) => ({ ...all, [v.sourceId]: v }))}
+                onChecklist={setChecklist}
                 onChange={(change) => {
                   pushEvent({ who: "Vos", path: "papers", change, open: () => setPapersOpen(true) });
                   void exam.reload();
+                  void reloadValidation();
                 }}
               />
             )}
@@ -424,7 +472,7 @@ export default function Workspace({ slug, stage: stageParam }: { slug: string; s
           ask={ask}
           openExam={openExam}
           onRun={requestRun}
-          generatePrompt={batchPrompt(5, slug, papers.length > 0)}
+          generatePrompt={batchPrompt(5, slug, validPapers.length > 0, validPapers.map((s) => s.id))}
           papers={papers}
         />
       </main>
@@ -492,6 +540,7 @@ function Authoring({
   pushEvent,
   onRubric,
   papers,
+  validPapers,
   onPapers,
   onBatch,
   onDraft,
@@ -511,6 +560,8 @@ function Authoring({
   pushEvent: (e: Omit<Event, "id" | "at">) => void;
   onRubric: () => void;
   papers: Source[];
+  /** The papers whose validation passed: the only ones the agent may write from. */
+  validPapers: Source[];
   onPapers: () => void;
   onBatch: (n: number, fromPapers: boolean) => void;
   onDraft: (q: Question) => void;
@@ -521,7 +572,9 @@ function Authoring({
   const [batchOpen, setBatchOpen] = useState(false);
   const [batchN, setBatchN] = useState(5);
   const [batchFrom, setBatchFrom] = useState<"papers" | "none">("papers");
-  const fromPapers = batchFrom === "papers" && papers.length > 0;
+  const fromPapers = batchFrom === "papers" && validPapers.length > 0;
+  // Papers waiting for the org's checklist: they stay out of generation.
+  const pendingCount = papers.length - validPapers.length;
   const [writing, setWriting] = useState<number | null>(null);
   const listRef = useRef<HTMLDivElement>(null);
   const qs = exam.questions;
@@ -662,9 +715,9 @@ function Authoring({
               <label>
                 Fuente
                 <select value={fromPapers ? "papers" : "none"} onChange={(e) => setBatchFrom(e.target.value as "papers" | "none")}>
-                  {papers.length > 0 && (
+                  {validPapers.length > 0 && (
                     <option value="papers">
-                      {papers.length === 1 ? "El paper del benchmark" : `Los ${papers.length} papers del benchmark`}
+                      {validPapers.length === 1 ? "El paper validado del benchmark" : `Los ${validPapers.length} papers validados del benchmark`}
                     </option>
                   )}
                   <option value="none">Sin papers: lo que sabe el agente</option>
@@ -675,6 +728,21 @@ function Authoring({
               <p className="ws-batch-note">
                 Todavía se está leyendo {reading === 1 ? "1 paper" : `${reading} papers`}: el lote usa los que ya están listos. Esperá unos segundos si
                 querés incluirlo.
+              </p>
+            )}
+            {pendingCount > 0 && (
+              <p className="ws-batch-note">
+                {pendingCount === 1 ? "1 paper está pendiente de validación" : `${pendingCount} papers están pendientes de validación`}: el lote usa
+                solo los validados.{" "}
+                <button
+                  className="ws-link"
+                  onClick={() => {
+                    setBatchOpen(false);
+                    onPapers();
+                  }}
+                >
+                  Validarlos ↗
+                </button>
               </p>
             )}
             {papers.length === 0 && (
@@ -694,7 +762,7 @@ function Authoring({
             <div className="ws-batch-foot">
               <button
                 className="ws-btn-dark sm"
-                disabled={locked || !openExam || papers.length === 0}
+                disabled={locked || !openExam || validPapers.length === 0}
                 onClick={() => {
                   setBatchOpen(false);
                   onBatch(batchN, fromPapers);
@@ -743,10 +811,19 @@ function Authoring({
               onSelf={addQuestion}
               locked={false}
             />
+          ) : validPapers.length === 0 ? (
+            <EmptyCard
+              title="Papers pendientes de validación"
+              text="Antes de que el agente escriba preguntas desde un paper, alguien de la organización tiene que validarlo con el checklist de Papers. Mientras tanto, podés escribir la primera pregunta vos."
+              onAgent={onPapers}
+              agentLabel="Validar papers"
+              onSelf={addQuestion}
+              locked={false}
+            />
           ) : (
             <EmptyCard
               title="Todavía no hay preguntas"
-              text={`El agente puede escribir un primer lote a partir de ${papers.length === 1 ? "tu paper" : `tus ${papers.length} papers`}, cada pregunta con su respuesta experta y la página que la respalda. O escribí la primera vos.`}
+              text={`El agente puede escribir un primer lote a partir de ${validPapers.length === 1 ? "tu paper validado" : `tus ${validPapers.length} papers validados`}, cada pregunta con su respuesta experta y la página que la respalda. O escribí la primera vos.`}
               onAgent={() => onBatch(5, true)}
               agentLabel="Pedile 5 preguntas al agente"
               onSelf={addQuestion}
@@ -1288,6 +1365,137 @@ function RubricDrawer({
 
 const MAX_UPLOAD = 24 * 1024 * 1024;
 
+/** One source's validation under the org's checklist: "Validada ✓" (with who
+ *  and when, when there's a row), or "Pendiente de validación" with the items
+ *  to tick. A source without a row predates the feature and shows as validated. */
+function ValidationRow({
+  source,
+  checklist,
+  v,
+  ticking,
+  onTick,
+}: {
+  source: Source;
+  checklist: ChecklistItem[] | null;
+  v: SourceValidation | undefined;
+  ticking: string | null;
+  onTick: (s: Source, itemId: string, on: boolean) => void;
+}) {
+  if (sourceState(v) === "validated") {
+    const when = v?.validatedAt ? new Date(v.validatedAt) : null;
+    return (
+      <p className="ws-val-line ok" title={v ? undefined : "Material anterior a la validación de fuentes: se toma como validado"}>
+        ✓ Validada
+        {v?.validatedByName ? ` por ${v.validatedByName}` : ""}
+        {when ? ` · ${when.toLocaleDateString("es-AR", { day: "numeric", month: "short", year: "numeric" })}` : ""}
+      </p>
+    );
+  }
+  if (!checklist) return <p className="ws-val-line amber">Pendiente de validación</p>;
+  return (
+    <div className="ws-val-box">
+      <p className="ws-val-line amber">
+        Pendiente de validación · {v?.checked.length ?? 0}/{checklist.length} — hasta que pase el checklist el agente no la usa para generar
+      </p>
+      {checklist.map((item) => (
+        <label key={item.id} className="ws-val-item">
+          <input
+            type="checkbox"
+            checked={v?.checked.includes(item.id) ?? false}
+            disabled={ticking === `${source.id}:${item.id}`}
+            onChange={(e) => onTick(source, item.id, e.target.checked)}
+          />
+          <span>{item.label}</span>
+        </label>
+      ))}
+    </div>
+  );
+}
+
+/** The org's checklist of verifiables for new material: read view plus an edit
+ *  mode (add/remove/rename items). Editing it never re-validates material that
+ *  already passed. */
+function ChecklistSection({ checklist, onChecklist }: { checklist: ChecklistItem[] | null; onChecklist: (items: ChecklistItem[]) => void }) {
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState<ChecklistItem[]>([]);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  if (checklist === null) return null;
+
+  const start = () => {
+    setDraft(checklist.map((i) => ({ ...i })));
+    setError(null);
+    setEditing(true);
+  };
+  const save = async () => {
+    if (draft.some((i) => !i.label.trim())) {
+      setError("Completá todos los ítems o quitalos.");
+      return;
+    }
+    setSaving(true);
+    setError(null);
+    try {
+      const r = await validationApi.saveChecklist(draft.map((i) => ({ id: i.id, label: i.label })));
+      onChecklist(r.items);
+      setEditing(false);
+    } catch (err) {
+      setError(errorText(err));
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div className="ws-checklist">
+      <p className="ws-eyebrow" style={{ marginTop: 10 }}>Checklist de validación</p>
+      <p className="ws-note">Lo que tiene que cumplir un paper nuevo antes de que el agente escriba preguntas desde él. Cambiarlo no afecta lo ya validado.</p>
+      {editing ? (
+        <div className="ws-val-edit">
+          {draft.map((item, i) => (
+            <div key={i} className="ws-val-edit-row">
+              <input
+                value={item.label}
+                aria-label={`Ítem ${i + 1}`}
+                onChange={(e) => setDraft((d) => d.map((x, j) => (j === i ? { ...x, label: e.target.value } : x)))}
+              />
+              <button className="lib-btn-line sm" disabled={draft.length <= 1 || saving} onClick={() => setDraft((d) => d.filter((_, j) => j !== i))}>
+                Quitar
+              </button>
+            </div>
+          ))}
+          <div className="ws-val-edit-foot">
+            <button
+              className="lib-btn-line sm"
+              disabled={draft.length >= 20 || saving}
+              onClick={() => setDraft((d) => [...d, { id: `nuevo-${d.length}`, label: "" }])}
+            >
+              + Ítem
+            </button>
+            <button className="ws-btn-dark sm" disabled={saving} onClick={() => void save()}>
+              {saving ? "Guardando…" : "Guardar checklist"}
+            </button>
+            <button className="ws-btn-line sm" disabled={saving} onClick={() => setEditing(false)}>
+              Cancelar
+            </button>
+          </div>
+          {error && <p className="lib-error">{error}</p>}
+        </div>
+      ) : (
+        <>
+          {checklist.map((item) => (
+            <p key={item.id} className="ws-val-item-view">
+              · {item.label}
+            </p>
+          ))}
+          <button className="lib-btn-line sm" onClick={start}>
+            Editar checklist
+          </button>
+        </>
+      )}
+    </div>
+  );
+}
+
 type Upload = { name: string; state: "waiting" | "reading" | "ok" | "error"; note?: string };
 
 /** The benchmark's papers: what the agent writes the questions from. */
@@ -1298,6 +1506,10 @@ function PapersDrawer({
   list,
   reading,
   locked,
+  checklist,
+  validations,
+  onValidation,
+  onChecklist,
   onChange,
 }: {
   open: boolean;
@@ -1307,6 +1519,12 @@ function PapersDrawer({
   /** Papers being added right now, from here or from the library page. */
   reading: PendingSource[];
   locked: boolean;
+  /** The org's checklist for validating new material (null while it loads). */
+  checklist: ChecklistItem[] | null;
+  /** This bench's per-source state; a source without a row counts as validated. */
+  validations: Record<string, SourceValidation>;
+  onValidation: (v: SourceValidation) => void;
+  onChecklist: (items: ChecklistItem[]) => void;
   onChange: (change: string) => void;
 }) {
   const { failedSources, dismissFailedSource } = usePlatform();
@@ -1314,8 +1532,29 @@ function PapersDrawer({
   const [tab, setTab] = useState<"library" | "upload">("library");
   const [uploads, setUploads] = useState<Upload[]>([]);
   const [removing, setRemoving] = useState<string | null>(null);
+  const [ticking, setTicking] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const uploading = uploads.some((u) => u.state === "waiting" || u.state === "reading");
+
+  // Ticking one checklist item of a pending source; the server answers the
+  // source's state (validated once every item is ticked).
+  const tick = async (s: Source, itemId: string, on: boolean) => {
+    const v = validations[s.id];
+    const checked = on ? [...(v?.checked ?? []), itemId] : (v?.checked ?? []).filter((id) => id !== itemId);
+    setTicking(`${s.id}:${itemId}`);
+    setError(null);
+    // Optimistic: the row shows the tick right away; the server's answer wins.
+    onValidation({ sourceId: s.id, checked, validatedAt: v?.validatedAt ?? null, validatedByName: v?.validatedByName ?? null });
+    try {
+      const r = await validationApi.setChecked(bench, s.id, checked);
+      onValidation(r.validation);
+    } catch (err) {
+      setError(errorText(err));
+      onValidation({ sourceId: s.id, checked: v?.checked ?? [], validatedAt: v?.validatedAt ?? null, validatedByName: v?.validatedByName ?? null });
+    } finally {
+      setTicking(null);
+    }
+  };
 
   const upload = async (files: File[]) => {
     const queue: Upload[] = files.map((f) => ({ name: f.name, state: "waiting" }));
@@ -1367,22 +1606,24 @@ function PapersDrawer({
         <div className="ws-drawer-body">
           <p className="ws-note">
             Las preguntas salen de estos papers: el agente los lee y en cada pregunta cita el paper y la página. Si un paper no tiene PDF abierto,
-            el agente solo tiene su resumen.
+            el agente solo tiene su resumen. Un paper nuevo entra pendiente de validación y el agente no lo usa hasta que pase el checklist.
           </p>
           <Link href={`/app/b/${encodeURIComponent(bench)}/fuentes`} className="ws-fuentes-link" onClick={onClose}>
             Abrir Fuentes → la bibliografía en pantalla completa
           </Link>
           <div className="lib ws-papers">
             {list.map((s) => (
-              <SourceRow
-                key={s.id}
-                s={s}
-                action={
-                  <button className="lib-btn-line sm" disabled={locked || removing !== null} onClick={() => void remove(s)}>
-                    {removing === s.id ? "Quitando…" : "Quitar"}
-                  </button>
-                }
-              />
+              <div key={s.id} className="ws-val">
+                <SourceRow
+                  s={s}
+                  action={
+                    <button className="lib-btn-line sm" disabled={locked || removing !== null} onClick={() => void remove(s)}>
+                      {removing === s.id ? "Quitando…" : "Quitar"}
+                    </button>
+                  }
+                />
+                <ValidationRow source={s} checklist={checklist} v={validations[s.id]} ticking={ticking} onTick={tick} />
+              </div>
             ))}
             {reading.map((p) => (
               <div key={p.id} className="lib-source reading">
@@ -1408,6 +1649,8 @@ function PapersDrawer({
             {list.length === 0 && reading.length === 0 && <p className="ws-note muted">Todavía no hay papers en este benchmark.</p>}
             {error && <p className="lib-error">{error}</p>}
           </div>
+
+          <ChecklistSection checklist={checklist} onChecklist={onChecklist} />
 
           <p className="ws-eyebrow" style={{ marginTop: 10 }}>Agregar papers</p>
           <div role="tablist" aria-label="De dónde" className="ws-pills">

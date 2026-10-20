@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { authorsLine, citation, parseSources, type Source } from "./library-data";
+import { authorsLine, citation, parseSources, sourceState, type Source } from "./library-data";
 
 const paper: Source = {
   id: "conicet-179477",
@@ -40,6 +40,16 @@ describe("sources.json", () => {
     expect(parseSources(JSON.stringify({ sources: [paper, { title: "sin id" }, null] }))).toEqual([paper]);
     expect(parseSources("{oops")).toEqual([]);
     expect(parseSources(undefined)).toEqual([]);
+  });
+});
+
+describe("validation of new material", () => {
+  it("treats a source with no row as validated (grandfathered), a row without validatedAt as pending", () => {
+    // Material that predates the feature has no validation row at all.
+    expect(sourceState(undefined)).toBe("validated");
+    expect(sourceState({ sourceId: "pdf-1", checked: [], validatedAt: null, validatedByName: null })).toBe("pending");
+    expect(sourceState({ sourceId: "pdf-1", checked: ["respaldo"], validatedAt: null, validatedByName: null })).toBe("pending");
+    expect(sourceState({ sourceId: "pdf-1", checked: [], validatedAt: "2026-10-20T00:00:00.000Z", validatedByName: "Ana" })).toBe("validated");
   });
 });
 
