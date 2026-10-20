@@ -54,6 +54,12 @@ const turnSchema = z.object({ message: z.string().trim().min(1).max(20_000) });
  *  its catalog when the evaluation starts; the Worker checks shape only), or
  *  null to clear the setting. */
 const judgeModelSchema = z.string().trim().min(1).max(100);
+/** A hand edit of a benchmark's report: the full markdown (title included),
+ *  or null to drop the edit and show the generated report again. */
+const reportEditSchema = z.object({
+  bench: benchSchema,
+  markdown: z.string().trim().min(1).max(100_000).nullable(),
+});
 
 function newId(prefix: string): string {
   const bytes = crypto.getRandomValues(new Uint8Array(10));
@@ -372,6 +378,54 @@ export function createConversationsApp(deps: ConversationsDeps) {
     } catch (err) {
       return agentFailure(c, err);
     }
+  });
+
+  // The benchmark's findings report as the platform shows and exports it: the
+  // edit made by hand here when there is one (the generated report.md stays
+  // intact in the workspace), else the generated one. Any org member may read.
+  app.get("/api/workspace/report", async (c) => {
+    const bench = c.req.query("bench") ?? "";
+    if (!BENCH.test(bench)) return c.json({ error: "INVALID_BENCH" }, 400);
+    const user = c.get("user");
+    const [edit] = await db
+      .select({ markdown: schema.benchReportEdits.markdown, updatedAt: schema.benchReportEdits.updatedAt })
+      .from(schema.benchReportEdits)
+      .where(and(eq(schema.benchReportEdits.orgId, user.orgId), eq(schema.benchReportEdits.bench, bench)))
+      .limit(1);
+    if (edit) return c.json({ bench, source: "edited", markdown: edit.markdown, updatedAt: edit.updatedAt });
+    const agent = await deps.agentFor(user.orgId);
+    if (!agent) return c.json({ error: "AGENT_NOT_PROVISIONED" }, 503);
+    try {
+      const file = await agent.readFile(`${bench}/report.md`);
+      return file
+        ? c.json({ bench, source: "generated", markdown: file.content, updatedAt: new Date(file.modified * 1000) })
+        : c.json({ bench, source: null, markdown: null, updatedAt: null });
+    } catch (err) {
+      return agentFailure(c, err);
+    }
+  });
+
+  // The hand edit of a benchmark's report: only the latest one is kept (saving
+  // again overwrites; null drops the edit and the generated report shows
+  // again). The workspace's report.md is never written from here.
+  app.put("/api/workspace/report", async (c) => {
+    const user = c.get("user");
+    const parsed = reportEditSchema.safeParse(await c.req.json().catch(() => null));
+    if (!parsed.success) return c.json({ error: "INVALID_BODY" }, 400);
+    const { bench, markdown } = parsed.data;
+    const where = and(eq(schema.benchReportEdits.orgId, user.orgId), eq(schema.benchReportEdits.bench, bench));
+    if (markdown === null) {
+      await db.delete(schema.benchReportEdits).where(where);
+      await log(user, bench, "edit", "volvió al informe generado");
+      return c.json({ bench, source: null, markdown: null, updatedAt: null });
+    }
+    const updatedAt = new Date();
+    await db
+      .insert(schema.benchReportEdits)
+      .values({ orgId: user.orgId, bench, markdown, updatedAt })
+      .onConflictDoUpdate({ target: [schema.benchReportEdits.orgId, schema.benchReportEdits.bench], set: { markdown, updatedAt } });
+    await log(user, bench, "edit", "editó el informe a mano");
+    return c.json({ bench, source: "edited", markdown, updatedAt });
   });
 
   app.post("/api/workspace/review", async (c) => {
