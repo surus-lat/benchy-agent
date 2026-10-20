@@ -38,8 +38,10 @@ export interface HermesClient {
   backup(): Promise<ArrayBuffer>;
   /** A benchmark's last evaluation: each model's run, then the report. */
   evaluation(path: string): Promise<unknown>;
-  /** Run a benchmark with these models in the container, then write its report; returns at once. */
-  startEvaluation(path: string, models: string[]): Promise<StartResult>;
+  /** Run a benchmark with these models in the container, then write its report; returns at once.
+   *  `graderModel`, when given, is the judge these runs grade with (the org's
+   *  config), instead of the benchmark's own scoring.grader. */
+  startEvaluation(path: string, models: string[], graderModel?: string): Promise<StartResult>;
   /** (Re)write a benchmark's findings report from the results there are; returns at once. */
   startReport(path: string): Promise<StartResult>;
 }
@@ -226,8 +228,10 @@ export function hermesClient(baseUrl: string, apiKey: string): HermesClient {
     async evaluation(path) {
       return json(await get(`/benchy/evaluation?path=${encodeURIComponent(path)}`));
     },
-    async startEvaluation(path, models) {
-      return started(await send("POST", "/benchy/evaluation", { body: JSON.stringify({ path, models }), type: "application/json" }, SESSION_TIMEOUT_MS));
+    async startEvaluation(path, models, graderModel) {
+      // grader_model only when set: no key, and the container keeps the benchmark's own grader.
+      const body = graderModel ? { path, models, grader_model: graderModel } : { path, models };
+      return started(await send("POST", "/benchy/evaluation", { body: JSON.stringify(body), type: "application/json" }, SESSION_TIMEOUT_MS));
     },
     async startReport(path) {
       return started(await send("POST", `/benchy/report?path=${encodeURIComponent(path)}`, {}, SESSION_TIMEOUT_MS));

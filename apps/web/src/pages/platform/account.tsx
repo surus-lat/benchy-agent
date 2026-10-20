@@ -1,9 +1,10 @@
 import { useEffect, useState } from "react";
 import { authClient, signOut } from "@/lib/auth-client";
+import { api, type CatalogModel } from "./data";
 import { usePlatform } from "./store";
 
 // Account: name (stored on the user; the agent greets researchers by it),
-// sign-in methods, interface language, sign out.
+// the org's default judge model, sign-in methods, interface language, sign out.
 
 export default function Account() {
   const { me } = usePlatform();
@@ -13,6 +14,11 @@ export default function Account() {
   const [googleLinked, setGoogleLinked] = useState(false);
   const [googleEnabled, setGoogleEnabled] = useState(false);
   const [passkeyMsg, setPasskeyMsg] = useState<string | null>(null);
+  // The org's default judge: "" means none — each benchmark's own grader judges.
+  const [judge, setJudge] = useState("");
+  const [judgeLoaded, setJudgeLoaded] = useState("");
+  const [judgeCatalog, setJudgeCatalog] = useState<CatalogModel[]>([]);
+  const [judgeSaved, setJudgeSaved] = useState<"idle" | "saving" | "saved" | "error">("idle");
   const [lang, setLang] = useState<"es" | "en">(() => {
     try {
       return (localStorage.getItem("benchy-lang") as "es" | "en") ?? "es";
@@ -31,12 +37,31 @@ export default function Account() {
       .then((r) => r.json())
       .then((p: { google: boolean }) => setGoogleEnabled(p.google))
       .catch(() => {});
-  }, []);
+    if (me?.org) {
+      void api.orgJudge().then(({ judgeModel }) => {
+        setJudge(judgeModel ?? "");
+        setJudgeLoaded(judgeModel ?? "");
+      });
+      void api.models().then(({ catalog }) => setJudgeCatalog(catalog ?? []));
+    }
+  }, [me?.org]);
 
   async function saveName() {
     setSaved("saving");
     const { error } = await authClient.updateUser({ name: name.trim() });
     setSaved(error ? "error" : "saved");
+  }
+
+  async function saveJudge() {
+    setJudgeSaved("saving");
+    try {
+      const { judgeModel } = await api.setOrgJudge(judge || null);
+      setJudge(judgeModel ?? "");
+      setJudgeLoaded(judgeModel ?? "");
+      setJudgeSaved("saved");
+    } catch {
+      setJudgeSaved("error");
+    }
   }
 
   async function addPasskey() {
@@ -81,6 +106,41 @@ export default function Account() {
           <span className="v">{me?.org?.name ?? "—"}</span>
         </div>
       </div>
+
+      {me?.org && (
+        <div className="card-plain" style={{ padding: "20px 22px", display: "grid", gap: 12 }}>
+          <p className="eyebrow" style={{ margin: 0 }}>Modelo juez de la organización</p>
+          <p className="body" style={{ margin: 0, fontSize: 13, color: "var(--muted)" }}>
+            El juez califica cada respuesta contra la rúbrica. El default de la organización se aplica a todas las evaluaciones; una evaluación
+            puede tener su propio override.
+          </p>
+          <label className="bp-field">
+            Juez default
+            <span style={{ display: "flex", gap: 8 }}>
+              <select
+                value={judge}
+                onChange={(e) => {
+                  setJudge(e.target.value);
+                  setJudgeSaved("idle");
+                }}
+                style={{ flex: 1 }}
+              >
+                <option value="">El de cada benchmark (default del sistema)</option>
+                {judgeCatalog.map((m) => (
+                  <option key={m.id} value={m.id}>
+                    {m.name} · {m.maker}
+                  </option>
+                ))}
+                {judge && !judgeCatalog.some((m) => m.id === judge) && <option value={judge}>{judge}</option>}
+              </select>
+              <button className="btn-ghost" onClick={() => void saveJudge()} disabled={judgeSaved === "saving" || judge === judgeLoaded}>
+                {judgeSaved === "saving" ? "Guardando…" : judgeSaved === "saved" ? "Guardado" : "Guardar"}
+              </button>
+            </span>
+            {judgeSaved === "error" && <span style={{ color: "var(--fail)" }}>No se pudo guardar.</span>}
+          </label>
+        </div>
+      )}
 
       <div className="card-plain">
         <p className="eyebrow" style={{ margin: 0, padding: "14px 22px", borderBottom: "1px solid var(--line-soft)" }}>Formas de ingresar</p>

@@ -1,9 +1,13 @@
-import { sqliteTable, text, integer } from "drizzle-orm/sqlite-core";
+import { sqliteTable, text, integer, primaryKey } from "drizzle-orm/sqlite-core";
 
 export const orgs = sqliteTable("orgs", {
   id: text("id").primaryKey(),
   name: text("name").notNull(),
   slug: text("slug").notNull().unique(),
+  // The org's default judge model for evaluations (one of the agent's catalog);
+  // null = the benchmark's own scoring.grader. A benchmark may override it
+  // (benchJudgeOverrides).
+  judgeModel: text("judgeModel"),
   createdAt: integer("createdAt", { mode: "timestamp" }).notNull(),
 });
 
@@ -111,6 +115,24 @@ export const orgAgentEndpoints = sqliteTable("orgAgentEndpoints", {
   apiKeyRef: text("apiKeyRef").notNull(),
   createdAt: integer("createdAt", { mode: "timestamp" }).notNull(),
 });
+
+// The judge model one benchmark's evaluations run with, when the org chose one
+// for this benchmark specifically. No row = the org's default (orgs.judgeModel),
+// and if that is also null, the benchmark's own scoring.grader. A row is the
+// override; clearing the override deletes the row.
+export const benchJudgeOverrides = sqliteTable(
+  "benchJudgeOverrides",
+  {
+    orgId: text("orgId")
+      .notNull()
+      .references(() => orgs.id),
+    // The benchmark (workspace folder) this override is for.
+    bench: text("bench").notNull(),
+    judgeModel: text("judgeModel").notNull(),
+    updatedAt: integer("updatedAt", { mode: "timestamp" }).notNull(),
+  },
+  (t) => [primaryKey({ columns: [t.orgId, t.bench] })],
+);
 
 // A chat thread with the agent. Per-user: read with userId, never orgId.
 // Not keyed on the login session — sessions rotate, conversations persist.

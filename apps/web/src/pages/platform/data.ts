@@ -117,6 +117,25 @@ async function send<T>(path: string, body?: unknown): Promise<T> {
   return (await res.json()) as T;
 }
 
+async function put<T>(path: string, body: unknown): Promise<T> {
+  let res: Response;
+  try {
+    res = await fetch(path, {
+      method: "PUT",
+      credentials: "same-origin",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(body),
+    });
+  } catch {
+    throw new ApiError("NETWORK", 0);
+  }
+  if (!res.ok) {
+    const data = (await res.json().catch(() => ({}))) as { error?: string };
+    throw new ApiError(data.error ?? `HTTP_${res.status}`, res.status);
+  }
+  return (await res.json()) as T;
+}
+
 /** An evaluation in the container (<bench>/evaluation.json): each model's run, then the report. */
 export type Evaluation = {
   state: "running" | "reporting" | "done" | "error" | "interrupted";
@@ -133,10 +152,24 @@ export type Evaluation = {
   report: { state: "pending" | "running" | "done" | "error" | "skipped"; started?: number; finished?: number; error?: string };
 };
 
+/** The judge for a benchmark's next evaluation: its override, the org's default, and which one applies. */
+export type JudgeConfig = {
+  override: string | null;
+  orgDefault: string | null;
+  effective: string | null;
+  source: "override" | "org" | "system";
+};
+
 export const api = {
   ...chatApi,
   me: () => get<Me>("/api/me"),
   models: () => get<{ provider: string; models: string[]; catalog?: CatalogModel[] }>("/api/models"),
+  /** The org's default judge model (null: each benchmark's own grader judges). */
+  orgJudge: () => get<{ judgeModel: string | null }>("/api/org/judge"),
+  setOrgJudge: (judgeModel: string | null) => put<{ judgeModel: string | null }>("/api/org/judge", { judgeModel }),
+  /** One benchmark's judge: its override, the org's default, and which applies. */
+  benchJudge: (bench: string) => get<JudgeConfig>(`/api/workspace/judge?bench=${encodeURIComponent(bench)}`),
+  setBenchJudge: (bench: string, judgeModel: string | null) => put<JudgeConfig>("/api/workspace/judge", { bench, judgeModel }),
   validate: (path: string) => get<Validation>(`/api/workspace/validate?path=${encodeURIComponent(path)}`),
   exam: (path: string) => get<ExamCheck>(`/api/workspace/exam?path=${encodeURIComponent(path)}`),
   analysis: (path: string) => get<Analysis | { ok: false; error: EngineError }>(`/api/workspace/analysis?path=${encodeURIComponent(path)}`),
