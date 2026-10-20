@@ -103,6 +103,38 @@ export function libraryId(s: Source): number | null {
   return m ? Number(m[1]) : null;
 }
 
+/** An item of the org's checklist for validating new material before the agent
+ *  writes questions from it. Seeded with the placeholder list; the org edits it. */
+export type ChecklistItem = { id: string; label: string };
+/** One source's validation: which items were ticked, and who completed it and
+ *  when (null while pending). */
+export type SourceValidation = { sourceId: string; checked: string[]; validatedAt: string | null; validatedByName: string | null };
+
+export const validation = {
+  checklist: () => call<{ items: ChecklistItem[] }>("/api/org/source-checklist"),
+  saveChecklist: (items: { id?: string; label: string }[]) =>
+    call<{ items: ChecklistItem[] }>("/api/org/source-checklist", {
+      method: "PUT",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ items }),
+    }),
+  forBench: (bench: string) =>
+    call<{ validations: SourceValidation[] }>(`/api/workspace/sources/validation?bench=${encodeURIComponent(bench)}`),
+  setChecked: (bench: string, sourceId: string, checked: string[]) =>
+    call<{ validation: SourceValidation }>("/api/workspace/sources/validation", {
+      method: "PUT",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ bench, sourceId, checked }),
+    }),
+};
+
+/** A source's validation state. A source without a row predates this feature:
+ *  it counts as validated (grandfathered); only material added from the
+ *  platform afterwards starts pending. */
+export function sourceState(v: SourceValidation | undefined): "validated" | "pending" {
+  return !v || v.validatedAt ? "validated" : "pending";
+}
+
 export function parseSources(text: string | null | undefined): Source[] {
   if (!text) return [];
   try {

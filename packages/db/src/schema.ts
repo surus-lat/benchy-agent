@@ -153,6 +153,51 @@ export const benchReportEdits = sqliteTable(
   (t) => [primaryKey({ columns: [t.orgId, t.bench] })],
 );
 
+// The org's checklist for validating material before it can be a source: what
+// a member ticks off for each new paper of a benchmark. Seeded per org with
+// the placeholder items (migration 0007); the org edits its own list (latest
+// version only, no history). The FK cascades: deleting an org drops its
+// checklist (the test suites recreate orgs in every setup).
+export const sourceChecklistItems = sqliteTable(
+  "sourceChecklistItems",
+  {
+    orgId: text("orgId")
+      .notNull()
+      .references(() => orgs.id, { onDelete: "cascade" }),
+    id: text("id").notNull(),
+    label: text("label").notNull(),
+    position: integer("position").notNull(),
+    createdAt: integer("createdAt", { mode: "timestamp" }).notNull(),
+  },
+  (t) => [primaryKey({ columns: [t.orgId, t.id] })],
+);
+
+// One benchmark source's validation against the org's checklist: which items
+// were ticked, and who completed it and when. A source added before this
+// feature existed has no row: it counts as validated (grandfathered). Once
+// validatedAt is set it stays — a later checklist edit does not re-validate
+// material that already passed. The FK cascades: deleting an org drops its
+// validations (the test suites recreate orgs in every setup).
+export const sourceValidations = sqliteTable(
+  "sourceValidations",
+  {
+    orgId: text("orgId")
+      .notNull()
+      .references(() => orgs.id, { onDelete: "cascade" }),
+    bench: text("bench").notNull(),
+    // The source's id in <bench>/sources.json ("conicet-179477", "pdf-…").
+    sourceId: text("sourceId").notNull(),
+    // JSON array of the checklist item ids ticked for this source.
+    checked: text("checked").notNull().default("[]"),
+    validatedAt: integer("validatedAt", { mode: "timestamp" }),
+    validatedBy: text("validatedBy"),
+    // Name at the time, so it reads the same after a rename (activity.who).
+    validatedByName: text("validatedByName"),
+    updatedAt: integer("updatedAt", { mode: "timestamp" }).notNull(),
+  },
+  (t) => [primaryKey({ columns: [t.orgId, t.bench, t.sourceId] })],
+);
+
 // A chat thread with the agent. Per-user: read with userId, never orgId.
 // Not keyed on the login session — sessions rotate, conversations persist.
 export const conversations = sqliteTable("conversations", {
