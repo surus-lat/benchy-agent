@@ -7,6 +7,7 @@ import {
   authorsLine,
   library,
   libraryErrorText,
+  libraryId,
   LANGUAGE_LABEL,
   TYPE_LABEL,
   type LibraryHit,
@@ -380,12 +381,6 @@ function PaperDetail({ id, onClose }: { id: number; onClose: () => void }) {
 // ---- Inside a benchmark: the library as a list, filtered as you type -------------
 
 type Row = { id: number; origin: string; title: string; creators: string[]; year: number | null; hasPdf: boolean; excerpt: string };
-
-/** The library number of a benchmark source that came from it (conicet-123, bicyt-123); null for an upload. */
-export function libraryId(s: Source): number | null {
-  const m = /^(?:conicet|bicyt)-(\d+)$/.exec(s.id);
-  return m ? Number(m[1]) : null;
-}
 
 export function LibraryBrowser({
   bench,

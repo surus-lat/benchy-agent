@@ -497,6 +497,15 @@
 /* ---- papers ---- */
 .ws-drawer.wide { width: min(640px, 96%); }
 .ws-papers { display: flex; flex-direction: column; gap: 6px; }
+.ws-fuentes { flex: 1; min-height: 0; }
+.ws-fuentes-col { max-width: 880px; margin: 0 auto; padding: 18px 22px 48px; display: flex; flex-direction: column; gap: 10px; }
+.ws-fuentes-head { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; }
+.ws-fuentes-head .ws-eyebrow { margin: 0 !important; }
+.ws-fuentes-head .mono { font-size: 11.5px; }
+.ws-fuentes-empty { border: 1px dashed var(--line-strong); border-radius: 10px; padding: 14px 16px; }
+.ws-fuentes-search { margin: 12px 0 0 !important; }
+.ws-fuentes-link { align-self: flex-start; font: 400 12px var(--mono); color: var(--amber-ink); text-decoration: none; }
+.ws-fuentes-link:hover { text-decoration: underline; }
 .ws-batch-note { margin: 0; padding: 0 12px 8px; font-size: 12.5px; line-height: 1.5; color: var(--body); }
 .ws-source a.t:hover { text-decoration: underline; text-underline-offset: 2px; }
 .ws-source .pg { flex: none; margin-left: auto; font: 400 11.5px var(--mono); color: var(--muted); }

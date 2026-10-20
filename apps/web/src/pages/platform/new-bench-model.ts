@@ -42,10 +42,10 @@ export const LANGUAGES: [string, string][] = [
   ["en", "English"],
 ];
 
-/** A paper picked in paso 0, before the benchmark exists: just what the chosen list shows. */
-export type PickedPaper = { id: number; title: string; creators: string[]; year: number | null };
+/** A paper picked from the library: what the chosen list shows. hasPdf tells the benchmark's pending note whether the agent reads the full text or just the abstract. */
+export type PickedPaper = { id: number; title: string; creators: string[]; year: number | null; hasPdf?: boolean };
 
-/** Paso 0's bibliography: a paper toggles in or out of the list and is never in it twice. */
+/** A picked bibliography (the wizard's paso 0, the benchmark's Fuentes): a paper toggles in or out of the list and is never in it twice. */
 export function togglePaper(list: PickedPaper[], paper: PickedPaper): PickedPaper[] {
   return list.some((p) => p.id === paper.id) ? list.filter((p) => p.id !== paper.id) : [...list, paper];
 }
