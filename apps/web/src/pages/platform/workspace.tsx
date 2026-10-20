@@ -25,6 +25,7 @@ import {
   type QStatus,
 } from "./exam-model";
 import { LibraryBrowser, SourceRow } from "./library";
+import { SourcesStage } from "./fuentes";
 import { PublicationStage } from "./publication";
 import { citation, sources as sourcesApi, libraryErrorText, type Source } from "./library-data";
 import { ApiError } from "./data";
@@ -37,10 +38,11 @@ import "./workspace.css";
 // agent turn, and A's saves appear in B's thread as events.
 
 const STAGES = [
-  ["autoria", "01", "Autoría"],
-  ["revision", "02", "Revisión"],
-  ["evaluacion", "03", "Evaluación"],
-  ["publicacion", "04", "Publicación"],
+  ["fuentes", "01", "Fuentes"],
+  ["autoria", "02", "Autoría"],
+  ["revision", "03", "Revisión"],
+  ["evaluacion", "04", "Evaluación"],
+  ["publicacion", "05", "Publicación"],
 ] as const;
 type Stage = (typeof STAGES)[number][0];
 
@@ -273,6 +275,15 @@ export default function Workspace({ slug, stage: stageParam }: { slug: string; s
           <div className="ws-stage">
             {exam.loading ? (
               <p className="ws-note ws-pad">Cargando el examen…</p>
+            ) : stage === "fuentes" ? (
+              <SourcesStage
+                bench={slug}
+                list={papers}
+                onChanged={(change) => {
+                  pushEvent({ who: "Vos", path: "papers", change, open: () => go("fuentes") });
+                  void exam.reload();
+                }}
+              />
             ) : stage === "autoria" ? (
               <Authoring
                 exam={exam}
@@ -466,7 +477,7 @@ function ValidationBadge({ bench }: { bench: BenchSummary }) {
   );
 }
 
-// ---- 01 · Autoría ---------------------------------------------------------------
+// ---- 02 · Autoría ---------------------------------------------------------------
 
 function Authoring({
   exam,
@@ -1358,6 +1369,9 @@ function PapersDrawer({
             Las preguntas salen de estos papers: el agente los lee y en cada pregunta cita el paper y la página. Si un paper no tiene PDF abierto,
             el agente solo tiene su resumen.
           </p>
+          <Link href={`/app/b/${encodeURIComponent(bench)}/fuentes`} className="ws-fuentes-link" onClick={onClose}>
+            Abrir Fuentes → la bibliografía en pantalla completa
+          </Link>
           <div className="lib ws-papers">
             {list.map((s) => (
               <SourceRow
@@ -1440,7 +1454,7 @@ function PapersDrawer({
   );
 }
 
-// ---- 02 · Revisión -------------------------------------------------------------
+// ---- 03 · Revisión -------------------------------------------------------------
 
 function ReviewStage({
   exam,
@@ -1619,7 +1633,7 @@ function ReviewStage({
   );
 }
 
-// ---- 03 · Evaluación -------------------------------------------------------------
+// ---- 04 · Evaluación -------------------------------------------------------------
 
 function EvaluationStage({
   bench,

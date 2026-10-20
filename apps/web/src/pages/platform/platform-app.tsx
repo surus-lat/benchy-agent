@@ -15,7 +15,7 @@ import "./platform.css";
 //   /app                    benchmarks home
 //   /app/nuevo              a new benchmark: name, field, language; opens in A
 //   /app/b/:slug/:stage?    one benchmark as two windows, A · Interfaz and
-//                           B · Agente (autoria|revision|evaluacion|publicacion)
+//                           B · Agente (fuentes|autoria|revision|evaluacion|publicacion)
 //   /app/b/:slug/informe    the findings report on the SURUS letterhead (prints to PDF)
 //   /app/biblioteca         the paper library (CONICET Digital): search, read,
 //                           add a paper to a benchmark
