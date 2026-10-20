@@ -97,6 +97,12 @@ export const sources = {
     call<{ ok: boolean }>(`/api/workspace/sources?bench=${encodeURIComponent(bench)}&id=${encodeURIComponent(id)}`, { method: "DELETE" }),
 };
 
+/** The library paper a benchmark's source came from (conicet-179477 → 179477); an uploaded PDF has none. */
+export function libraryId(s: Source): number | null {
+  const m = /^(?:conicet|bicyt)-(\d+)$/.exec(s.id);
+  return m ? Number(m[1]) : null;
+}
+
 export function parseSources(text: string | null | undefined): Source[] {
   if (!text) return [];
   try {
