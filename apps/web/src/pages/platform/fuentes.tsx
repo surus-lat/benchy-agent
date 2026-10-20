@@ -46,6 +46,7 @@ export function SourcesStage({ bench, list, onChanged }: { bench: string; list: 
   // sources.json, a new one goes in through the store (its reading card shows
   // atop the collection while the agent reads the PDF).
   const toggle = async (p: PickedPaper) => {
+    if (removing !== null) return;
     const inBench = sourceOfPaper(list, p);
     if (inBench) {
       await remove(inBench);
@@ -290,9 +291,9 @@ function LibrarySearch({
             })}
             {total === null && (
               <>
-                <span className="ws-skel" aria-hidden="true" />
-                <span className="ws-skel" aria-hidden="true" />
-                <span className="ws-skel" aria-hidden="true" />
+                <li className="ws-skel" aria-hidden="true" />
+                <li className="ws-skel" aria-hidden="true" />
+                <li className="ws-skel" aria-hidden="true" />
               </>
             )}
           </ul>
