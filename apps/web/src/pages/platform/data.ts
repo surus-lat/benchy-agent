@@ -21,6 +21,20 @@ async function get<T>(path: string): Promise<T> {
   return (await res.json()) as T;
 }
 
+async function del<T>(path: string): Promise<T> {
+  let res: Response;
+  try {
+    res = await fetch(path, { method: "DELETE", credentials: "same-origin" });
+  } catch {
+    throw new ApiError("NETWORK", 0);
+  }
+  if (!res.ok) {
+    const body = (await res.json().catch(() => ({}))) as { error?: string };
+    throw new ApiError(body.error ?? `HTTP_${res.status}`, res.status);
+  }
+  return (await res.json()) as T;
+}
+
 export type EngineError = { phase?: string; code: string; message: string; path?: string[] | null };
 export type Dimension = { path: string[]; weight: number };
 export type Validation =
@@ -170,6 +184,8 @@ export const api = {
   /** One benchmark's judge: its override, the org's default, and which applies. */
   benchJudge: (bench: string) => get<JudgeConfig>(`/api/workspace/judge?bench=${encodeURIComponent(bench)}`),
   setBenchJudge: (bench: string, judgeModel: string | null) => put<JudgeConfig>("/api/workspace/judge", { bench, judgeModel }),
+  /** Delete a benchmark and everything it produced; the app confirms first. */
+  removeBenchmark: (bench: string) => del<{ ok: boolean }>(`/api/workspace/benchmark?bench=${encodeURIComponent(bench)}`),
   validate: (path: string) => get<Validation>(`/api/workspace/validate?path=${encodeURIComponent(path)}`),
   exam: (path: string) => get<ExamCheck>(`/api/workspace/exam?path=${encodeURIComponent(path)}`),
   analysis: (path: string) => get<Analysis | { ok: false; error: EngineError }>(`/api/workspace/analysis?path=${encodeURIComponent(path)}`),

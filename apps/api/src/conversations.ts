@@ -549,6 +549,35 @@ export function createConversationsApp(deps: ConversationsDeps) {
     }
   });
 
+  // Delete a benchmark: the agent removes its workspace folder (exam, sources,
+  // runs, report) and the Worker drops the org's rows about it. Deleting is
+  // permanent — the app asks for confirmation before calling this.
+  app.delete("/api/workspace/benchmark", async (c) => {
+    const bench = c.req.query("bench") ?? "";
+    if (!BENCH.test(bench)) return c.json({ error: "INVALID_BENCH" }, 400);
+    const user = c.get("user");
+    const agent = await deps.agentFor(user.orgId);
+    if (!agent) return c.json({ error: "AGENT_NOT_PROVISIONED" }, 503);
+    try {
+      const result = await agent.removeBenchmark(bench);
+      if (result.ok) {
+        await db
+          .delete(schema.sourceValidations)
+          .where(and(eq(schema.sourceValidations.orgId, user.orgId), eq(schema.sourceValidations.bench, bench)));
+        await db
+          .delete(schema.benchReportEdits)
+          .where(and(eq(schema.benchReportEdits.orgId, user.orgId), eq(schema.benchReportEdits.bench, bench)));
+        await db
+          .delete(schema.benchJudgeOverrides)
+          .where(and(eq(schema.benchJudgeOverrides.orgId, user.orgId), eq(schema.benchJudgeOverrides.bench, bench)));
+        await log(user, bench, "delete", `eliminó el benchmark ${bench}`);
+      }
+      return c.json(result);
+    } catch (err) {
+      return agentFailure(c, err);
+    }
+  });
+
   // The validation state of a benchmark's sources, newest edits last. A source
   // without a row predates this feature: it counts as validated
   // (grandfathered) — the app shows it as such.

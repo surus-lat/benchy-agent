@@ -1,9 +1,10 @@
 import { useEffect, useState } from "react";
 import { useLocation } from "wouter";
-import { usePlatform } from "./store";
+import { rememberConversation, usePlatform, type BenchSummary } from "./store";
 import { statusOf } from "./platform-app";
 import { api, since } from "./data";
 import type { Activity } from "../app/api";
+import { ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuTrigger } from "@/components/ui/context-menu";
 
 export function Pip({ variant = "thinking" }: { variant?: "thinking" | "idle" | "done" | "lg" }) {
   const dots = variant === "idle" ? 1 : 3;
@@ -23,10 +24,29 @@ export function Pip({ variant = "thinking" }: { variant?: "thinking" | "idle" | 
 const STATUS_LABEL = { valid: "válido", error: "con errores", draft: "borrador" } as const;
 
 export default function Home() {
-  const { benches, files, loadError } = usePlatform();
+  const { benches, files, loadError, refresh } = usePlatform();
   const [, navigate] = useLocation();
   const loading = files === null;
   const empty = !loading && benches.length === 0;
+  // Slug asked to be deleted: the row becomes the confirmation. "busy" while
+  // the Worker and the agent remove it.
+  const [removing, setRemoving] = useState<string | null>(null);
+  const [removingState, setRemovingState] = useState<"idle" | "busy" | "failed">("idle");
+
+  async function confirmRemove(b: BenchSummary) {
+    setRemovingState("busy");
+    try {
+      const r = await api.removeBenchmark(b.slug);
+      if (!r.ok) throw new Error("refused");
+      // The conversation for it stays in the record; the local pointer goes.
+      rememberConversation(b.slug, null);
+      setRemoving(null);
+      setRemovingState("idle");
+      await refresh();
+    } catch {
+      setRemovingState("failed");
+    }
+  }
 
   return (
     <section className="bp-page">
@@ -58,14 +78,51 @@ export default function Home() {
             <span style={{ textAlign: "right" }}>Mejor</span>
             <span className="col-when">Última corrida</span>
             <span>Estado</span>
+            <span />
           </div>
           {benches.map((b) => {
             const st = statusOf(b.validation);
             const meta = [b.slug, b.doc?.domain, b.doc?.task, b.doc?.language].filter(Boolean).join(" · ");
+            const title = b.doc?.title ?? b.slug;
+            if (removing === b.slug) {
+              return (
+                <div key={b.slug} className="bp-row bp-row-confirm">
+                  <span style={{ minWidth: 0 }}>
+                    <span className="t">¿Eliminar «{title}»?</span>
+                    <span className="m">Se borran las preguntas, fuentes, validaciones y evaluaciones. No hay vuelta atrás.</span>
+                  </span>
+                  <span />
+                  <span />
+                  <span />
+                  <span className="bp-confirm-actions">
+                    <button className="bp-btn-danger" disabled={removingState === "busy"} onClick={() => void confirmRemove(b)}>
+                      {removingState === "busy" ? "Eliminando…" : "Eliminar"}
+                    </button>
+                    <button className="bp-btn-line" disabled={removingState === "busy"} onClick={() => { setRemoving(null); setRemovingState("idle"); }}>
+                      Cancelar
+                    </button>
+                  </span>
+                  {removingState === "failed" && <span className="m" style={{ gridColumn: "1 / -1" }}>No se pudo eliminar. Probá de nuevo.</span>}
+                </div>
+              );
+            }
             return (
-              <button key={b.slug} className="bp-row" onClick={() => navigate(`/app/b/${encodeURIComponent(b.slug)}/autoria`)}>
+              <ContextMenu key={b.slug}>
+                <ContextMenuTrigger asChild>
+              <div
+                className="bp-row bp-row-click"
+                role="button"
+                tabIndex={0}
+                onClick={() => navigate(`/app/b/${encodeURIComponent(b.slug)}/autoria`)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" || e.key === " ") {
+                    e.preventDefault();
+                    navigate(`/app/b/${encodeURIComponent(b.slug)}/autoria`);
+                  }
+                }}
+              >
                 <span style={{ minWidth: 0 }}>
-                  <span className="t">{b.doc?.title ?? b.slug}</span>
+                  <span className="t">{title}</span>
                   <span className="m">{meta}</span>
                 </span>
                 <span className="num col-items">{b.items ?? "—"}</span>
@@ -74,7 +131,32 @@ export default function Home() {
                 <span className={`badge ${st}`}>
                   {b.validation && !b.validation.ok ? b.validation.error.code : STATUS_LABEL[st]}
                 </span>
-              </button>
+                <button
+                  className="bp-del"
+                  aria-label={`Eliminar el benchmark ${title}`}
+                  title="Eliminar"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setRemoving(b.slug);
+                    setRemovingState("idle");
+                  }}
+                >
+                  ×
+                </button>
+              </div>
+                </ContextMenuTrigger>
+                <ContextMenuContent>
+                  <ContextMenuItem
+                    className="text-destructive"
+                    onSelect={() => {
+                      setRemoving(b.slug);
+                      setRemovingState("idle");
+                    }}
+                  >
+                    Eliminar benchmark…
+                  </ContextMenuItem>
+                </ContextMenuContent>
+              </ContextMenu>
             );
           })}
         </div>
