@@ -4,6 +4,7 @@ import { rememberConversation, usePlatform, type BenchSummary } from "./store";
 import { statusOf } from "./platform-app";
 import { api, since } from "./data";
 import type { Activity } from "../app/api";
+import { ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuTrigger } from "@/components/ui/context-menu";
 
 export function Pip({ variant = "thinking" }: { variant?: "thinking" | "idle" | "done" | "lg" }) {
   const dots = variant === "idle" ? 1 : 3;
@@ -106,8 +107,9 @@ export default function Home() {
               );
             }
             return (
+              <ContextMenu key={b.slug}>
+                <ContextMenuTrigger asChild>
               <div
-                key={b.slug}
                 className="bp-row bp-row-click"
                 role="button"
                 tabIndex={0}
@@ -142,6 +144,19 @@ export default function Home() {
                   ×
                 </button>
               </div>
+                </ContextMenuTrigger>
+                <ContextMenuContent>
+                  <ContextMenuItem
+                    className="text-destructive"
+                    onSelect={() => {
+                      setRemoving(b.slug);
+                      setRemovingState("idle");
+                    }}
+                  >
+                    Eliminar benchmark…
+                  </ContextMenuItem>
+                </ContextMenuContent>
+              </ContextMenu>
             );
           })}
         </div>

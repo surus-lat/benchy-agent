@@ -208,6 +208,11 @@
 .ws-del-ask { margin-left: auto; display: inline-flex; flex-wrap: wrap; align-items: center; gap: 6px; font-size: 12.5px; color: var(--fail); }
 .ws-del-ask.btn { margin-left: 0; }
 .ws-row-btns .ws-del, .ws-row-btns .ws-del-ask { margin-left: auto; }
+/* Right-click delete: the question row itself shows the inline confirmation. */
+.ws-qrow-ask { padding: 6px 8px; }
+.ws-qrow-ask .ws-del-ask { margin-left: 0; }
+.ws-rev-ask { padding: 10px 16px; border-top: 1px solid var(--line-soft); }
+.ws-rev-ask .ws-del-ask { margin-left: 0; }
 .ws-row-btns .ws-del:hover:not(:disabled) { border-color: var(--fail); color: var(--fail); }
 .ws-srcs { display: flex; flex-direction: column; gap: 10px; }
 .ws-source .x { flex: none; border: 0; background: transparent; color: var(--muted); font-size: 16px; line-height: 1; padding: 2px 5px; border-radius: 5px; }

@@ -38,6 +38,7 @@ import {
   type SourceValidation,
 } from "./library-data";
 import { ApiError } from "./data";
+import { ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuTrigger } from "@/components/ui/context-menu";
 import "./workspace.css";
 
 // One benchmark as two windows over the same exam (design: Plataforma AB v3).
@@ -571,6 +572,8 @@ function Authoring({
   // Papers waiting for the org's checklist: they stay out of generation.
   const pendingCount = papers.length - validPapers.length;
   const [writing, setWriting] = useState<number | null>(null);
+  // Right-click on a question offers to delete it: the row becomes the confirmation.
+  const [askDelete, setAskDelete] = useState<number | null>(null);
   const listRef = useRef<HTMLDivElement>(null);
   const qs = exam.questions;
 
@@ -662,18 +665,41 @@ function Authoring({
                 <span>{g.title}</span>
                 <span>{g.items.length}</span>
               </p>
-              {g.items.map((x) => (
-                <button
-                  key={x.index}
-                  className={`ws-qrow${x.index === q?.index ? " on" : ""}${x.status === "attention" || x.status === "new" ? " warm" : ""}`}
-                  onClick={() => setQIndex(x.index)}
-                >
-                  {/* Closed-answer exams have no approval flow: no status to show. */}
-                  <span className={`br ${openExam ? BRACKET[x.status][1] : "none"}`}>{openExam ? BRACKET[x.status][0] : "[·]"}</span>
-                  <span className="t">{titleOf(x)}</span>
-                  <span className="n">{x.num}</span>
-                </button>
-              ))}
+              {g.items.map((x) =>
+                askDelete === x.index ? (
+                  <div key={x.index} className="ws-qrow-ask">
+                    <DeleteConfirm
+                      num={x.num}
+                      locked={locked}
+                      onDelete={() => {
+                        setAskDelete(null);
+                        onDelete(x);
+                      }}
+                      onCancel={() => setAskDelete(null)}
+                    />
+                  </div>
+                ) : (
+                  <ContextMenu key={x.index}>
+                    <ContextMenuTrigger asChild>
+                      <button
+                        className={`ws-qrow${x.index === q?.index ? " on" : ""}${x.status === "attention" || x.status === "new" ? " warm" : ""}`}
+                        onClick={() => setQIndex(x.index)}
+                        onContextMenu={() => setQIndex(x.index)}
+                      >
+                        {/* Closed-answer exams have no approval flow: no status to show. */}
+                        <span className={`br ${openExam ? BRACKET[x.status][1] : "none"}`}>{openExam ? BRACKET[x.status][0] : "[·]"}</span>
+                        <span className="t">{titleOf(x)}</span>
+                        <span className="n">{x.num}</span>
+                      </button>
+                    </ContextMenuTrigger>
+                    <ContextMenuContent>
+                      <ContextMenuItem className="text-destructive" disabled={locked} onSelect={() => setAskDelete(x.index)}>
+                        Borrar pregunta…
+                      </ContextMenuItem>
+                    </ContextMenuContent>
+                  </ContextMenu>
+                ),
+              )}
             </div>
           ))}
           {generating !== null && (
@@ -1060,22 +1086,27 @@ function QuestionEditor({
   );
 }
 
+/** Inline "are you sure" for a question delete: Borrar / Cancelar. */
+function DeleteConfirm({ num, locked, onDelete, onCancel, className = "" }: { num: string; locked?: boolean; onDelete: () => void; onCancel: () => void; className?: string }) {
+  return (
+    <span className={`ws-del-ask${className ? ` ${className}` : ""}`} role="group" aria-label={`Borrar la pregunta ${num}`}>
+      <span>¿Borrar la pregunta {num}? No se puede deshacer.</span>
+      <button className="ws-btn-danger sm" disabled={locked} onClick={onDelete}>
+        Borrar
+      </button>
+      <button className="ws-btn-line sm" onClick={onCancel}>
+        Cancelar
+      </button>
+    </span>
+  );
+}
+
 /** Delete a question, after a second click that says what goes. */
 function DeleteQuestion({ num, locked, onDelete, button = false }: { num: string; locked: boolean; onDelete: () => void; button?: boolean }) {
   const [asking, setAsking] = useState(false);
   useEffect(() => setAsking(false), [num]);
   if (asking) {
-    return (
-      <span className={`ws-del-ask${button ? " btn" : ""}`} role="group" aria-label={`Borrar la pregunta ${num}`}>
-        <span>¿Borrar la pregunta {num}? No se puede deshacer.</span>
-        <button className="ws-btn-danger sm" disabled={locked} onClick={onDelete}>
-          Borrar
-        </button>
-        <button className="ws-btn-line sm" onClick={() => setAsking(false)}>
-          Cancelar
-        </button>
-      </span>
-    );
+    return <DeleteConfirm num={num} locked={locked} onDelete={onDelete} onCancel={() => setAsking(false)} className={button ? "btn" : ""} />;
   }
   return (
     <button className={button ? "ws-btn-line sm ws-del" : "ws-link ws-del push"} disabled={locked} onClick={() => setAsking(true)}>
@@ -1713,6 +1744,8 @@ function ReviewStage({
   onDelete: (q: Question) => void;
 }) {
   const [openRow, setOpenRow] = useState<number | null>(null);
+  // Right-click on a question offers to delete it: the row shows the confirmation.
+  const [askDelete, setAskDelete] = useState<number | null>(null);
   if (!openExam) {
     return <p className="ws-note ws-pad">La revisión con rúbrica es para exámenes de preguntas abiertas. Este benchmark se corrige por coincidencia exacta.</p>;
   }
@@ -1783,7 +1816,9 @@ function ReviewStage({
             const canApprove = (q.status === "progress" || q.status === "new") && !!q.review;
             return (
               <div key={q.index} className="ws-rev-row">
-                <button className={`ws-rev-toggle${open ? " open" : ""}`} aria-expanded={open} onClick={() => setOpenRow(open ? null : q.index)}>
+                <ContextMenu>
+                  <ContextMenuTrigger asChild>
+                    <button className={`ws-rev-toggle${open ? " open" : ""}`} aria-expanded={open} onClick={() => setOpenRow(open ? null : q.index)}>
                   <span className="n">{q.num}</span>
                   <span className="t">{titleOf(q)}</span>
                   <span className="mini" title={r ? `${criteria.length - missed} de ${criteria.length} criterios cumplidos` : "sin verificar"}>
@@ -1794,7 +1829,27 @@ function ReviewStage({
                   </span>
                   <span className={`ws-state ${tone}`}>{label}</span>
                   <span className="chev" aria-hidden="true">›</span>
-                </button>
+                    </button>
+                  </ContextMenuTrigger>
+                  <ContextMenuContent>
+                    <ContextMenuItem className="text-destructive" disabled={busy} onSelect={() => setAskDelete(q.index)}>
+                      Borrar pregunta…
+                    </ContextMenuItem>
+                  </ContextMenuContent>
+                </ContextMenu>
+                {askDelete === q.index && (
+                  <div className="ws-rev-ask">
+                    <DeleteConfirm
+                      num={q.num}
+                      locked={busy}
+                      onDelete={() => {
+                        setAskDelete(null);
+                        onDelete(q);
+                      }}
+                      onCancel={() => setAskDelete(null)}
+                    />
+                  </div>
+                )}
                 <div className={`ws-rev-panel${open ? " open" : ""}`}>
                   <div>
                     <div className="ws-rev-body">
