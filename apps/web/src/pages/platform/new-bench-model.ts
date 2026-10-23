@@ -75,7 +75,7 @@ export function uniqueSlug(base: string, taken: Set<string>): string {
   for (let n = 2; ; n++) if (!taken.has(`${base}-${n}`)) return `${base}-${n}`;
 }
 
-/** The criteria a new benchmark starts with; the researcher edits them in Rúbrica. */
+/** The criteria a new benchmark starts with; the researcher edits them in Criterios. */
 const CRITERIA: [number, string][] = [
   [5, "Identifica las ideas centrales de la respuesta experta."],
   [3, "No afirma nada que contradiga la respuesta experta ni inventa datos, autores o fuentes."],

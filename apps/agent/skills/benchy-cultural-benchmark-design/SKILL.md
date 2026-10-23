@@ -190,7 +190,7 @@ anti-pattern detected). The label gates nothing.
 ## Constructo y alcance            (stage 1)
 ## Comunidades y variación         (stage 2, second reader named here)
 ## Diseño de tareas y datos        (stages 3–4)
-## Rúbrica y respuestas experta    (stage 5)
+## Criterios de evaluación y respuestas experta    (stage 5)
 ## Qué mide y qué oculta el score  (stage 6)
 ## Advertencias                    (AP-*, W-*; "ninguna" if none)
 ## Perfil de calidad cultural      (15 dimensions, score + evidence each)
