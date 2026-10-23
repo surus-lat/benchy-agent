@@ -7,6 +7,7 @@ import { createAccessRequestsApp } from "./access-requests";
 import { createConversationsApp } from "./conversations";
 import { createCriteriaLibraryApp } from "./library-criteria";
 import { createLibraryApp, getPaper } from "./library";
+import { createPeerReviewApp } from "./peer-review";
 import { createProcessesApp } from "./processes";
 import { agentOrgFor } from "./agent-auth";
 import { backupAll } from "./backup";
@@ -110,6 +111,13 @@ app.route(
 app.route(
   "/",
   createCriteriaLibraryApp({ db, currentUser }),
+);
+
+// Peer review of questions inside the org (issue #1): votes in D1, questions
+// read through the org's agent; the engine is never touched.
+app.route(
+  "/",
+  createPeerReviewApp({ db, currentUser, agentFor }),
 );
 
 app.get("/health", (c) => c.json({ ok: true }));

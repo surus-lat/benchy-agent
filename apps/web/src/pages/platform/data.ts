@@ -178,6 +178,19 @@ export type LibraryCriterion = {
   updatedAt: string;
 };
 
+/** One question of the org's peer review (issue #1): the text every member
+ *  sees, the members' tally over the current text, and whether it is Validada. */
+export type PeerQuestion = {
+  bench: string;
+  q: number;
+  question: string;
+  expectedAnswer: string | null;
+  votes: { up: number; down: number };
+  myVote: number | null;
+  hash: string;
+  validated: boolean;
+};
+
 /** The judge for a benchmark's next evaluation: its override, the org's default, and which one applies. */
 export type JudgeConfig = {
   override: string | null;
@@ -202,6 +215,11 @@ export const api = {
   saveCriterion: (c: Omit<LibraryCriterion, "id" | "createdAt" | "updatedAt">) =>
     send<{ criterion: LibraryCriterion }>("/api/criteria", c),
   forgetCriterion: (id: string) => del<{ ok: boolean }>(`/api/criteria/${encodeURIComponent(id)}`),
+  /** Every question of the org's benchmarks with its peer tally (issue #1). */
+  orgQuestions: () => get<{ questions: PeerQuestion[]; truncated: boolean }>("/api/org/questions"),
+  /** +1 valida, -1 rechaza, 0 quita el voto del miembro. */
+  voteQuestion: (v: { bench: string; q: number; hash: string; vote: 1 | -1 | 0 }) =>
+    send<{ ok: boolean; bench: string; q: number; vote: number | null }>("/api/org/questions/vote", v),
   /** Delete a benchmark and everything it produced; the app confirms first. */
   removeBenchmark: (bench: string) => del<{ ok: boolean }>(`/api/workspace/benchmark?bench=${encodeURIComponent(bench)}`),
   removeQuestion: (bench: string, q: number) =>
