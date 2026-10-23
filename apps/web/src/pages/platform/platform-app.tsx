@@ -7,6 +7,7 @@ import { NewBench } from "./new-bench";
 import Account from "./account";
 import Workspace from "./workspace";
 import LibraryPage from "./library";
+import QuestionsPage from "./questions";
 import ReportPage from "./report";
 import { ProcessIndicator } from "./processes";
 import { Tour, tourAnchorRef } from "./tour";
@@ -20,6 +21,7 @@ import "./platform.css";
 //   /app/b/:slug/informe    the findings report on the SURUS letterhead (prints to PDF)
 //   /app/biblioteca         the paper library (CONICET Digital): search, read,
 //                           add a paper to a benchmark
+//   /app/preguntas          peer review of the org's questions (issue #1)
 //   /app/cuenta             account
 //   /app/v1/b/:slug/:tab?   DEPRECATED: the previous benchmark view (tabs, with a
 //                           chat with the agent); deleted next release (bench.tsx)
@@ -57,8 +59,9 @@ function Shell() {
   const [isNew] = useRoute("/app/nuevo");
   const [isAccount] = useRoute("/app/cuenta");
   const [isLibrary] = useRoute("/app/biblioteca");
+  const [isQuestions] = useRoute("/app/preguntas");
   const activeSlug = benchParams?.slug ? decodeURIComponent(benchParams.slug) : null;
-  const isHome = !activeSlug && !isNew && !isAccount && !isLibrary;
+  const isHome = !activeSlug && !isNew && !isAccount && !isLibrary && !isQuestions;
   // The walkthrough (issue #11) only lives on the home and nuevo pages.
   const tourPage = isHome ? ("home" as const) : isNew ? ("nuevo" as const) : null;
 
@@ -75,6 +78,9 @@ function Shell() {
         </Link>
         {me?.org && <span className="bp-org">{me.org.name}</span>}
         <div className="bp-top-right">
+          <Link href="/app/preguntas" className={`bp-viewswitch${isQuestions ? " on" : ""}`}>
+            Preguntas
+          </Link>
           <Link href="/app/biblioteca" className={`bp-viewswitch${isLibrary ? " on" : ""}`}>
             Biblioteca
           </Link>
@@ -107,6 +113,9 @@ function Shell() {
           <button className={`bp-nav${isLibrary ? " on" : ""}`} onClick={() => navigate("/app/biblioteca")}>
             <span>Biblioteca de papers</span>
           </button>
+          <button className={`bp-nav${isQuestions ? " on" : ""}`} onClick={() => navigate("/app/preguntas")}>
+            <span>Preguntas de tu organización</span>
+          </button>
           <p className="eyebrow">Tu organización</p>
           {benches.map((b) => (
             <button
@@ -127,6 +136,8 @@ function Shell() {
             <Account />
           ) : isLibrary ? (
             <LibraryPage />
+          ) : isQuestions ? (
+            <QuestionsPage />
           ) : isNew ? (
             <NewBench />
           ) : activeSlug ? (

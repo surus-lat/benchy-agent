@@ -71,6 +71,13 @@
       "when": 1792600000000,
       "tag": "0009_criteria-library",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "6",
+      "when": 1792792576626,
+      "tag": "0011_question_validations",
+      "breakpoints": true
     }
   ]
 }
