@@ -76,6 +76,12 @@ function fakeHermes(opts: { ok?: boolean } = {}): { client: HermesClient; delete
     async removeSource() {
       return { ok: true };
     },
+    async removeQuestion(bench, q) {
+      deleted.push(`${bench}#${q}`);
+      return opts.ok === false
+        ? { ok: false as const, error: { code: "bench_not_found", message: "no such benchmark" } }
+        : { ok: true as const };
+    },
     async removeBenchmark(bench) {
       deleted.push(bench);
       return opts.ok === false

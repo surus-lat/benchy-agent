@@ -315,3 +315,118 @@ async def remove_benchmark(bench: str) -> None:
     folder = bench_dir(bench)
     async with _locked(folder):
         await asyncio.to_thread(shutil.rmtree, folder)
+
+
+def _exam_path(folder: Path) -> Path:
+    """The benchmark's exam file, from its benchmark.yaml's data.path."""
+    from benchy.compiler import compile_benchmark
+    from benchy.errors import BenchyError
+
+    try:
+        ir = compile_benchmark((folder / "benchmark.yaml").read_text(encoding="utf-8"))
+    except BenchyError as exc:
+        error = exc.to_dict()
+        raise SourceError(error.get("code", "compile_error"), error.get("message", "the benchmark does not compile")) from exc
+    exam = (folder / ir["data"]["path"]).resolve()
+    if folder not in exam.parents or not exam.is_file():
+        raise SourceError("data_not_found", "the benchmark's exam file does not exist")
+    return exam
+
+
+def _read_json(path: Path):
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+
+
+def _drop_meta(folder: Path, index: int) -> None:
+    """questions.json without the deleted question's notes."""
+    data = _read_json(folder / "questions.json")
+    rows = (data or {}).get("rows")
+    if not isinstance(data, dict) or not isinstance(rows, list) or index >= len(rows):
+        return
+    _write(folder / "questions.json", json.dumps({**data, "rows": rows[:index] + rows[index + 1:]}, ensure_ascii=False, indent=2) + "\n")
+
+
+def _shifted(row: dict, index: int):
+    """A row keyed on the exam's line numbers, re-keyed after line `index` is
+    gone: the deleted line's row drops out, the rows below it move up one, so
+    each keeps pointing at its own question. None for the dropped row."""
+    i = row.get("index")
+    if not isinstance(i, int) or i < index:
+        return row
+    if i == index:
+        return None
+    return {**row, "index": i - 1}
+
+
+def _drop_review(folder: Path, index: int) -> None:
+    """review.json without the deleted question's review; the rest stay valid —
+    the row carries the question's text, so it still matches after the shift."""
+    data = _read_json(folder / "review.json")
+    rows = (data or {}).get("rows")
+    if not isinstance(data, dict) or not isinstance(rows, list):
+        return
+    if not any(isinstance(r.get("index"), int) and r["index"] >= index for r in rows):
+        return
+    kept = [r for r in (_shifted(row, index) for row in rows) if r is not None]
+    _write(folder / "review.json", json.dumps({**data, "rows": kept}, ensure_ascii=False, indent=2) + "\n")
+
+
+def _contribution(row: dict) -> float:
+    c = row.get("contribution")
+    if isinstance(c, (int, float)):
+        return float(c)
+    s = row.get("score")
+    return float(s) if isinstance(s, (int, float)) else 0.0
+
+
+def _drop_run_rows(folder: Path, index: int) -> None:
+    """Every run's results, without the answer to the deleted question. The
+    answers below it move up one (the exam did), and the run's score and
+    summary are recomputed over what stays with the engine's own formulas
+    (failures contribute zero; the score is the mean over every example)."""
+    runs = folder / "runs"
+    for file in sorted(runs.glob("*.json")) if runs.is_dir() else []:
+        result = _read_json(file)
+        rows = (result or {}).get("results")
+        if not isinstance(result, dict) or not isinstance(rows, list):
+            continue
+        if not any(isinstance(r.get("index"), int) and r["index"] >= index for r in rows):
+            continue
+        kept = [r for r in (_shifted(row, index) for row in rows) if r is not None]
+        summary = result.get("summary")
+        if isinstance(summary, dict):
+            summary["examples"] = len(kept)
+            summary["valid"] = sum(1 for r in kept if r.get("status") == "valid")
+            summary["invalid_outputs"] = sum(1 for r in kept if r.get("status") == "invalid_output")
+            summary["execution_errors"] = sum(1 for r in kept if r.get("status") == "execution_error")
+        result["results"] = kept
+        result["benchmark_score"] = (
+            round(sum(_contribution(r) for r in kept) / len(kept), 4) if kept else None
+        )
+        _write(file, json.dumps(result, ensure_ascii=False, indent=2) + "\n")
+
+
+async def remove_question(bench: str, q: int) -> None:
+    """Take one question out of a benchmark's exam: its row, its notes, its
+    review, and — in every run of the benchmark — the answers to it. `q` is
+    the 1-based question number the app shows ("pregunta 03" is q=3); the exam
+    and the runs key rows 0-based. The runs the cascade touches read as what
+    they are — a run of a previous version of the exam (the exam's mtime is
+    newer, the same staleness any exam edit produces)."""
+    folder = bench_dir(bench)
+    async with _locked(folder):
+        exam = _exam_path(folder)
+        lines = [ln for ln in exam.read_text(encoding="utf-8").splitlines() if ln.strip()]
+        index = q - 1
+        if not 0 <= index < len(lines):
+            raise SourceError(
+                "question_not_found",
+                f"the exam has {len(lines)} question{'s' if len(lines) != 1 else ''}; there is no question {q}",
+            )
+        _write(exam, "\n".join(lines[:index] + lines[index + 1:]) + "\n")
+        _drop_meta(folder, index)
+        _drop_review(folder, index)
+        _drop_run_rows(folder, index)

@@ -549,6 +549,28 @@ export function createConversationsApp(deps: ConversationsDeps) {
     }
   });
 
+  // Delete one question from a benchmark: the agent drops the row from
+  // exam.jsonl and reindexes the questions saved in runs/ and review.json so
+  // they keep pointing at the right question. Older runs keep scoring only the
+  // questions that remain and the app flags them as stale (out of date) until a
+  // new run is started.
+  app.delete("/api/workspace/benchmark/question", async (c) => {
+    const bench = c.req.query("bench") ?? "";
+    const q = Number(c.req.query("q"));
+    if (!BENCH.test(bench)) return c.json({ error: "INVALID_BENCH" }, 400);
+    if (!Number.isInteger(q) || q < 1 || q > 10_000) return c.json({ error: "INVALID_BODY" }, 400);
+    const user = c.get("user");
+    const agent = await deps.agentFor(user.orgId);
+    if (!agent) return c.json({ error: "AGENT_NOT_PROVISIONED" }, 503);
+    try {
+      const result = await agent.removeQuestion(bench, q);
+      if (result.ok) await log(user, bench, "exam", `eliminó la pregunta ${q}`);
+      return c.json(result);
+    } catch (err) {
+      return agentFailure(c, err);
+    }
+  });
+
   // Delete a benchmark: the agent removes its workspace folder (exam, sources,
   // runs, report) and the Worker drops the org's rows about it. Deleting is
   // permanent — the app asks for confirmation before calling this.

@@ -18,6 +18,7 @@ Hermes's API server listens on 127.0.0.1 only; this process fronts it:
   POST /benchy/sources/upload?bench=...&name=...   add an uploaded PDF to a benchmark
   DELETE /benchy/sources?bench=...&id=...          take a paper out of a benchmark
   DELETE /benchy/benchmark?bench=...               delete a benchmark and everything in it
+  DELETE /benchy/benchmark/question?bench=...&q=...  take one question out of a benchmark's exam
   everything else                reverse-proxied to Hermes, streamed, unmodified
 
 The /benchy routes check the same bearer key Hermes does (API_SERVER_KEY), so
@@ -405,6 +406,26 @@ async def remove_benchmark(request: web.Request) -> web.Response:
     return web.json_response({"ok": True})
 
 
+async def remove_question(request: web.Request) -> web.Response:
+    """Take one question out of a benchmark's exam: the row, its notes, its
+    review, and every run's answers to it. Domain failures (no such benchmark
+    or question) are {ok: false, error}."""
+    if not _authorized(request):
+        return web.json_response({"error": "unauthorized"}, status=401)
+    bench = request.query.get("bench", "")
+    try:
+        q = int(request.query.get("q", ""))
+    except ValueError:
+        q = 0
+    if not bench or q < 1:
+        return web.json_response({"error": "bad_request"}, status=400)
+    try:
+        await benchy_sources.remove_question(bench, q)
+    except benchy_sources.SourceError as exc:
+        return web.json_response({"ok": False, "error": exc.to_dict()})
+    return web.json_response({"ok": True})
+
+
 async def proxy(request: web.Request) -> web.StreamResponse:
     session: ClientSession = request.app["client"]
     headers = {k: v for k, v in request.headers.items() if k.lower() not in HOP_BY_HOP}
@@ -452,6 +473,7 @@ def main() -> None:
     app.router.add_post("/benchy/sources/upload", upload_source)
     app.router.add_delete("/benchy/sources", remove_source)
     app.router.add_delete("/benchy/benchmark", remove_benchmark)
+    app.router.add_delete("/benchy/benchmark/question", remove_question)
     app.router.add_route("*", "/{tail:.*}", proxy)
     port = int(os.environ.get("PORT", "8080"))
     print(f"[benchy-proxy] :{port} -> {UPSTREAM}, workspace {WORKSPACE}", flush=True)
