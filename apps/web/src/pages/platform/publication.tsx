@@ -216,7 +216,7 @@ function AnalysisView({
       {analysis.criteria.length > 0 && (
         <section className="ws-card ws-clip">
           <div className="ws-pad ws-bb">
-            <p className="ws-eyebrow">Por criterio de la rúbrica · % de preguntas en que se cumplió</p>
+            <p className="ws-eyebrow">Por criterio de evaluación · % de preguntas en que se cumplió</p>
           </div>
           <div className="ws-table-wrap">
             <table className="ws-table">
@@ -518,7 +518,7 @@ function PublishView({ bench, exam, openExam, go }: { bench: BenchSummary; exam:
                 <p className="ws-note">{org}</p>
               </div>
               <p className="about">
-                {n} preguntas{openExam ? ` de respuesta abierta, cada una juzgada contra una respuesta experta con una rúbrica de ${exam.criteria!.length} criterios.` : "."}
+                {n} preguntas{openExam ? ` de respuesta abierta, cada una juzgada contra una respuesta experta con ${exam.criteria!.length} criterios de evaluación.` : "."}
               </p>
               <div className="board">
                 <p className="ws-eyebrow">Resultados</p>
@@ -538,8 +538,8 @@ function PublishView({ bench, exam, openExam, go }: { bench: BenchSummary; exam:
               </div>
               <p className="sample">
                 {visibility === "private"
-                  ? "Las preguntas no se publican: se muestran 3 ejemplos y la rúbrica. Así el examen no se filtra en el entrenamiento de los modelos."
-                  : `Las ${n} preguntas, sus respuestas expertas y la rúbrica son públicas.`}
+                  ? "Las preguntas no se publican: se muestran 3 ejemplos y los criterios de evaluación. Así el examen no se filtra en el entrenamiento de los modelos."
+                  : `Las ${n} preguntas, sus respuestas expertas y los criterios de evaluación son públicos.`}
               </p>
               <div>
                 <p className="ws-eyebrow">Cómo citar</p>

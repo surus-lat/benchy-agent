@@ -319,7 +319,7 @@ export default function ReportPage({ slug }: { slug: string }) {
                     </table>
                   )}
                   <p className="fine">
-                    {analysis!.questions.length} preguntas de respuesta abierta, cada una juzgada contra la respuesta experta con la rúbrica.
+                    {analysis!.questions.length} preguntas de respuesta abierta, cada una juzgada contra la respuesta experta con los criterios de evaluación.
                     {analysis!.papers.length ? ` Fuentes: ${analysis!.papers.map((p) => p.title).join("; ")}.` : ""}
                   </p>
                 </section>

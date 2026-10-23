@@ -12,7 +12,7 @@ import "./app.css";
 
 const SUGGESTIONS = [
   "Quiero medir qué tan bien conocen los modelos de IA mi área de investigación. ¿Por dónde empezamos?",
-  "Ayudame a convertir una rúbrica de evaluación en un benchmark.",
+  "Ayudame a convertir los criterios de evaluación de mis exámenes en un benchmark.",
   "¿Qué modelos puedo evaluar y en qué se diferencian?",
 ];
 

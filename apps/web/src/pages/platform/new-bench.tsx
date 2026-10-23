@@ -77,7 +77,7 @@ export function NewBench() {
       <h1 className="bp-h1">Nuevo benchmark</h1>
       <p className="body">
         Le ponés un nombre y se crea: las fuentes las elegís en la pestaña Fuentes, apenas se crea. Después, en Autoría, el agente escribe
-        las preguntas sobre esas fuentes. La rúbrica arranca con tres criterios que podés cambiar.
+        las preguntas sobre esas fuentes. El examen arranca con tres criterios de evaluación que podés cambiar.
       </p>
 
       <form className="card-plain bp-newbench-form" onSubmit={(e) => void create(e)}>

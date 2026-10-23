@@ -245,7 +245,7 @@ export default function Workspace({ slug, stage: stageParam }: { slug: string; s
   const running = evaluation.active;
   const busy = chat.pending || reviewing;
   const statusText = reviewing
-    ? `El juez está revisando ${qs.length} respuestas expertas contra la rúbrica…`
+    ? `El juez está revisando ${qs.length} respuestas expertas contra los criterios de evaluación…`
     : ev?.state === "running"
       ? `Evaluando ${ev.models.length} ${ev.models.length === 1 ? "modelo" : "modelos"} sobre ${qs.length} preguntas… ${ev.models.filter((m) => m.state === "done" || m.state === "error").length}/${ev.models.length} terminados`
       : ev?.state === "reporting"
@@ -300,7 +300,7 @@ export default function Workspace({ slug, stage: stageParam }: { slug: string; s
               )}
               {openExam && (
                 <button className="ws-btn-line" onClick={() => setRubricOpen(true)}>
-                  <span className="mono amber">{exam.criteria!.length}</span>Rúbrica
+                  <span className="mono amber">{exam.criteria!.length}</span>Criterios
                 </button>
               )}
               <button
@@ -439,15 +439,15 @@ export default function Workspace({ slug, stage: stageParam }: { slug: string; s
                 locked={false}
                 onChange={(c, patch, label) => {
                   void exam.saveYaml(setCriterion(exam.yamlText, c.key, patch));
-                  pushEvent({ who: "Vos", path: `rúbrica.${c.key}.${label}`, change: "editado → guardado", open: () => setRubricOpen(true) });
+                  pushEvent({ who: "Vos", path: `criterios.${c.key}.${label}`, change: "editado → guardado", open: () => setRubricOpen(true) });
                 }}
                 onAdd={(description, weight) => {
                   void exam.saveYaml(addCriterion(exam.yamlText, description, weight));
-                  pushEvent({ who: "Vos", path: "rúbrica", change: "criterio agregado", open: () => setRubricOpen(true) });
+                  pushEvent({ who: "Vos", path: "criterios", change: "criterio agregado", open: () => setRubricOpen(true) });
                 }}
                 onRemove={(c) => {
                   void exam.saveYaml(removeCriterion(exam.yamlText, c.key));
-                  pushEvent({ who: "Vos", path: `rúbrica.${c.key}`, change: "criterio quitado", open: () => setRubricOpen(true) });
+                  pushEvent({ who: "Vos", path: `criterios.${c.key}`, change: "criterio quitado", open: () => setRubricOpen(true) });
                 }}
               />
             )}
@@ -928,7 +928,7 @@ function ClosedExamNote({ exam, q }: { exam: ExamState; q: Question | undefined 
     <div className="ws-closed">
       <p className="ws-note">
         Este benchmark es de respuesta cerrada ({exam.doc?.task ?? "sin tarea"}): cada campo se corrige por coincidencia exacta, sin
-        rúbrica. Lo podés leer acá; para cambiarlo, pedíselo al agente.
+        criterios de evaluación. Lo podés leer acá; para cambiarlo, pedíselo al agente.
       </p>
       {q && (
         <div className="ws-twocol">
@@ -1052,7 +1052,7 @@ function QuestionEditor({
       {/* What the grader checks, why the question is asked, and where it comes from. */}
       <div className="ws-col">
         <div className="ws-col-head">
-          <span className="ws-eyebrow">Rúbrica</span>
+          <span className="ws-eyebrow">Criterios</span>
           <button className="ws-link push" onClick={onRubric}>
             {criteria.length} {criteria.length === 1 ? "criterio" : "criterios"} · configurar ↗
           </button>
@@ -1279,9 +1279,9 @@ function RubricDrawer({
   return (
     <>
       <div className={`ws-drawer-overlay${open ? " open" : ""}`} onClick={onClose} />
-      <aside className={`ws-drawer${open ? " open" : ""}`} role="dialog" aria-label="Rúbrica del examen" aria-hidden={!open}>
+      <aside className={`ws-drawer${open ? " open" : ""}`} role="dialog" aria-label="Criterios de evaluación" aria-hidden={!open}>
         <div className="ws-drawer-head">
-          <span className="t">Rúbrica del examen</span>
+          <span className="t">Criterios de evaluación</span>
           <span className="mono muted">
             {criteria.length} de {MAX_CRITERIA} criterios
           </span>
@@ -1755,7 +1755,7 @@ function ReviewStage({
   // Right-click on a question offers to delete it: the row shows the confirmation.
   const [askDelete, setAskDelete] = useState<number | null>(null);
   if (!openExam) {
-    return <p className="ws-note ws-pad">La revisión con rúbrica es para exámenes de preguntas abiertas. Este benchmark se corrige por coincidencia exacta.</p>;
+    return <p className="ws-note ws-pad">La revisión por criterios de evaluación es para exámenes de preguntas abiertas. Este benchmark se corrige por coincidencia exacta.</p>;
   }
   const qs = exam.questions;
   const criteria = exam.criteria!;
@@ -1766,7 +1766,7 @@ function ReviewStage({
       <div className="ws-narrow">
         <div className="ws-rev-head">
           <p className="ws-note">
-            Antes de evaluar, el juez verifica que cada respuesta experta cumpla los {criteria.length} criterios de la rúbrica. Vos aprobás
+            Antes de evaluar, el juez verifica que cada respuesta experta cumpla los {criteria.length} criterios de evaluación. Vos aprobás
             cada pregunta o la abrís en Autoría para corregirla.
           </p>
           <div className="r">
@@ -1778,7 +1778,7 @@ function ReviewStage({
         </div>
         {exam.reviewOutdated && qs.length > 0 && (
           <p className="ws-note ws-outdated" role="status">
-            La rúbrica cambió después de la última revisión del juez. Volvé a revisar para que cada respuesta experta quede verificada con los
+            Los criterios de evaluación cambiaron después de la última revisión del juez. Volvé a revisar para que cada respuesta experta quede verificada con los
             criterios de ahora.
           </p>
         )}
@@ -2074,7 +2074,7 @@ function EvaluationStage({
         {judge && (
           <div className="ws-pad" style={{ display: "grid", gap: 6 }}>
             <p className="ws-eyebrow" style={{ margin: 0 }}>Modelo juez</p>
-            <p className="ws-note" style={{ margin: 0 }}>Califica cada respuesta contra la rúbrica.</p>
+            <p className="ws-note" style={{ margin: 0 }}>Califica cada respuesta contra los criterios de evaluación.</p>
             <select value={judgePick} onChange={(e) => void pickJudge(e.target.value)} disabled={judgeSaving === "saving"}>
               <option value="">
                 {judge.orgDefault ? `Sin override — ${judgeName(judge.orgDefault)} (default de la organización)` : "Sin override — el del benchmark (default del sistema)"}
@@ -2288,7 +2288,7 @@ function AgentWindow({
         <div className="ws-thread" ref={thread}>
           {items.length === 0 && (
             <p className="ws-note">
-              Pedile al agente lo que quieras sobre este examen: preguntas nuevas, ajustes a la rúbrica, una evaluación. Lo que cambie lo vas a
+              Pedile al agente lo que quieras sobre este examen: preguntas nuevas, ajustes a los criterios de evaluación, una evaluación. Lo que cambie lo vas a
               ver en la interfaz.
             </p>
           )}
@@ -2363,7 +2363,7 @@ function AgentWindow({
               </button>
             )}
             {openExam && (
-              <button disabled={chat.pending} onClick={() => void ask("Revisá las respuestas expertas con benchy_review y contame cuáles no cumplen la rúbrica y por qué.")}>
+              <button disabled={chat.pending} onClick={() => void ask("Revisá las respuestas expertas con benchy_review y contame cuáles no cumplen los criterios de evaluación y por qué.")}>
                 Revisá las respuestas expertas
               </button>
             )}

@@ -228,9 +228,9 @@ const es: LandingCopy = {
     src: "/brand/platform-author-research-es.png",
     width: 2880,
     height: 1878,
-    alt: "Vista de autoría de Benchy Agent: una pregunta de antropología con referato, su respuesta esperada y una rúbrica ponderada",
+    alt: "Vista de autoría de Benchy Agent: una pregunta de antropología con referato, su respuesta esperada y sus criterios de evaluación ponderados",
     caption:
-      "Autoría de un benchmark de nivel doctoral: la pregunta, la respuesta experta de referencia y una rúbrica ponderada que el motor puede puntuar.",
+      "Autoría de un benchmark de nivel doctoral: la pregunta, la respuesta experta de referencia y sus criterios de evaluación ponderados, que el motor puede puntuar.",
   },
   access: {
     eyebrow: "SOLO POR INVITACIÓN",
@@ -260,7 +260,7 @@ const es: LandingCopy = {
       quote: "«Evaluar si el asistente cita la norma correcta a partir del resumen de un caso.»",
       blocks: [
         { label: "programa", lines: "tarea: citar_norma\nentrada: resumen_caso\nsalida: id_norma + fundamento" },
-        { label: "puntaje", lines: "coincidencia_exacta: id_norma\nrúbrica: calidad_fundamento\npesos: 0.7 / 0.3" },
+        { label: "puntaje", lines: "coincidencia_exacta: id_norma\ncriterios: calidad_fundamento\npesos: 0.7 / 0.3" },
         { label: "datos", lines: "fuente: corpus_cátedra\nn_ítems: 240\nrestricciones: 1 norma/ítem" },
         { label: "sistema-de-ia", lines: "tipo: agente\nadaptador: http\nparámetros: temperatura 0.2" },
       ],
@@ -293,7 +293,7 @@ const es: LandingCopy = {
       metaRight: "puntaje",
       rows: [
         { label: "coincidencia de norma", value: 0.81, primary: true },
-        { label: "rúbrica de fundamentación", value: 0.64, primary: true },
+        { label: "criterios de fundamentación", value: 0.64, primary: true },
         { label: "validez de esquema", value: 0.97, primary: false },
         { label: "rechazos", value: 0.06, primary: false },
       ],

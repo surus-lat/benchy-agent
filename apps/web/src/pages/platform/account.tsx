@@ -111,7 +111,7 @@ export default function Account() {
         <div className="card-plain" style={{ padding: "20px 22px", display: "grid", gap: 12 }}>
           <p className="eyebrow" style={{ margin: 0 }}>Modelo juez de la organización</p>
           <p className="body" style={{ margin: 0, fontSize: 13, color: "var(--muted)" }}>
-            El juez califica cada respuesta contra la rúbrica. El default de la organización se aplica a todas las evaluaciones; una evaluación
+            El juez califica cada respuesta contra los criterios de evaluación. El default de la organización se aplica a todas las evaluaciones; una evaluación
             puede tener su propio override.
           </p>
           <label className="bp-field">

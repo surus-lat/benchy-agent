@@ -171,7 +171,7 @@ export default function Home() {
           </span>
           <h2 style={{ margin: "20px 0 0", fontSize: 22, fontWeight: 500, letterSpacing: "-.015em" }}>Todavía no hay benchmarks</h2>
           <p style={{ margin: "8px 0 0", maxWidth: "30rem", fontSize: 15, lineHeight: 1.6 }} className="body">
-            Un benchmark es un examen de tu campo para los modelos: preguntas con su respuesta experta y una rúbrica. Escribilas vos o partí de
+            Un benchmark es un examen de tu campo para los modelos: preguntas con su respuesta experta y sus criterios de evaluación. Escribilas vos o partí de
             tus papers.
           </p>
           <button className="btn" style={{ marginTop: 20 }} onClick={() => navigate("/app/nuevo")}>
@@ -186,7 +186,7 @@ export default function Home() {
 const FILES: Record<string, string> = {
   "exam.jsonl": "las preguntas y respuestas",
   "questions.json": "las notas de las preguntas",
-  "benchmark.yaml": "la rúbrica y la definición",
+  "benchmark.yaml": "los criterios de evaluación y la definición",
   "report.md": "el informe",
 };
 
