@@ -248,16 +248,26 @@ export function setCriterion(yamlText: string, key: string, patch: { weight?: nu
 export const MAX_CRITERIA = 10;
 
 /** benchmark.yaml with one more criterion at the end, named after the highest c<n>. */
-export function addCriterion(yamlText: string, description: string, weight: number): string {
+export function addCriterion(
+  yamlText: string,
+  description: string,
+  weight: number,
+  levels?: Record<string, string>,
+): string {
   const doc = parseDocument(yamlText);
   const keys = readCriteria(doc)?.map((c) => c.key) ?? [];
   const top = Math.max(0, ...keys.map((k) => Number(/^c(\d+)$/.exec(k)?.[1] ?? 0)));
   let n = top + 1;
   while (keys.includes(`c${n}`)) n++;
-  const levels = doc.createNode(new Map([[0, "No lo cumple"], [1, "Lo cumple"]])) as YAMLMap;
-  levels.flow = true;
+  // Grade wordings, defaulting to the classic pair: a criterion picked from
+  // the org's library brings its own.
+  const wordings: [number, string][] = Object.entries(levels ?? { "0": "No lo cumple", "1": "Lo cumple" })
+    .sort((a, b) => Number(a[0]) - Number(b[0]))
+    .map(([grade, text]) => [Number(grade), text]);
+  const levelsNode = doc.createNode(new Map(wordings)) as YAMLMap;
+  levelsNode.flow = true;
   const node = doc.createNode({ weight, description }) as YAMLMap;
-  node.set("levels", levels);
+  node.set("levels", levelsNode);
   doc.setIn([...CRITERIA_PATH, `c${n}`], node);
   return String(doc);
 }
