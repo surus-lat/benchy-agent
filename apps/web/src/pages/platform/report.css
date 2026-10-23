@@ -27,6 +27,7 @@
 .rp-meta .k { font-size: 8px; letter-spacing: 0.22em; text-transform: uppercase; color: var(--rp-muted); }
 .rp-meta .v { color: var(--rp-deep); font-weight: 500; overflow-wrap: anywhere; }
 .rp-eyebrow { font-family: var(--rp-mono); font-size: 8.5px; letter-spacing: 0.22em; text-transform: uppercase; color: var(--rp-teal); margin-bottom: 10px; }
+.rp-tagline { font-family: var(--rp-mono); font-size: 10px; letter-spacing: 0.06em; color: var(--rp-soft); margin: -6px 0 18px; }
 .rp-title { font-family: var(--rp-serif); font-style: italic; font-weight: 400; font-size: 30pt; line-height: 1.08; letter-spacing: -0.005em; color: var(--rp-deep); margin: 0 0 28px; max-width: 17em; text-wrap: balance; }
 
 .rp-body { counter-reset: rp-sec; }
