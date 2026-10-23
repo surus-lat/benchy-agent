@@ -2,7 +2,7 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useRef, use
 import { Link, useLocation } from "wouter";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
-import { api, errorText, newestPerModel, REGIONS, spellcheckFor, splitAsk, type CatalogModel, type Evaluation, type JudgeConfig, type Message } from "./data";
+import { api, errorText, newestPerModel, REGIONS, spellcheckFor, splitAsk, type CatalogModel, type Evaluation, type JudgeConfig, type LibraryCriterion, type Message } from "./data";
 import { useAgentChat } from "./agent-chat";
 import { usePlatform, type BenchSummary, type PendingSource } from "./store";
 import { useEvaluation, useExam, useRunResults, useSelectedModels, type EvaluationState, type ExamState } from "./use-exam";
@@ -120,6 +120,19 @@ export default function Workspace({ slug, stage: stageParam }: { slug: string; s
   // it counts as validated (grandfathered).
   const [checklist, setChecklist] = useState<ChecklistItem[] | null>(null);
   const [validations, setValidations] = useState<Record<string, SourceValidation>>({});
+  // The org's saved criteria (issue #12): offered in the drawer, fed by what
+  // the drawer saves back. A library the fetch cannot reach reads as empty.
+  const [savedCriteria, setSavedCriteria] = useState<LibraryCriterion[]>([]);
+  const reloadCriteria = useCallback(async () => {
+    try {
+      setSavedCriteria((await api.criteria()).criteria);
+    } catch {
+      // The drawer offers no imports until the next open retries the fetch.
+    }
+  }, []);
+  useEffect(() => {
+    void reloadCriteria();
+  }, [reloadCriteria]);
   const reloadValidation = useCallback(async () => {
     try {
       const [c, v] = await Promise.all([validationApi.checklist(), validationApi.forBench(slug)]);
@@ -448,6 +461,22 @@ export default function Workspace({ slug, stage: stageParam }: { slug: string; s
                 onRemove={(c) => {
                   void exam.saveYaml(removeCriterion(exam.yamlText, c.key));
                   pushEvent({ who: "Vos", path: `criterios.${c.key}`, change: "criterio quitado", open: () => setRubricOpen(true) });
+                }}
+                library={savedCriteria}
+                onAddFromLibrary={(item) => {
+                  void exam.saveYaml(addCriterion(exam.yamlText, item.description, item.weight, item.levels));
+                  pushEvent({ who: "Vos", path: "criterios", change: `criterio «${item.name}» de la biblioteca`, open: () => setRubricOpen(true) });
+                }}
+                onSaveToLibrary={(c) => {
+                  void api
+                    .saveCriterion({
+                      name: c.description.length > 48 ? c.description.slice(0, 46).trimEnd() + "…" : c.description,
+                      description: c.description,
+                      weight: c.weight,
+                      levels: Object.fromEntries(c.levels.map((g) => [String(g), g === 0 ? "No lo cumple" : "Lo cumple"])),
+                    })
+                    .then((r) => setSavedCriteria((list) => [...list, r.criterion]))
+                    .catch(() => {});
                 }}
               />
             )}
@@ -1252,6 +1281,9 @@ function RubricDrawer({
   onChange,
   onAdd,
   onRemove,
+  library,
+  onAddFromLibrary,
+  onSaveToLibrary,
 }: {
   open: boolean;
   onClose: () => void;
@@ -1261,7 +1293,14 @@ function RubricDrawer({
   onChange: (c: Criterion, patch: { weight?: number; description?: string }, label: string) => void;
   onAdd: (description: string, weight: number) => void;
   onRemove: (c: Criterion) => void;
+  library: LibraryCriterion[];
+  onAddFromLibrary: (item: LibraryCriterion) => void;
+  onSaveToLibrary: (c: Criterion) => void;
 }) {
+  // The criteria this drawer added but the org has not saved to the library yet.
+  const [addedKeys, setAddedKeys] = useState<Set<string>>(new Set());
+  const [savedKeys, setSavedKeys] = useState<Set<string>>(new Set());
+  const [libraryOpen, setLibraryOpen] = useState(true);
   const [drafts, setDrafts] = useState<Record<string, string>>({});
   const [removing, setRemoving] = useState<string | null>(null);
   const [adding, setAdding] = useState(false);
@@ -1274,6 +1313,8 @@ function RubricDrawer({
     setAdding(false);
     setNewText("");
     setNewWeight(3);
+    setAddedKeys(new Set());
+    setSavedKeys(new Set());
   }, [open]);
   const full = criteria.length >= MAX_CRITERIA;
   return (
@@ -1334,14 +1375,51 @@ function RubricDrawer({
                   </button>
                 </div>
               ) : (
-                criteria.length > 1 && (
-                  <button className="ws-link ws-crit-remove" disabled={locked} onClick={() => setRemoving(c.key)} aria-label={`Quitar el criterio ${i + 1}`}>
-                    Quitar
-                  </button>
-                )
+                <div className="ws-crit-actions">
+                  {criteria.length > 1 && (
+                    <button className="ws-link ws-crit-remove" disabled={locked} onClick={() => setRemoving(c.key)} aria-label={`Quitar el criterio ${i + 1}`}>
+                      Quitar
+                    </button>
+                  )}
+                  {addedKeys.has(c.key) && !savedKeys.has(c.key) && (
+                    <button
+                      className="ws-link"
+                      disabled={locked}
+                      onClick={() => {
+                        onSaveToLibrary(c);
+                        setSavedKeys((k) => new Set(k).add(c.key));
+                      }}
+                    >
+                      Guardar en la biblioteca
+                    </button>
+                  )}
+                </div>
               )}
             </div>
           ))}
+          {library.length > 0 && (
+            <div className="ws-crit-library">
+              <button className="ws-crit-library-head" onClick={() => setLibraryOpen((o) => !o)} aria-expanded={libraryOpen}>
+                <span className="t">Biblioteca de criterios</span>
+                <span className="mono muted">{library.length} guardados</span>
+                <span className="chev">{libraryOpen ? "▾" : "▸"}</span>
+              </button>
+              {libraryOpen &&
+                library.map((item) => (
+                  <div key={item.id} className="ws-crit-lib-row">
+                    <span className="d">{item.description}</span>
+                    <span className="w mono muted">imp. {item.weight}</span>
+                    <button
+                      className="ws-btn-line sm"
+                      disabled={locked || full}
+                      onClick={() => onAddFromLibrary(item)}
+                    >
+                      Agregar a este examen
+                    </button>
+                  </div>
+                ))}
+            </div>
+          )}
           {adding ? (
             <div className="ws-crit-card new">
               <div className="row">
@@ -1363,6 +1441,10 @@ function RubricDrawer({
                   disabled={locked || !newText.trim()}
                   onClick={() => {
                     onAdd(newText.trim(), newWeight);
+                    // The drawer adds the new criterion as the next c<n>; the
+                    // card that appears carries the same key, read off the
+                    // same rule exam-model's addCriterion uses.
+                    setAddedKeys((k) => new Set(k).add(nextCriterionKey(criteria)));
                     setAdding(false);
                     setNewText("");
                     setNewWeight(3);
@@ -1392,6 +1474,14 @@ function RubricDrawer({
       </aside>
     </>
   );
+}
+
+/** The key exam-model's addCriterion gives to the next criterion added to this list. */
+function nextCriterionKey(criteria: Criterion[]): string {
+  const top = Math.max(0, ...criteria.map((c) => Number(/^c(\d+)$/.exec(c.key)?.[1] ?? 0)));
+  let n = top + 1;
+  while (criteria.some((c) => c.key === `c${n}`)) n++;
+  return `c${n}`;
 }
 
 const MAX_UPLOAD = 24 * 1024 * 1024;

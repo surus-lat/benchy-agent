@@ -287,6 +287,16 @@
 .ws-scale button.on { border-color: var(--ink); background: var(--ink); color: #fff; }
 .ws-scale button:active:not(:disabled) { transform: scale(0.94); }
 .ws-crit-save { display: flex; gap: 6px; margin-top: 10px; }
+.ws-crit-actions { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.ws-crit-actions .ws-link { align-self: auto; margin-top: 0; }
+.ws-crit-library { display: flex; flex-direction: column; gap: 6px; border: 1px solid var(--line-soft); border-radius: 10px; padding: 10px 12px; background: var(--paper-2); }
+.ws-crit-library-head { display: flex; align-items: center; gap: 8px; border: 0; background: transparent; padding: 0; font-size: 13px; color: var(--ink); }
+.ws-crit-library-head .t { font-weight: 600; }
+.ws-crit-library-head .mono { font-size: 11px; }
+.ws-crit-library-head .chev { margin-left: auto; color: var(--muted); }
+.ws-crit-lib-row { display: flex; align-items: center; gap: 8px; border-top: 1px solid var(--line-soft); padding-top: 8px; }
+.ws-crit-lib-row .d { flex: 1; min-width: 0; font-size: 12.5px; line-height: 1.4; }
+.ws-crit-lib-row .w { flex: none; font-size: 11px; }
 
 /* ---- 02 Revisión ---- */
 .ws-rev-head { display: flex; flex-wrap: wrap; align-items: flex-end; justify-content: space-between; gap: 10px 16px; margin-bottom: 12px; }

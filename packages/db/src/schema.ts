@@ -172,6 +172,32 @@ export const sourceChecklistItems = sqliteTable(
   (t) => [primaryKey({ columns: [t.orgId, t.id] })],
 );
 
+// The org's library of reusable evaluation criteria: criteria its people wrote
+// once, saved so a new benchmark picks them from the drawer instead of retyping
+// them. levels holds the grade-wording map as JSON ({"0": "No lo cumple", "1":
+// "Lo cumple"}) — the same levels a criterion has in benchmark.yaml. The FK
+// cascades: deleting an org drops its library (the test suites recreate orgs
+// in every setup).
+export const benchCriteriaLibrary = sqliteTable(
+  "benchCriteriaLibrary",
+  {
+    orgId: text("orgId")
+      .notNull()
+      .references(() => orgs.id, { onDelete: "cascade" }),
+    id: text("id").notNull(),
+    // The short title people pick it by in the drawer.
+    name: text("name").notNull(),
+    // The sentence the judge applies (the criterion's description in benchmark.yaml).
+    description: text("description").notNull(),
+    weight: integer("weight").notNull().default(1),
+    // JSON object: grade -> wording, as saved in benchmark.yaml.
+    levels: text("levels").notNull().default("{}"),
+    createdAt: integer("createdAt", { mode: "timestamp" }).notNull(),
+    updatedAt: integer("updatedAt", { mode: "timestamp" }).notNull(),
+  },
+  (t) => [primaryKey({ columns: [t.orgId, t.id] })],
+);
+
 // One benchmark source's validation against the org's checklist: which items
 // were ticked, and who completed it and when. A source added before this
 // feature existed has no row: it counts as validated (grandfathered). Once

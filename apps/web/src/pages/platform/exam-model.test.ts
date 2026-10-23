@@ -122,6 +122,13 @@ describe("rubric in benchmark.yaml", () => {
     expect(readCriteria(parseBenchDoc(addCriterion(removeCriterion(YAML, "c1"), "Otro.", 1)))!.map((c) => c.key)).toEqual(["c2", "c3"]);
   });
 
+  it("adds a criterion with a library's own grade wordings", () => {
+    const out = addCriterion(YAML, "Distingue las fuentes primarias.", 4, { "0": "No lo cumple", "1": "Lo cumple a medias", "2": "Lo cumple" });
+    const [c] = readCriteria(parseBenchDoc(out))!.filter((x) => x.key === "c3");
+    expect([c.weight, c.description, c.levels]).toEqual([4, "Distingue las fuentes primarias.", [0, 1, 2]]);
+    expect(out).toContain("1: Lo cumple a medias");
+  });
+
   it("removes a criterion but never the last one", () => {
     const one = removeCriterion(YAML, "c1");
     expect(readCriteria(parseBenchDoc(one))!.map((c) => c.key)).toEqual(["c2"]);

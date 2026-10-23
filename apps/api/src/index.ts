@@ -5,6 +5,7 @@ import { auth } from "./auth";
 import { db } from "./db";
 import { createAccessRequestsApp } from "./access-requests";
 import { createConversationsApp } from "./conversations";
+import { createCriteriaLibraryApp } from "./library-criteria";
 import { createLibraryApp, getPaper } from "./library";
 import { createProcessesApp } from "./processes";
 import { agentOrgFor } from "./agent-auth";
@@ -102,6 +103,13 @@ app.route(
 app.route(
   "/",
   createProcessesApp({ db, currentUser, agentFor }),
+);
+
+// The org's library of reusable evaluation criteria (D1 only; the benchmark's
+// own copy still lives in benchmark.yaml).
+app.route(
+  "/",
+  createCriteriaLibraryApp({ db, currentUser }),
 );
 
 app.get("/health", (c) => c.json({ ok: true }));
