@@ -5,6 +5,7 @@ import { serializeMeta } from "./exam-model";
 import { usePlatform } from "./store";
 import { sources } from "./library-data";
 import { benchmarkYaml, DOMAINS, LANGUAGES, slugify, uniqueSlug, type ExamKind } from "./new-bench-model";
+import { tourAnchorRef } from "./tour";
 
 // /app/nuevo — a new benchmark, name-first: the form is the whole wizard.
 // Creating it lands in 01 · Fuentes, where the bibliography is chosen (the
@@ -147,7 +148,7 @@ export function NewBench() {
         )}
 
         <div className="bp-newbench-foot">
-          <button type="submit" className="btn" disabled={!name.trim() || state !== "idle"}>
+          <button type="submit" className="btn" ref={tourAnchorRef("tour-nuevo-create")} disabled={!name.trim() || state !== "idle"}>
             {state === "creating" ? "Creando…" : "Crear y abrir"}
           </button>
           <button type="button" className="btn-ghost" onClick={() => navigate("/app")} disabled={state !== "idle"}>

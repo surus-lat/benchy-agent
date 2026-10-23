@@ -166,6 +166,18 @@ export type Evaluation = {
   report: { state: "pending" | "running" | "done" | "error" | "skipped"; started?: number; finished?: number; error?: string };
 };
 
+/** One saved criterion of the org's library: the wording the judge applies,
+ *  its importance, and the grade wordings (the levels map in benchmark.yaml). */
+export type LibraryCriterion = {
+  id: string;
+  name: string;
+  description: string;
+  weight: number;
+  levels: Record<string, string>;
+  createdAt: string;
+  updatedAt: string;
+};
+
 /** The judge for a benchmark's next evaluation: its override, the org's default, and which one applies. */
 export type JudgeConfig = {
   override: string | null;
@@ -184,6 +196,12 @@ export const api = {
   /** One benchmark's judge: its override, the org's default, and which applies. */
   benchJudge: (bench: string) => get<JudgeConfig>(`/api/workspace/judge?bench=${encodeURIComponent(bench)}`),
   setBenchJudge: (bench: string, judgeModel: string | null) => put<JudgeConfig>("/api/workspace/judge", { bench, judgeModel }),
+  /** The org's library of reusable evaluation criteria (issue #12): saved in
+   *  D1, offered by the "Criterios de evaluación" drawer of every benchmark. */
+  criteria: () => get<{ criteria: LibraryCriterion[] }>("/api/criteria"),
+  saveCriterion: (c: Omit<LibraryCriterion, "id" | "createdAt" | "updatedAt">) =>
+    send<{ criterion: LibraryCriterion }>("/api/criteria", c),
+  forgetCriterion: (id: string) => del<{ ok: boolean }>(`/api/criteria/${encodeURIComponent(id)}`),
   /** Delete a benchmark and everything it produced; the app confirms first. */
   removeBenchmark: (bench: string) => del<{ ok: boolean }>(`/api/workspace/benchmark?bench=${encodeURIComponent(bench)}`),
   removeQuestion: (bench: string, q: number) =>
