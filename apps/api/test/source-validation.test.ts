@@ -85,6 +85,9 @@ function fakeHermes(): { client: HermesClient; added: string[]; removed: string[
     async review() {
       return { ok: true, rows: [] };
     },
+    async quality() {
+      return { ok: true, rows: [] };
+    },
     async addSource(bench, paper) {
       const id = `${paper.origin}-${paper.id}`;
       added.push(id);

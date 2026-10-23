@@ -6,7 +6,8 @@
 //   questions.json   {"rows": [{why, sources, tags, group, status, by}]}, aligned
 //                    with the exam's rows (the engine rejects extra keys in a row)
 //
-// and review.json, written by the grader review (apps/agent/mcp/benchy_review.py).
+// and review.json, written by the grader review (apps/agent/mcp/benchy_review.py);
+// and quality.json, written by the question quality scorer (apps/agent/mcp/benchy_quality.py).
 
 import { parseDocument, YAMLMap, type Document } from "yaml";
 
@@ -46,6 +47,27 @@ export type Review = {
   rows: ReviewRow[];
 };
 
+// Quality of the question itself (not the expert answer): the four criteria
+// are fixed for every benchmark (apps/agent/mcp/benchy_quality.py).
+export type QualityRow = {
+  index: number;
+  input: Record<string, unknown>;
+  score?: number;
+  criteria?: Record<string, { grade: number; justification: string }>;
+  missed?: string[];
+  error?: { code: string; message: string };
+};
+/** The four fixed criteria (apps/agent/mcp/benchy_quality.py), in order. */
+export const QUALITY_CRITERIA = ["claridad", "relevancia", "respaldo", "calibre"];
+
+export type Quality = {
+  created: number;
+  grader: { model?: string };
+  /** Always the same four: claridad, relevancia, respaldo, calibre. */
+  criteria: string[];
+  rows: QualityRow[];
+};
+
 export type Criterion = { key: string; weight: number; description: string; levels: number[] };
 
 /** Status in the question list. */
@@ -62,6 +84,10 @@ export type Question = {
   review: ReviewRow | null;
   /** Reviewed before, but the text or answer changed since. */
   stale: boolean;
+  /** The grader's quality score of this exact question text, if there is one. */
+  quality: QualityRow | null;
+  /** Scored before, but the question text changed since. */
+  qualityStale: boolean;
 };
 
 // ---- exam.jsonl -----------------------------------------------------------------
@@ -132,7 +158,7 @@ export function questionsFrom(
     const m = meta[index] ?? {};
     const num = String(index + 1).padStart(2, "0");
     if ("raw" in row) {
-      return { index, num, text: row.raw, answer: "", meta: m, status: "error" as const, review: null, stale: false };
+      return { index, num, text: row.raw, answer: "", meta: m, status: "error" as const, review: null, stale: false, quality: null, qualityStale: false };
     }
     const q = text(row.input.question ?? Object.values(row.input)[0]);
     const a = text(row.expected.answer ?? Object.values(row.expected)[0]);
@@ -148,7 +174,23 @@ export function questionsFrom(
     else if (m.status === "approved") status = "done";
     else if (byAgent(m)) status = "new";
     else status = "progress";
-    return { index, num, text: q, answer: a, meta: m, status, review: current ? r : null, stale: !!r && !current };
+    return { index, num, text: q, answer: a, meta: m, status, review: current ? r : null, stale: !!r && !current, quality: null, qualityStale: false };
+  });
+}
+
+
+/** Attach each question's quality score to it by position — the way reviews
+ *  move: a row keeps its score as long as the question text is the same, and
+ *  an edited question shows its score as stale. Unlike the review, the score
+ *  informs: it never changes a question's status or gates approval. */
+export function questionsQuality(qs: Question[], scored: Quality | null): Question[] {
+  if (!scored || !Array.isArray(scored.rows)) return qs;
+  const same = (x: QualityRow, q: Question) => text(x.input?.question ?? Object.values(x.input ?? {})[0]) === q.text;
+  return qs.map((q) => {
+    const atIndex = scored!.rows.find((x) => x.index === q.index) ?? null;
+    const r = atIndex && same(atIndex, q) ? atIndex : (scored!.rows.find((x) => same(x, q)) ?? atIndex);
+    const current = !!r && same(r, q);
+    return { ...q, quality: current ? r : null, qualityStale: !!r && !current };
   });
 }
 

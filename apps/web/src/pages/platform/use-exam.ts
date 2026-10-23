@@ -5,6 +5,7 @@ import {
   parseExam,
   parseMeta,
   questionsFrom,
+  questionsQuality,
   readCriteria,
   reviewMatchesRubric,
   serializeExam,
@@ -12,6 +13,7 @@ import {
   type Criterion,
   type ExamRow,
   type QuestionMeta,
+  type Quality,
   type Review,
 } from "./exam-model";
 import { usePlatform, type BenchSummary } from "./store";
@@ -45,14 +47,15 @@ export function useExam(bench: BenchSummary | undefined) {
   const [rows, setRows] = useState<Versioned<(ExamRow | { raw: string })[]>>({ value: [] });
   const [meta, setMeta] = useState<Versioned<QuestionMeta[]>>({ value: [] });
   const [review, setReview] = useState<Review | null>(null);
+  const [quality, setQuality] = useState<Quality | null>(null);
   const [sources, setSources] = useState<Source[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [save, setSave] = useState<SaveState>("idle");
   const [savedAt, setSavedAt] = useState<number | null>(null);
   const { files } = usePlatform();
-  // The review's and the papers' versions as last read: written by the container, never by A.
-  const side = useRef<{ review?: number; sources?: number }>({});
+  // The review's, the quality's and the papers' versions as last read: written by the container, never by A.
+  const side = useRef<{ review?: number; quality?: number; sources?: number }>({});
 
   const doc: BenchDoc | null = yaml && slug ? readBenchYaml(yaml.value, slug) : null;
   let criteria: Criterion[] | null = null;
@@ -75,14 +78,15 @@ export function useExam(bench: BenchSummary | undefined) {
         .files()
         .then((r) => new Set(r.files.map((f) => f.path)))
         .catch(() => null);
-      const [e, m, r, src] = await Promise.all([
+      const [e, m, r, q, src] = await Promise.all([
         readOptional(ePath, known),
         readOptional(`${bench.slug}/questions.json`, known),
         readOptional(`${bench.slug}/review.json`, known),
+        readOptional(`${bench.slug}/quality.json`, known),
         readOptional(`${bench.slug}/sources.json`, known),
       ]);
       setSources(parseSources(src?.content));
-      side.current = { review: r?.modified, sources: src?.modified };
+      side.current = { review: r?.modified, quality: q?.modified, sources: src?.modified };
       setYaml({ value: y.content, modified: y.modified });
       setRows({ value: e ? parseExam(e.content) : [], modified: e?.modified });
       setMeta({ value: parseMeta(m?.content), modified: m?.modified });
@@ -90,6 +94,11 @@ export function useExam(bench: BenchSummary | undefined) {
         setReview(r ? (JSON.parse(r.content) as Review) : null);
       } catch {
         setReview(null);
+      }
+      try {
+        setQuality(q ? (JSON.parse(q.content) as Quality) : null);
+      } catch {
+        setQuality(null);
       }
       setError(null);
     } catch (err) {
@@ -104,17 +113,26 @@ export function useExam(bench: BenchSummary | undefined) {
     void reload();
   }, [reload]);
 
-  /** Re-read what only the container writes (the papers, the grader's review), leaving edits alone. */
+  /** Re-read what only the container writes (the papers, the grader's review and quality), leaving edits alone. */
   const refreshSide = useCallback(async () => {
     if (!slug) return;
-    const [r, src] = await Promise.all([readOptional(`${slug}/review.json`, null), readOptional(`${slug}/sources.json`, null)]).catch(() => [undefined, undefined]);
+    const [r, q, src] = await Promise.all([
+      readOptional(`${slug}/review.json`, null),
+      readOptional(`${slug}/quality.json`, null),
+      readOptional(`${slug}/sources.json`, null),
+    ]).catch(() => [undefined, undefined, undefined]);
     if (r === undefined) return;
-    side.current = { review: r?.modified, sources: src?.modified };
+    side.current = { review: r?.modified, quality: q?.modified, sources: src?.modified };
     setSources(parseSources(src?.content));
     try {
       setReview(r ? (JSON.parse(r.content) as Review) : null);
     } catch {
       setReview(null);
+    }
+    try {
+      setQuality(q ? (JSON.parse(q.content) as Quality) : null);
+    } catch {
+      setQuality(null);
     }
   }, [slug]);
 
@@ -212,6 +230,7 @@ export function useExam(bench: BenchSummary | undefined) {
     meta: stamp(metaPath),
     yaml: stamp(bench?.yamlPath),
     review: stamp(slug && `${slug}/review.json`),
+    quality: stamp(slug && `${slug}/quality.json`),
     sources: stamp(slug && `${slug}/sources.json`),
   };
   useEffect(() => {
@@ -220,12 +239,12 @@ export function useExam(bench: BenchSummary | undefined) {
     const v = versions.current;
     if ((newer(remote.exam, v.exam) || newer(remote.meta, v.meta) || newer(remote.yaml, v.yaml)) && !pending.current) {
       void reload();
-    } else if (newer(remote.review, side.current.review) || newer(remote.sources, side.current.sources)) {
+    } else if (newer(remote.review, side.current.review) || newer(remote.quality, side.current.quality) || newer(remote.sources, side.current.sources)) {
       void refreshSide();
     }
-  }, [remote.exam, remote.meta, remote.yaml, remote.review, remote.sources, loading]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [remote.exam, remote.meta, remote.yaml, remote.review, remote.quality, remote.sources, loading]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const questions = questionsFrom(rows.value, meta.value, review, criteria);
+  const questions = questionsQuality(questionsFrom(rows.value, meta.value, review, criteria), quality);
   // The last review was made with a rubric that has changed since.
   const reviewOutdated = !!review && !reviewMatchesRubric(review, criteria);
 
@@ -242,6 +261,7 @@ export function useExam(bench: BenchSummary | undefined) {
     meta: meta.value,
     review,
     reviewOutdated,
+    quality,
     questions,
     /** The benchmark's papers (sources.json). */
     sources,

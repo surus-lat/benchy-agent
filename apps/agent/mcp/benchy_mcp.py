@@ -26,6 +26,7 @@ import sys
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from benchy_shared import MODELS, WORKSPACE, catalog, inside  # noqa: E402
 from benchy_review import review  # noqa: E402
+from benchy_quality import quality  # noqa: E402
 import benchy_sources  # noqa: E402
 from benchy_analysis import analyze  # noqa: E402
 from benchy_evaluation import run_model  # noqa: E402
@@ -150,6 +151,31 @@ async def benchy_review(path: str) -> dict:
     return {"ok": True, "rows": len(report["rows"]), "weak": weak[:20],
             "saved_to": str((source.parent / "review.json").relative_to(WORKSPACE))}
 
+
+@mcp.tool()
+async def benchy_quality(path: str) -> dict:
+    """Before running a benchmark, score every QUESTION with its grader: the
+    question itself, not the expert answer (benchy_review grades those).
+
+    Four fixed criteria, graded 0/1 with a one-line justification each: claridad,
+    relevancia, respaldo (lo que la pregunta da por hecho es respaldable desde
+    fuentes citables) and calibre (dificultad de nivel doctoral). The score is
+    the mean of the four. Saves `quality.json` next to the benchmark, which the
+    app shows per question; returns the rows that missed a criterion. The score
+    informs the researcher's approval — it never replaces it.
+    """
+    try:
+        source, ir = _compile(path)
+        report = await quality(ir, source)
+    except BenchyError as exc:
+        return _error(exc)
+    weak = [
+        {"index": r["index"], "score": r.get("score"), "error": r.get("error"),
+         "missed": r.get("missed", [])}
+        for r in report["rows"] if r.get("error") or r.get("missed")
+    ]
+    return {"ok": True, "rows": len(report["rows"]), "weak": weak[:20],
+            "saved_to": str((source.parent / "quality.json").relative_to(WORKSPACE))}
 
 @mcp.tool()
 def benchy_analysis(path: str) -> dict:

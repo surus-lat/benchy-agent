@@ -64,6 +64,10 @@ function fakeHermes(opts: { fail?: "chat" | "session" } = {}) {
       calls.push({ op: "review", args: [path] });
       return { ok: true, rows: [] };
     },
+    async quality(path) {
+      calls.push({ op: "quality", args: [path] });
+      return { ok: true, rows: [] };
+    },
     async addSource(bench, paper) {
       calls.push({ op: "addSource", args: [bench, paper.id] });
       return { ok: true, source: { id: `conicet-${paper.id}`, origin: "conicet", title: paper.title, authors: paper.creators, year: paper.year, url: paper.url, pdf_url: paper.pdfUrl, file: `sources/conicet-${paper.id}.md`, pages: 3, chars: 900, text: "full", added: 1 } };
@@ -317,7 +321,9 @@ it("lets members edit benchmark files and run the answer review, never past a ne
 
   expect(await (await req(app, "POST", "/api/workspace/review?path=qa/benchmark.yaml", ana)).json()).toMatchObject({ ok: true });
   expect((await req(app, "POST", "/api/workspace/review", ana)).status).toBe(400);
-  expect(calls.map((c) => c.op)).toEqual(["writeFile", "writeFile", "writeFile", "review"]);
+  expect(await (await req(app, "POST", "/api/workspace/quality?path=qa/benchmark.yaml", beto)).json()).toMatchObject({ ok: true });
+  expect((await req(app, "POST", "/api/workspace/quality", beto)).status).toBe(400);
+  expect(calls.map((c) => c.op)).toEqual(["writeFile", "writeFile", "writeFile", "review", "quality"]);
   expect((await req(makeApp(null), "PUT", "/api/workspace/file", ana, body)).status).toBe(503);
 });
 
@@ -378,6 +384,7 @@ it("keeps the org's record of who did what, never what was said to the agent", a
   await req(app, "PUT", "/api/workspace/file", ana, { path: "qa/exam.jsonl", content: "{}\n{}\n" }); // same edit: one entry
   await req(app, "PUT", "/api/workspace/file", beto, { path: "qa/questions.json", content: "{}" });
   await req(app, "POST", "/api/workspace/review?path=qa/benchmark.yaml", beto);
+  await req(app, "POST", "/api/workspace/quality?path=qa/benchmark.yaml", beto);
   await req(app, "POST", "/api/workspace/sources", ana, { bench: "qa", paperId: 179477 });
   expect((await req(app, "POST", "/api/activity", ana, { bench: "qa", kind: "create", detail: "creó el benchmark" })).status).toBe(201);
   expect((await req(app, "POST", "/api/activity", ana, { bench: "qa", kind: "delete", detail: "borró la pregunta 02" })).status).toBe(201);
@@ -392,6 +399,7 @@ it("keeps the org's record of who did what, never what was said to the agent", a
       "Ana Pérez|edit|exam.jsonl",
       "beto@uni.edu|edit|questions.json",
       "beto@uni.edu|review|revisión del juez de las respuestas expertas",
+      "beto@uni.edu|quality|midió la calidad de las preguntas",
       "Ana Pérez|paper|agregó «Paisajes mesetarios en Patagonia»",
       "Ana Pérez|create|creó el benchmark",
       "Ana Pérez|delete|borró la pregunta 02",

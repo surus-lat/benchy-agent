@@ -9,6 +9,7 @@ Hermes's API server listens on 127.0.0.1 only; this process fronts it:
   GET /benchy/models             the models a benchmark may run
   PUT /benchy/file               write one benchmark text file (the app's editors)
   POST /benchy/review?path=...   grade the expert answers against the rubric
+  POST /benchy/quality?path=...   score each question: claridad, relevancia, respaldo, calibre
   GET /benchy/analysis?path=...  the results beyond the score: criteria, topics, papers, answers
   POST /benchy/evaluation        run a benchmark with several models, then write its report (background)
   GET /benchy/evaluation?path=   that evaluation's state: each model, then the report
@@ -48,6 +49,7 @@ import benchy_evaluation  # noqa: E402
 import benchy_sources  # noqa: E402
 from benchy_analysis import analyze  # noqa: E402
 from benchy_review import review as review_answers  # noqa: E402
+from benchy_quality import quality as score_questions  # noqa: E402
 from benchy_shared import MODELS, catalog  # noqa: E402
 
 from benchy import types  # noqa: E402
@@ -237,6 +239,16 @@ async def review(request: web.Request) -> web.Response:
         return web.json_response({"ok": False, "error": exc.to_dict()})
     return web.json_response({"ok": True, **report})
 
+
+async def quality(request: web.Request) -> web.Response:
+    if not _authorized(request):
+        return web.json_response({"error": "unauthorized"}, status=401)
+    try:
+        source, ir = _compile(request.query.get("path", ""))
+        report = await score_questions(ir, source)
+    except BenchyError as exc:
+        return web.json_response({"ok": False, "error": exc.to_dict()})
+    return web.json_response({"ok": True, **report})
 
 async def analysis(request: web.Request) -> web.Response:
     if not _authorized(request):
@@ -464,6 +476,7 @@ def main() -> None:
     app.router.add_get("/benchy/models", models)
     app.router.add_put("/benchy/file", write_file)
     app.router.add_post("/benchy/review", review)
+    app.router.add_post("/benchy/quality", quality)
     app.router.add_get("/benchy/analysis", analysis)
     app.router.add_get("/benchy/evaluation", evaluation)
     app.router.add_post("/benchy/evaluation", evaluation)

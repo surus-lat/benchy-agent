@@ -67,6 +67,9 @@ function fakeHermes(opts: { ok?: boolean } = {}): { client: HermesClient; delete
     async review() {
       return { ok: true, rows: [] };
     },
+    async quality() {
+      return { ok: true, rows: [] };
+    },
     async addSource(bench, paper: Paper) {
       return { ok: true as const, source: source(`${paper.origin}-${paper.id}`) };
     },

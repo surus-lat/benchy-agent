@@ -133,6 +133,11 @@ ai-system:
 - After writing, call `benchy_review("<slug>/benchmark.yaml")`: the grader grades
   every expert answer with the rubric. An expert answer that misses a criterion is
   a weak key or a criterion worded too strictly; tell the researcher which.
+- Call `benchy_quality("<slug>/benchmark.yaml")` too: the grader scores each
+  question (not its answer) on four fixed criteria — claridad, relevancia,
+  respaldo, calibre — into `quality.json`. A question that misses one is weakly
+  asked or unbackable; tell the researcher which, but the score only informs:
+  approval is always theirs.
 
 ## Questions from the researcher's papers
 
