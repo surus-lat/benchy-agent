@@ -16,7 +16,6 @@ import {
   isPending,
   MAX_CRITERIA,
   removeCriterion,
-  removeQuestion,
   setCriterion,
   shareOf,
   titleOf,
@@ -214,13 +213,22 @@ export default function Workspace({ slug, stage: stageParam }: { slug: string; s
 
   const openExam = isOpenQuestionExam(exam.doc?.task, exam.criteria);
   const qs = exam.questions;
-  /** A question out of the exam, with its notes; the open one stays the same where it can. */
-  const deleteQuestion = (question: Question) => {
-    const next = removeQuestion(exam.rows, exam.meta, question.index);
-    exam.update(next.rows, next.meta);
-    void api.logActivity(slug, "delete", `borró la pregunta ${question.num}`);
+  /**
+   * Take a question out of the exam for good. The container deletes it and
+   * reindexes the runs and the review that reference it (the runs then read as
+   * "de una versión anterior del examen" until a new one runs), so the delete
+   * happens server-side and we re-read the files instead of editing them here.
+   */
+  const deleteQuestion = async (question: Question) => {
+    try {
+      await api.removeQuestion(slug, question.index + 1);
+    } catch (err) {
+      exam.setError(errorText(err));
+      return;
+    }
     pushEvent({ who: "Vos", path: question.num, change: "pregunta borrada", open: () => go("autoria") });
-    setQIndex((i) => Math.max(0, Math.min(i > question.index ? i - 1 : i, next.rows.length - 1)));
+    setQIndex((i) => Math.max(0, Math.min(i > question.index ? i - 1 : i, qs.length - 2)));
+    await Promise.all([exam.reload(), refresh()]);
   };
   const q = qs[Math.min(qIndex, Math.max(qs.length - 1, 0))];
   const approved = qs.filter((x) => x.status === "done").length;

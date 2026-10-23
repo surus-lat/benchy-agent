@@ -186,6 +186,8 @@ export const api = {
   setBenchJudge: (bench: string, judgeModel: string | null) => put<JudgeConfig>("/api/workspace/judge", { bench, judgeModel }),
   /** Delete a benchmark and everything it produced; the app confirms first. */
   removeBenchmark: (bench: string) => del<{ ok: boolean }>(`/api/workspace/benchmark?bench=${encodeURIComponent(bench)}`),
+  removeQuestion: (bench: string, q: number) =>
+    del<{ ok: boolean }>(`/api/workspace/benchmark/question?bench=${encodeURIComponent(bench)}&q=${q}`),
   validate: (path: string) => get<Validation>(`/api/workspace/validate?path=${encodeURIComponent(path)}`),
   exam: (path: string) => get<ExamCheck>(`/api/workspace/exam?path=${encodeURIComponent(path)}`),
   analysis: (path: string) => get<Analysis | { ok: false; error: EngineError }>(`/api/workspace/analysis?path=${encodeURIComponent(path)}`),

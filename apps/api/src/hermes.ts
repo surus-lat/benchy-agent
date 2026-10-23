@@ -36,6 +36,7 @@ export interface HermesClient {
   removeSource(bench: string, id: string): Promise<{ ok: boolean }>;
   /** Delete a benchmark: the whole workspace folder and everything it produced. */
   removeBenchmark(bench: string): Promise<{ ok: boolean }>;
+  removeQuestion(bench: string, q: number): Promise<{ ok: boolean }>;
   /** The whole workspace as a .tar.gz, for the daily backup. */
   backup(): Promise<ArrayBuffer>;
   /** A benchmark's last evaluation: each model's run, then the report. */
@@ -224,6 +225,15 @@ export function hermesClient(baseUrl: string, apiKey: string): HermesClient {
     },
     async removeBenchmark(bench) {
       const res = await send("DELETE", `/benchy/benchmark?bench=${encodeURIComponent(bench)}`, {}, SESSION_TIMEOUT_MS);
+      return (await json(res)) as { ok: boolean };
+    },
+    async removeQuestion(bench, q) {
+      const res = await send(
+        "DELETE",
+        `/benchy/benchmark/question?bench=${encodeURIComponent(bench)}&q=${q}`,
+        {},
+        SESSION_TIMEOUT_MS,
+      );
       return (await json(res)) as { ok: boolean };
     },
     async backup() {

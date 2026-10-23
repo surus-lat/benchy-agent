@@ -392,6 +392,9 @@ function ReportView({
   }, [path, file?.modified]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const ev = evaluation.evaluation;
+  // The exam was edited (a question deleted, a row changed) after the report was written.
+  const examFile = files?.find((f) => f.path === bench.doc?.examPath);
+  const reportStale = !!file && !!examFile && examFile.modified > file.modified;
   const writing = ev?.report.state === "running";
   const evaluating = ev?.state === "running";
   const hasRuns = (analysis?.models.length ?? 0) > 0;
@@ -444,6 +447,11 @@ function ReportView({
       ) : (
         <div className="ws-card ws-pad ws-report-card">
           <p className="ws-eyebrow">Informe de hallazgos · report.md</p>
+          {reportStale && (
+            <p className="ws-note amber" style={{ margin: "0 0 8px" }}>
+              El examen cambió desde que se escribió este informe: puede nombrar preguntas que ya no están. Rehacelo con los últimos resultados.
+            </p>
+          )}
           <h3>{title ?? "Informe"}</h3>
           {summary && <p className="ws-note">{summary}{summary.length >= 600 ? "…" : ""}</p>}
           <div className="ws-row-btns">
