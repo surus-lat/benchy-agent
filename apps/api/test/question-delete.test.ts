@@ -46,6 +46,9 @@ function fakeHermes(opts: { ok?: boolean } = {}): { client: HermesClient; calls:
     async review() {
       return { ok: true, rows: [] };
     },
+    async quality() {
+      return { ok: true, rows: [] };
+    },
     async addSource() {
       return { ok: true as const, source: null as never };
     },

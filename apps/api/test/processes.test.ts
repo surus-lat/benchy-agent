@@ -56,6 +56,9 @@ function fakeHermes(states: Record<string, unknown>, opts: { down?: boolean } = 
     async review() {
       return { ok: true };
     },
+    async quality() {
+      return { ok: true };
+    },
     async addSource() {
       throw new HermesError("unused", 500);
     },

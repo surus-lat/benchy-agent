@@ -7,6 +7,7 @@ import {
   parseExam,
   parseMeta,
   questionsFrom,
+  questionsQuality,
   readCriteria,
   addCriterion,
   removeCriterion,
@@ -16,6 +17,7 @@ import {
   serializeMeta,
   setCriterion,
   shareOf,
+  type Quality,
   type Review,
 } from "./exam-model";
 
@@ -188,4 +190,37 @@ it("deletes a question and its notes; the questions after it keep their review",
     ["b?", "done", false],
     ["c?", "attention", false],
   ]);
+});
+
+describe("question quality", () => {
+  const quality: Quality = {
+    created: 1,
+    grader: { model: "us.moonshotai.kimi-k3" },
+    criteria: ["claridad", "relevancia", "respaldo", "calibre"],
+    rows: [
+      { index: 0, input: { question: "a?" }, score: 1, criteria: { claridad: { grade: 1, justification: "clara" } }, missed: [] },
+      { index: 1, input: { question: "b?" }, score: 0.5, criteria: { respaldo: { grade: 0, justification: "sin respaldo" } }, missed: ["respaldo"] },
+    ],
+  };
+
+  it("attaches each score to its question and marks an edited one stale", () => {
+    const qs = questionsFrom(parseExam([row("a?", "A"), row("b editada", "B"), row("c?", "C")].join("\n")), [{}, {}, {}], null);
+    const withQ = questionsQuality(qs, quality);
+    // The edited question keeps no live score (quality null) but is flagged stale.
+    expect(withQ.map((x) => [x.quality?.score ?? null, x.qualityStale])).toEqual([[1, false], [null, true], [null, false]]);
+    expect(withQ[1].quality).toBeNull();
+    expect(withQ[0].quality?.missed).toEqual([]);
+    expect(withQ[0].quality?.criteria?.claridad.justification).toBe("clara");
+  });
+
+  it("a deleted question passes its score to the one that took its place only if the text matches", () => {
+    const qs = questionsFrom(parseExam([row("b?", "B"), row("c?", "C")].join("\n")), [{}, {}], null);
+    const withQ = questionsQuality(qs, { ...quality, rows: [{ index: 1, input: { question: "b?" }, score: 0.5, missed: [] }] });
+    expect([withQ[0].quality?.score, withQ[0].qualityStale, withQ[1].quality]).toEqual([0.5, false, null]);
+  });
+
+  it("no scoring leaves the questions untouched", () => {
+    const qs = questionsFrom(parseExam(row("a?", "A")), [{}], null);
+    expect(questionsQuality(qs, null)).toBe(qs);
+  });
 });

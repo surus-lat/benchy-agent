@@ -469,6 +469,20 @@ export function createConversationsApp(deps: ConversationsDeps) {
     }
   });
 
+  app.post("/api/workspace/quality", async (c) => {
+    const path = c.req.query("path");
+    if (!path || path.length > 1000) return c.json({ error: "INVALID_PATH" }, 400);
+    const agent = await deps.agentFor(c.get("user").orgId);
+    if (!agent) return c.json({ error: "AGENT_NOT_PROVISIONED" }, 503);
+    try {
+      const report = await agent.quality(path);
+      await log(c.get("user"), path.split("/")[0], "quality", "midió la calidad de las preguntas");
+      return c.json(report);
+    } catch (err) {
+      return agentFailure(c, err);
+    }
+  });
+
   // A benchmark's papers: the sources the agent writes its questions from.
   // Any org member may add or remove one; the container fetches and keeps the text.
   app.post("/api/workspace/sources", async (c) => {

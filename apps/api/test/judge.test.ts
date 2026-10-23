@@ -54,6 +54,9 @@ function fakeHermes() {
     async review() {
       return { ok: true, rows: [] };
     },
+    async quality() {
+      return { ok: true, rows: [] };
+    },
     async addSource() {
       return { ok: false, error: { code: "no", message: "no" } };
     },

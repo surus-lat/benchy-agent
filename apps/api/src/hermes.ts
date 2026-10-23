@@ -28,6 +28,8 @@ export interface HermesClient {
   writeFile(path: string, content: string, baseModified?: number): Promise<WriteResult>;
   /** Grade a rubric benchmark's expert answers with its grader (writes review.json). */
   review(path: string): Promise<unknown>;
+  /** Score each question on the fixed quality criteria with its grader (writes quality.json). */
+  quality(path: string): Promise<unknown>;
   /** Add a library paper to a benchmark: the container fetches its PDF and keeps the text. */
   addSource(bench: string, paper: Paper): Promise<SourceResult>;
   /** Add a PDF the researcher uploaded to a benchmark. */
@@ -200,6 +202,20 @@ export function hermesClient(baseUrl: string, apiKey: string): HermesClient {
       let res: Response;
       try {
         res = await fetch(root + `/benchy/review?path=${encodeURIComponent(path)}`, {
+          method: "POST",
+          headers: { authorization: `Bearer ${apiKey}` },
+          signal: AbortSignal.timeout(TURN_TIMEOUT_MS),
+        });
+      } catch (err) {
+        const timedOut = err instanceof Error && err.name === "TimeoutError";
+        throw new HermesError(timedOut ? "agent timed out" : "agent unreachable", timedOut ? 504 : 502);
+      }
+      return json(res);
+    },
+    async quality(path) {
+      let res: Response;
+      try {
+        res = await fetch(root + `/benchy/quality?path=${encodeURIComponent(path)}`, {
           method: "POST",
           headers: { authorization: `Bearer ${apiKey}` },
           signal: AbortSignal.timeout(TURN_TIMEOUT_MS),

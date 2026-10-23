@@ -14,6 +14,7 @@ import {
   hasIssue,
   isOpenQuestionExam,
   isPending,
+  QUALITY_CRITERIA,
   MAX_CRITERIA,
   removeCriterion,
   setCriterion,
@@ -66,6 +67,9 @@ const BRACKET: Record<QStatus, [string, string]> = {
 
 type Event = { id: string; at: number; who: "Vos" | "Juez"; path: string; change: string; open: () => void };
 
+/** 0.75, not 0.7500000000000001: the quality badge reads like a grade. */
+const trimScore = (s: number) => String(Math.round(s * 100) / 100);
+
 /** The exam's language (benchmark.language): its text fields declare it, for spell check. */
 const ExamLang = createContext("es");
 
@@ -104,6 +108,7 @@ export default function Workspace({ slug, stage: stageParam }: { slug: string; s
   const [rubricOpen, setRubricOpen] = useState(false);
   const [papersOpen, setPapersOpen] = useState(false);
   const [reviewing, setReviewing] = useState(false);
+  const [scoring, setScoring] = useState(false);
   const [generating, setGenerating] = useState<number | null>(null);
   // The exam is read-only only while the agent writes questions the app asked for
   // (a batch, a draft): never just because the researcher is chatting with it.
@@ -243,9 +248,11 @@ export default function Workspace({ slug, stage: stageParam }: { slug: string; s
   const ready = openExam && qs.length > 0 && qs.every((x) => x.status === "done" && x.review) && !!bench.validation?.ok;
   const ev = evaluation.evaluation;
   const running = evaluation.active;
-  const busy = chat.pending || reviewing;
+  const busy = chat.pending || reviewing || scoring;
   const statusText = reviewing
     ? `El juez está revisando ${qs.length} respuestas expertas contra los criterios de evaluación…`
+    : scoring
+      ? `El juez está midiendo la calidad de ${qs.length} preguntas…`
     : ev?.state === "running"
       ? `Evaluando ${ev.models.length} ${ev.models.length === 1 ? "modelo" : "modelos"} sobre ${qs.length} preguntas… ${ev.models.filter((m) => m.state === "done" || m.state === "error").length}/${ev.models.length} terminados`
       : ev?.state === "reporting"
@@ -344,7 +351,21 @@ export default function Workspace({ slug, stage: stageParam }: { slug: string; s
                 locked={generating !== null || drafting}
                 reading={pendingSources.filter((p) => p.bench === slug).length}
                 generating={generating}
+                scoring={scoring}
                 pushEvent={pushEvent}
+                onQuality={async () => {
+                  setScoring(true);
+                  try {
+                    const r = await api.quality(bench.yamlPath);
+                    if (!r.ok) exam.setError(`La calidad no pudo medirse: ${r.error.code} · ${r.error.message}`);
+                    else pushEvent({ who: "Juez", path: "quality.json", change: `${qs.length} preguntas medidas`, open: () => go("autoria") });
+                  } catch (err) {
+                    exam.setError(errorText(err));
+                  } finally {
+                    setScoring(false);
+                    await exam.reload();
+                  }
+                }}
                 onRubric={() => setRubricOpen(true)}
                 papers={papers}
                 validPapers={validPapers}
@@ -543,7 +564,9 @@ function Authoring({
   locked,
   reading,
   generating,
+  scoring,
   pushEvent,
+  onQuality,
   onRubric,
   papers,
   validPapers,
@@ -563,7 +586,10 @@ function Authoring({
   /** Papers of this benchmark still being read. */
   reading: number;
   generating: number | null;
+  /** The judge is scoring the questions' quality right now. */
+  scoring: boolean;
   pushEvent: (e: Omit<Event, "id" | "at">) => void;
+  onQuality: () => void;
   onRubric: () => void;
   papers: Source[];
   /** The papers whose validation passed: the only ones the agent may write from. */
@@ -697,6 +723,8 @@ function Authoring({
                         {/* Closed-answer exams have no approval flow: no status to show. */}
                         <span className={`br ${openExam ? BRACKET[x.status][1] : "none"}`}>{openExam ? BRACKET[x.status][0] : "[·]"}</span>
                         <span className="t">{titleOf(x)}</span>
+                        {x.quality?.score !== undefined && <span className="q" title={`Calidad de la pregunta: ${x.quality.score}`}>Q{trimScore(x.quality.score)}</span>}
+                        {x.qualityStale && <span className="q stale" title="La pregunta cambió desde la última medición">Q?</span>}
                         <span className="n">{x.num}</span>
                       </button>
                     </ContextMenuTrigger>
@@ -808,6 +836,9 @@ function Authoring({
           </button>
           <button className="warm" onClick={() => setBatchOpen((o) => !o)} disabled={!openExam}>
             <span className="ico amberbox">[·]</span>Nuevo lote
+          </button>
+          <button className="warm" onClick={() => void onQuality()} disabled={!openExam || scoring}>
+            <span className="ico amberbox">{scoring ? "[···]" : "[Q]"}</span>{scoring ? "Midiendo calidad…" : "Verificar calidad"}
           </button>
         </div>
       </aside>
@@ -1074,6 +1105,36 @@ function QuestionEditor({
           <p className="ws-engine-line">
             → en el motor: un campo answer juzgado con {criteria.length} criterios · pesos {criteria.map((c) => c.weight).join(" / ")} · {total} filas en exam.jsonl
           </p>
+        </div>
+
+        <div className="ws-col-head sub">
+          <span className="ws-eyebrow">Calidad de la pregunta</span>
+          {q.quality?.score !== undefined && (
+            <span className={`ws-qscore${(q.quality.missed?.length ?? 0) > 0 ? " amber" : " ok"}`}>Q{trimScore(q.quality.score)}</span>
+          )}
+        </div>
+        <div className="ws-card ws-pad ws-quality">
+          {q.qualityStale ? (
+            <p className="ws-note">La pregunta cambió desde la última medición: volvé a verificarla con «Verificar calidad».</p>
+          ) : q.quality?.error ? (
+            <p className="ws-note">El juez no pudo medir esta pregunta: {q.quality.error.message}</p>
+          ) : q.quality ? (
+            <>
+              {QUALITY_CRITERIA.map((name) => {
+                const c = q.quality!.criteria?.[name];
+                return (
+                  <div key={name} className="ws-qcrit">
+                    <span className="t">{name}</span>
+                    {c && <span className={`ws-met ${c.grade > 0 ? "ok" : "no"}`}>{c.grade > 0 ? "sí" : "no"}</span>}
+                    {c && <p className="ws-qjust">{c.justification}</p>}
+                  </div>
+                );
+              })}
+              <p className="ws-engine-line">→ el juez puntúa la pregunta en 4 criterios fijos · la nota informa: aprobarla sigue siendo tu decisión</p>
+            </>
+          ) : (
+            <p className="ws-note">Todavía no la midió el juez. «Verificar calidad» la puntúa en {QUALITY_CRITERIA.join(", ")}.</p>
+          )}
         </div>
 
         <div className="ws-col-head sub">

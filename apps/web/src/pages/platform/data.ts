@@ -213,6 +213,20 @@ export const api = {
     }
     return (await res.json()) as { ok: true } | { ok: false; error: EngineError };
   },
+  /** The grader scores every question on the four fixed quality criteria; writes quality.json. */
+  quality: async (path: string) => {
+    let res: Response;
+    try {
+      res = await fetch(`/api/workspace/quality?path=${encodeURIComponent(path)}`, { method: "POST", credentials: "same-origin" });
+    } catch {
+      throw new ApiError("NETWORK", 0);
+    }
+    if (!res.ok) {
+      const body = (await res.json().catch(() => ({}))) as { error?: string };
+      throw new ApiError(body.error ?? `HTTP_${res.status}`, res.status);
+    }
+    return (await res.json()) as { ok: true } | { ok: false; error: EngineError };
+  },
 };
 
 // ---- Benchmarks from the workspace listing --------------------------------
