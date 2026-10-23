@@ -73,11 +73,16 @@ export type Criterion = { key: string; weight: number; description: string; leve
 /** Status in the question list. */
 export type QStatus = "done" | "progress" | "attention" | "new" | "error" | "empty";
 
+/** One option of a multiple-choice question: its key in the program (a, b, c, d) and its text. */
+export type QuestionOption = { key: string; text: string };
+
 export type Question = {
   index: number;
   num: string;
   text: string;
   answer: string;
+  /** The options of a multiple-choice question, in declaration order; null for open questions. */
+  options: QuestionOption[] | null;
   meta: QuestionMeta;
   status: QStatus;
   /** The grader review of this exact text and answer, if there is one. */
@@ -135,7 +140,35 @@ export function isOpenQuestionExam(task: string | undefined, criteria: Criterion
   return task === "answer" && !!criteria;
 }
 
+/** The metric the `answer` field is scored with (scoring.field_metrics.answer.metric), if declared. */
+export function readMetric(doc: Document): string | null {
+  const m = (doc.toJS() as Record<string, any>)?.scoring?.field_metrics?.answer?.metric;
+  return typeof m === "string" ? m : null;
+}
+
+/** Is this benchmark the multiple-choice shape: the answer task scored by exact match? */
+export function isMultipleChoiceExam(task: string | undefined, metric: string | null): boolean {
+  return task === "answer" && metric === "casefold_strip";
+}
+
 const text = (v: unknown) => (typeof v === "string" ? v : v == null ? "" : JSON.stringify(v));
+
+/** The options declared in an exam row (input.options), in order: the engine spells them
+ *  a-d as a nested object; a plain list is read too, keyed a, b, c… for robustness. */
+export function readOptions(row: ExamRow | { raw: string }): QuestionOption[] | null {
+  if ("raw" in row) return null;
+  const o = row.input?.options;
+  if (Array.isArray(o)) return o.map((t, i) => ({ key: String.fromCharCode(97 + i), text: text(t) }));
+  if (o && typeof o === "object") return Object.entries(o as Record<string, unknown>).map(([key, t]) => ({ key, text: text(t) }));
+  return null;
+}
+
+/** Which option the correct answer (expected.answer) names: the one whose text matches it. */
+export function correctOptionKey(options: QuestionOption[] | null, answer: string): string | null {
+  if (!options) return null;
+  const norm = (s: string) => s.normalize("NFKD").replace(/[\u0300-\u036f]/g, "").trim().toLowerCase();
+  return options.find((o) => norm(o.text) === norm(answer))?.key ?? null;
+}
 
 /** Was this review made with the rubric as it stands: the same criteria, worded the same? */
 export function reviewMatchesRubric(review: Review, criteria: Criterion[] | null): boolean {
@@ -158,7 +191,7 @@ export function questionsFrom(
     const m = meta[index] ?? {};
     const num = String(index + 1).padStart(2, "0");
     if ("raw" in row) {
-      return { index, num, text: row.raw, answer: "", meta: m, status: "error" as const, review: null, stale: false, quality: null, qualityStale: false };
+      return { index, num, text: row.raw, answer: "", options: null, meta: m, status: "error" as const, review: null, stale: false, quality: null, qualityStale: false };
     }
     const q = text(row.input.question ?? Object.values(row.input)[0]);
     const a = text(row.expected.answer ?? Object.values(row.expected)[0]);
@@ -174,7 +207,7 @@ export function questionsFrom(
     else if (m.status === "approved") status = "done";
     else if (byAgent(m)) status = "new";
     else status = "progress";
-    return { index, num, text: q, answer: a, meta: m, status, review: current ? r : null, stale: !!r && !current, quality: null, qualityStale: false };
+    return { index, num, text: q, answer: a, options: readOptions(row), meta: m, status, review: current ? r : null, stale: !!r && !current, quality: null, qualityStale: false };
   });
 }
 

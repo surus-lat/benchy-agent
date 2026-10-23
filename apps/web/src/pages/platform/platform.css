@@ -224,6 +224,11 @@ button.bp-row:hover { background: var(--paper); }
 .bp-newbench > .body { margin: 0; line-height: 1.6; }
 .bp-newbench-form { padding: 22px; display: grid; gap: 18px; }
 .bp-newbench-row { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+/* The exam-type choice: two pills, the same look as the workspace's filters. */
+.bp-newbench-kinds { display: flex; gap: 8px; margin-top: 6px; }
+.bp-newbench-kinds button { font: 13.5px/1.4 var(--sans); padding: 7px 14px; border: 1px solid var(--line); border-radius: 999px; background: transparent; color: var(--body); cursor: pointer; }
+.bp-newbench-kinds button.on { border-color: var(--ink); background: var(--ink); color: var(--paper); }
+.bp-newbench-kinds button:disabled { opacity: 0.55; cursor: not-allowed; }
 .bp-newbench-form .bp-start-paper { margin-top: 0; max-width: none; }
 .bp-newbench-error { margin: 0; font-size: 13.5px; color: var(--fail); }
 .bp-newbench-foot { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }

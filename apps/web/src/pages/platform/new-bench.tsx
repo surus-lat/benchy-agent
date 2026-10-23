@@ -4,7 +4,7 @@ import { api, ApiError, errorText, spellcheckFor } from "./data";
 import { serializeMeta } from "./exam-model";
 import { usePlatform } from "./store";
 import { sources } from "./library-data";
-import { benchmarkYaml, DOMAINS, LANGUAGES, slugify, uniqueSlug } from "./new-bench-model";
+import { benchmarkYaml, DOMAINS, LANGUAGES, slugify, uniqueSlug, type ExamKind } from "./new-bench-model";
 import { tourAnchorRef } from "./tour";
 
 // /app/nuevo — a new benchmark, name-first: the form is the whole wizard.
@@ -21,6 +21,7 @@ export function NewBench() {
   const [name, setName] = useState("");
   const [domain, setDomain] = useState("general");
   const [language, setLanguage] = useState("es");
+  const [kind, setKind] = useState<ExamKind>("open");
   const [state, setState] = useState<"idle" | "creating">("idle");
   const [error, setError] = useState<string | null>(null);
 
@@ -45,7 +46,7 @@ export function NewBench() {
     setState("creating");
     setError(null);
     try {
-      const yaml = benchmarkYaml(name, domain, language);
+      const yaml = benchmarkYaml(name, domain, language, kind);
       const used = new Set(taken);
       let folder = slug;
       // baseModified 0: written only if no such file exists, so another
@@ -78,7 +79,10 @@ export function NewBench() {
       <h1 className="bp-h1">Nuevo benchmark</h1>
       <p className="body">
         Le ponés un nombre y se crea: las fuentes las elegís en la pestaña Fuentes, apenas se crea. Después, en Autoría, el agente escribe
-        las preguntas sobre esas fuentes. El examen arranca con tres criterios de evaluación que podés cambiar.
+        las preguntas sobre esas fuentes.
+        {kind === "open"
+          ? " El examen arranca con tres criterios de evaluación que podés cambiar."
+          : " Cada pregunta de opción múltiple tiene cuatro opciones y una respuesta correcta: se corrige por coincidencia exacta, sin criterios de evaluación."}
       </p>
 
       <form className="card-plain bp-newbench-form" onSubmit={(e) => void create(e)}>
@@ -98,6 +102,20 @@ export function NewBench() {
           />
           <span className="hint">
             Carpeta en el workspace: <code>{name.trim() ? slug : "—"}</code>
+          </span>
+        </label>
+        <label className="bp-field">
+          Tipo de examen
+          <div className="bp-newbench-kinds" role="radiogroup" aria-label="Tipo de examen">
+            <button type="button" role="radio" aria-checked={kind === "open"} className={kind === "open" ? "on" : ""} onClick={() => setKind("open")} disabled={state !== "idle"}>
+              Preguntas abiertas
+            </button>
+            <button type="button" role="radio" aria-checked={kind === "multiple_choice"} className={kind === "multiple_choice" ? "on" : ""} onClick={() => setKind("multiple_choice")} disabled={state !== "idle"}>
+              Opción múltiple
+            </button>
+          </div>
+          <span className="hint">
+            {kind === "open" ? "Cada respuesta la juzga un juez contra los criterios de evaluación." : "Cuatro opciones, una respuesta correcta: se corrige por coincidencia exacta."}
           </span>
         </label>
         <div className="bp-newbench-row">
