@@ -9,6 +9,7 @@ import Workspace from "./workspace";
 import LibraryPage from "./library";
 import ReportPage from "./report";
 import { ProcessIndicator } from "./processes";
+import { Tour, tourAnchorRef } from "./tour";
 import "./platform.css";
 
 // /app — the platform. Routes:
@@ -58,6 +59,8 @@ function Shell() {
   const [isLibrary] = useRoute("/app/biblioteca");
   const activeSlug = benchParams?.slug ? decodeURIComponent(benchParams.slug) : null;
   const isHome = !activeSlug && !isNew && !isAccount && !isLibrary;
+  // The walkthrough (issue #11) only lives on the home and nuevo pages.
+  const tourPage = isHome ? ("home" as const) : isNew ? ("nuevo" as const) : null;
 
   return (
     <div className="bp">
@@ -95,7 +98,7 @@ function Shell() {
 
       <div className="bp-body">
         <aside className="bp-side" aria-label="Benchmarks">
-          <button className="bp-new" onClick={() => navigate("/app/nuevo")}>
+          <button className="bp-new" ref={tourAnchorRef("tour-home-new")} onClick={() => navigate("/app/nuevo")}>
             + Nuevo benchmark
           </button>
           <button className={`bp-nav${isHome ? " on" : ""}`} onClick={() => navigate("/app")}>
@@ -133,6 +136,8 @@ function Shell() {
           )}
         </main>
       </div>
+
+      {tourPage && <Tour page={tourPage} hasBench={benches.length > 0} userId={me?.user.id} navigate={navigate} />}
     </div>
   );
 }
