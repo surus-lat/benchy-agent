@@ -40,6 +40,7 @@ import {
 import { ApiError } from "./data";
 import { ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuTrigger } from "@/components/ui/context-menu";
 import "./workspace.css";
+import { Tour, tourAnchorRef } from "./tour";
 
 // One benchmark as two windows over the same exam (design: Plataforma AB v3).
 // A · Interfaz is the researcher's: questions, expert answers, the rubric, the
@@ -291,7 +292,7 @@ export default function Workspace({ slug, stage: stageParam }: { slug: string; s
             )}
             <nav aria-label="Etapas" className="ws-stages">
               {STAGES.map(([k, num, label]) => (
-                <button key={k} className={stage === k ? "on" : ""} onClick={() => go(k)}>
+                <button key={k} ref={tourAnchorRef(`tour-ws-tab-${k}`)} className={stage === k ? "on" : ""} onClick={() => go(k)}>
                   <span className="n">{num}</span>
                   {label}
                 </button>
@@ -312,6 +313,7 @@ export default function Workspace({ slug, stage: stageParam }: { slug: string; s
               )}
               <button
                 className="ws-btn-dark"
+                ref={tourAnchorRef("tour-ws-ejecutar")}
                 disabled={!bench.validation?.ok || running || reviewing || (openExam && qs.length === 0)}
                 onClick={requestRun}
               >
@@ -503,6 +505,8 @@ export default function Workspace({ slug, stage: stageParam }: { slug: string; s
           generatePrompt={validPapers.length > 0 ? batchPrompt(5, slug, validPapers.map((s) => s.id)) : null}
         />
       </main>
+
+      <Tour page="workspace" slug={slug} hasBench={benches.length > 0} userId={me?.user.id} navigate={navigate} />
     </div>
     </ExamLang.Provider>
   );
@@ -837,7 +841,7 @@ function Authoring({
           <button className="warm" onClick={() => setBatchOpen((o) => !o)} disabled={!openExam}>
             <span className="ico amberbox">[·]</span>Nuevo lote
           </button>
-          <button className="warm" onClick={() => void onQuality()} disabled={!openExam || scoring}>
+          <button className="warm" ref={tourAnchorRef("tour-ws-calidad")} onClick={() => void onQuality()} disabled={!openExam || scoring}>
             <span className="ico amberbox">{scoring ? "[···]" : "[Q]"}</span>{scoring ? "Midiendo calidad…" : "Verificar calidad"}
           </button>
         </div>
@@ -1832,7 +1836,7 @@ function ReviewStage({
           </p>
           <div className="r">
             <span className="mono muted">{summary}</span>
-            <button className="ws-btn-dark sm" onClick={onReview} disabled={busy || qs.length === 0}>
+            <button className="ws-btn-dark sm" ref={tourAnchorRef("tour-ws-revision")} onClick={onReview} disabled={busy || qs.length === 0}>
               {reviewed ? "Volver a revisar" : "Revisar respuestas expertas"}
             </button>
           </div>
