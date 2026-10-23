@@ -70,6 +70,9 @@ function fakeHermes(opts: { ok?: boolean } = {}): { client: HermesClient; delete
     async quality() {
       return { ok: true, rows: [] };
     },
+    async search() {
+      return { ok: true, query: "", results: [] };
+    },
     async addSource(bench, paper: Paper) {
       return { ok: true as const, source: source(`${paper.origin}-${paper.id}`) };
     },

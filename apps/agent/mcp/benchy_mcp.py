@@ -30,6 +30,7 @@ from benchy_quality import quality  # noqa: E402
 import benchy_sources  # noqa: E402
 from benchy_analysis import analyze  # noqa: E402
 from benchy_evaluation import run_model  # noqa: E402
+import benchy_search as semantic_search  # noqa: E402
 
 from aiohttp import ClientError, ClientSession, ClientTimeout
 
@@ -263,6 +264,25 @@ def benchy_models() -> dict:
     Latin America is often answered through another region's lens — run at
     least one per region; `default` marks one per region."""
     return {"provider": "bedrock", "models": MODELS, "catalog": catalog()}
+
+
+@mcp.tool()
+async def benchy_search(bench: str, query: str, k: int = 8) -> dict:
+    """Semantic search inside one benchmark: the full text of its papers and
+    its exam questions, embedded and ranked in this container.
+
+    `bench` is the benchmark's folder name, `query` what to look for (in the
+    exam's language). Returns the best `k` passages: each with its `id`
+    (`exam:<row>` for a question, `src:<source-id>:<n>` for a window of a
+    paper), its `text`, its similarity `score` and — for a paper — its
+    `title`. Use it to find where a benchmark's papers talk about something,
+    or whether the exam already asks about it, instead of reading every file.
+    """
+    try:
+        found = await semantic_search.search(bench, query, k)
+    except benchy_sources.SourceError as exc:
+        return {"ok": False, "error": exc.to_dict()}
+    return {"ok": True, **found}
 
 
 if __name__ == "__main__":

@@ -59,6 +59,9 @@ function fakeHermes(states: Record<string, unknown>, opts: { down?: boolean } = 
     async quality() {
       return { ok: true };
     },
+    async search() {
+      return { ok: true, query: "", results: [] };
+    },
     async addSource() {
       throw new HermesError("unused", 500);
     },

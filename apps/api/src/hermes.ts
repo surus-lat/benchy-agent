@@ -39,6 +39,8 @@ export interface HermesClient {
   /** Delete a benchmark: the whole workspace folder and everything it produced. */
   removeBenchmark(bench: string): Promise<{ ok: boolean }>;
   removeQuestion(bench: string, q: number): Promise<{ ok: boolean }>;
+  /** Semantic search inside a benchmark (its papers and exam questions). */
+  search(bench: string, q: string): Promise<unknown>;
   /** The whole workspace as a .tar.gz, for the daily backup. */
   backup(): Promise<ArrayBuffer>;
   /** A benchmark's last evaluation: each model's run, then the report. */
@@ -251,6 +253,15 @@ export function hermesClient(baseUrl: string, apiKey: string): HermesClient {
         SESSION_TIMEOUT_MS,
       );
       return (await json(res)) as { ok: boolean };
+    },
+    async search(bench, q) {
+      const res = await send(
+        "POST",
+        "/benchy/search",
+        { body: JSON.stringify({ bench, q }), type: "application/json" },
+        SOURCE_TIMEOUT_MS,
+      );
+      return json(res);
     },
     async backup() {
       const res = await send("GET", "/benchy/backup", {}, SOURCE_TIMEOUT_MS);

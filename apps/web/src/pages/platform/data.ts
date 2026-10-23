@@ -245,7 +245,15 @@ export const api = {
     }
     return (await res.json()) as { ok: true } | { ok: false; error: EngineError };
   },
+  /** Semantic search inside a benchmark: its papers' text and its exam questions. */
+  search: (bench: string, q: string) =>
+    send<SearchResult | { ok: false; error: EngineError }>("/api/workspace/search", { bench, q }),
 };
+
+/** One hit of semantic search (apps/agent/mcp/benchy_search.py): `exam:<row>`
+ *  for an exam question (0-based), `src:<paper-id>:<n>` for a window of a paper. */
+export type SearchHit = { id: string; text: string; score: number; title: string | null };
+export type SearchResult = { ok: true; query: string; results: SearchHit[] };
 
 // ---- Benchmarks from the workspace listing --------------------------------
 

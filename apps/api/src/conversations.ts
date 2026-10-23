@@ -585,6 +585,27 @@ export function createConversationsApp(deps: ConversationsDeps) {
     }
   });
 
+  // Semantic search inside one benchmark: the Worker forwards to the agent,
+  // which embeds its papers' text and exam questions (Bedrock, in the
+  // container) and answers the closest passages. Logged as the researcher
+  // exploring the benchmark.
+  app.post("/api/workspace/search", async (c) => {
+    const body = (await c.req.json().catch(() => null)) as { bench?: unknown; q?: unknown } | null;
+    if (typeof body?.bench !== "string" || !BENCH.test(body.bench)) return c.json({ error: "INVALID_BENCH" }, 400);
+    const q = typeof body.q === "string" ? body.q.trim() : "";
+    if (!q || q.length > 300) return c.json({ error: "INVALID_BODY" }, 400);
+    const user = c.get("user");
+    const agent = await deps.agentFor(user.orgId);
+    if (!agent) return c.json({ error: "AGENT_NOT_PROVISIONED" }, 503);
+    try {
+      const result = await agent.search(body.bench, q);
+      await log(user, body.bench, "search", `buscó «${q}»`);
+      return c.json(result);
+    } catch (err) {
+      return agentFailure(c, err);
+    }
+  });
+
   // Delete a benchmark: the agent removes its workspace folder (exam, sources,
   // runs, report) and the Worker drops the org's rows about it. Deleting is
   // permanent — the app asks for confirmation before calling this.
