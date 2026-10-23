@@ -169,6 +169,19 @@ write every question from them:
 - Never write questions from memory of a paper you have not read here: if it
   is not in `sources.json`, find and add it first, or ask for the PDF.
 
+## Multiple choice: the `answer` task with options and exact match
+
+The app can create a multiple-choice exam (issue: multiple choice). Its YAML is
+the open-question shape with two changes: `program.input` declares
+`options: { a: string, b: string, c: string, d: string }` (the engine has no
+array type; every row must carry exactly a, b, c, d) and the `answer` field is
+scored by `metric: casefold_strip` — no `params`, no `grader`. Each exam row is
+`{"input": {"question": "…", "options": {"a": "…", "b": "…", "c": "…", "d": "…"}},
+"expected": {"answer": "<exact text of the correct option>"}}`: the answer is
+the option's exact text (the metric only folds case and accents), and the
+distractors stay plausible and clearly wrong. When the researcher's benchmark is
+this shape, write MC rows, not open questions.
+
 ## Closed answers: exact match
 
 For the other tasks, a field is right or wrong by exact match, so prefer `enum`,

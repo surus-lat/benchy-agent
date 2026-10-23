@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   byAgent,
+  correctOptionKey,
   criterionMet,
   groupsOf,
   parseBenchDoc,
@@ -9,6 +10,8 @@ import {
   questionsFrom,
   questionsQuality,
   readCriteria,
+  readMetric,
+  readOptions,
   addCriterion,
   removeCriterion,
   removeQuestion,
@@ -87,6 +90,66 @@ describe("exam rows", () => {
   it("treats unreadable notes as none", () => {
     expect(parseMeta("nope")).toEqual([]);
     expect(parseMeta(undefined)).toEqual([]);
+  });
+});
+
+describe("multiple-choice rows", () => {
+  // The shape the MC editor and the engine agree on: options as an a-d object,
+  // expected.answer the exact text of the correct option.
+  const mcRow = (q: string, opts: [string, string, string, string], correct: number) =>
+    JSON.stringify({
+      input: { question: q, options: { a: opts[0], b: opts[1], c: opts[2], d: opts[3] } },
+      expected: { answer: opts[correct] },
+    });
+
+  it("round-trips a multiple-choice row through parse and serialize", () => {
+    const text = mcRow("¿Qué es la mitosis?", ["División celular", "Fotosíntesis", "Respiración", "Digestión"], 0) + "\n";
+    const rows = parseExam(text);
+    expect(serializeExam(rows)).toBe(text);
+    const qs = questionsFrom(rows, [{}], null);
+    expect(qs[0].options).toEqual([
+      { key: "a", text: "División celular" },
+      { key: "b", text: "Fotosíntesis" },
+      { key: "c", text: "Respiración" },
+      { key: "d", text: "Digestión" },
+    ]);
+    expect(qs[0].status).toBe("progress");
+  });
+
+  it("reads options from a list too and finds the correct option by exact text", () => {
+    expect(readOptions({ input: { options: ["x", "y"] }, expected: {} })).toEqual([
+      { key: "a", text: "x" },
+      { key: "b", text: "y" },
+    ]);
+    expect(readOptions({ input: { question: "q" }, expected: {} })).toBeNull();
+    const opts = [
+      { key: "a", text: "División celular" },
+      { key: "b", text: "Fotosíntesis" },
+    ];
+    expect(correctOptionKey(opts, "División celular")).toBe("a");
+    // The metric the engine scores with is forgiving about case and accents; the radio is too.
+    expect(correctOptionKey(opts, "división CELULAR ")).toBe("a");
+    expect(correctOptionKey(opts, "otra")).toBeNull();
+  });
+
+  it("reads the metric that marks a multiple-choice benchmark", () => {
+    const mcYaml = `# Ciclo del agua
+version: "1.0"
+ontology_version: "1.1"
+benchmark: { task: answer, domain: biology, language: es }
+program:
+  input: { question: string, options: { a: string, b: string, c: string, d: string } }
+  output: { answer: string }
+scoring:
+  weights: { answer: 1 }
+  aggregator: weighted_mean
+  field_metrics:
+    answer: { metric: casefold_strip }
+data: { path: ./exam.jsonl }
+`;
+    expect(readMetric(parseBenchDoc(mcYaml))).toBe("casefold_strip");
+    expect(readMetric(parseBenchDoc(YAML))).toBe("rubric");
+    expect(readMetric(parseBenchDoc("benchmark: { task: extract }"))).toBeNull();
   });
 });
 

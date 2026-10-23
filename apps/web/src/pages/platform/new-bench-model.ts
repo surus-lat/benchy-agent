@@ -84,9 +84,39 @@ const CRITERIA: [number, string][] = [
 
 const MODEL = "us.moonshotai.kimi-k3";
 
-/** benchmark.yaml for an open-question exam graded with a rubric (the shape the editors read). */
-export function benchmarkYaml(title: string, domain: string, language: string): string {
+/** How a new benchmark is graded: open questions judged by a rubric, or multiple choice by exact match. */
+export type ExamKind = "open" | "multiple_choice";
+
+/** benchmark.yaml for an open-question exam graded with a rubric, or a multiple-choice
+ *  exam scored by casefold_strip (the shape the editors read). The MC program declares
+ *  its four options as a nested object — the engine has no array type and rejects extra
+ *  or missing option keys in a row, so an exam row spells options as a, b, c, d. */
+export function benchmarkYaml(title: string, domain: string, language: string, kind: ExamKind = "open"): string {
   const name = title.replace(/\s+/g, " ").trim();
+  if (kind === "multiple_choice") {
+    return `# ${name}
+version: "1.0"
+ontology_version: "1.1"
+benchmark: { task: answer, domain: ${domain}, language: ${language} }
+program:
+  input:
+    question: string
+    options: { a: string, b: string, c: string, d: string }
+  output: { answer: string }
+scoring:
+  weights: { answer: 1 }
+  aggregator: weighted_mean
+  field_metrics:
+    answer: { metric: casefold_strip }
+data:
+  path: ./exam.jsonl
+ai-system:
+  type: model
+  provider: bedrock
+  model: ${MODEL}
+  parameters: { temperature: 0, max_tokens: 4096 }
+`;
+  }
   const criteria = CRITERIA.map(
     ([weight, description], i) =>
       `          c${i + 1}:\n            weight: ${weight}\n            description: ${JSON.stringify(description)}\n            levels: { 0: No lo cumple, 1: Lo cumple }`,

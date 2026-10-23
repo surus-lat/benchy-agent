@@ -61,6 +61,7 @@ export function PublicationStage({
   bench,
   exam,
   openExam,
+  mcExam,
   go,
   ask,
   showAgent,
@@ -70,6 +71,8 @@ export function PublicationStage({
   bench: BenchSummary;
   exam: ExamState;
   openExam: boolean;
+  /** Multiple choice: published as exact-match questions, no rubric line. */
+  mcExam: boolean;
   go: (s: PubStage) => void;
   ask: (t: string) => Promise<void>;
   showAgent: () => void;
@@ -102,7 +105,7 @@ export function PublicationStage({
       ) : tab === "informe" ? (
         <ReportView bench={bench} analysis={analysis} showAgent={showAgent} evaluation={evaluation} />
       ) : (
-        <PublishView bench={bench} exam={exam} openExam={openExam} go={go} />
+        <PublishView bench={bench} exam={exam} openExam={openExam} mcExam={mcExam} go={go} />
       )}
     </div>
   );
@@ -477,7 +480,7 @@ function ReportView({
 
 // ---- Publicar ---------------------------------------------------------------------
 
-function PublishView({ bench, exam, openExam, go }: { bench: BenchSummary; exam: ExamState; openExam: boolean; go: (s: PubStage) => void }) {
+function PublishView({ bench, exam, openExam, mcExam, go }: { bench: BenchSummary; exam: ExamState; openExam: boolean; mcExam: boolean; go: (s: PubStage) => void }) {
   const { me } = usePlatform();
   const results = useRunResults(bench);
   const board = newestPerModel(results, bench.doc?.model);
@@ -518,7 +521,12 @@ function PublishView({ bench, exam, openExam, go }: { bench: BenchSummary; exam:
                 <p className="ws-note">{org}</p>
               </div>
               <p className="about">
-                {n} preguntas{openExam ? ` de respuesta abierta, cada una juzgada contra una respuesta experta con ${exam.criteria!.length} criterios de evaluación.` : "."}
+                {n} preguntas
+                {openExam
+                  ? ` de respuesta abierta, cada una juzgada contra una respuesta experta con ${exam.criteria!.length} criterios de evaluación.`
+                  : mcExam
+                    ? " de opción múltiple, corregidas por coincidencia exacta con la respuesta correcta."
+                    : "."}
               </p>
               <div className="board">
                 <p className="ws-eyebrow">Resultados</p>
