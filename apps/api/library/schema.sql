@@ -18,6 +18,7 @@ CREATE TABLE IF NOT EXISTS papers (
   publisher TEXT NOT NULL,
   rights TEXT NOT NULL,
   pdf TEXT,                      -- papers/<shard>/<id>.pdf in the dataset, files/<key> in KV, or NULL
+  embedding BLOB,                -- EmbeddingGemma-2 768d float32 from the HF parquet (NULL if not computed)
   origin TEXT NOT NULL DEFAULT 'conicet', -- conicet (CONICET Digital) | bicyt (BICyT record, external.json)
   url TEXT                       -- the record's page when it is not CONICET Digital's handle
 );
