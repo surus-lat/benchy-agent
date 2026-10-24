@@ -1,16 +1,17 @@
-"""Semantic search inside one benchmark: papers ranked by the embeddings
-already computed in the UNRN/ri-conicet dataset, exam questions as text.
+"""Semantic search inside one benchmark: papers ranked by their pre-computed
+768-d EmbeddingGemma-2 embeddings, exam questions embedded at query time.
 
-No external vector store and no re-vectorisation: the papers' 768-d
-EmbeddingGemma-2 vectors travel from the parquet through the library,
-through the Worker, and into ``sources.json`` alongside each paper.
-Only the *query* is embedded at search time — by loading the same
-EmbeddingGemma-2 model (text-only, 270 M params, runs on CPU) lazily
-on first use and caching it for subsequent searches.
+Storage: Qdrant local mode (on-disk, no server process) at ``<bench>/.qdrant/``.
+Papers are upserted when added via ``benchy_sources``; the collection is
+rebuilt lazily on first search if the Qdrant store is empty or stale.
 
-Chunk ids: ``src:<source-id>`` for a paper (whole-paper embedding from
-the dataset), ``exam:<row>`` for one exam question (embedded at search
-time, if a query-model is available — otherwise exam hits are excluded).
+Query embedding: ``sentence-transformers`` with ``google/embeddinggemma-2``
+(text-only, 270 M params, CPU).  FastEmbed does not support EmbeddingGemma-2
+(only the older 300 M v1 in a different embedding space), so we keep
+sentence-transformers for query-time encoding.
+
+Chunk ids: ``src:<source-id>`` for a paper (whole-paper embedding from the
+dataset), ``exam:<row>`` for one exam question (embedded at search time).
 
 Shared by the MCP server (``benchy_search``) and the proxy
 (``POST /benchy/search``).
@@ -20,7 +21,6 @@ from __future__ import annotations
 
 import asyncio
 import json
-import math
 import os
 import struct
 from pathlib import Path
@@ -28,7 +28,8 @@ from pathlib import Path
 from benchy_sources import SourceError, _exam_path, _locked, bench_dir, load_index
 
 DIM = 768  # EmbeddingGemma-2 output dimensionality
-VERSION = 2  # bumping invalidates the query-side cache
+VERSION = 3  # bumping invalidates the query-side cache
+COLLECTION = "benchy_papers"
 
 # ---------- lazy query embedder (EmbeddingGemma-2, text-only) ----------
 
@@ -70,6 +71,35 @@ async def embed_query(text: str) -> list[float]:
     return [float(v) for v in vec]
 
 
+# ---------- Qdrant local helpers ----------
+
+
+def _qdrant_path(folder: Path) -> str:
+    """On-disk Qdrant storage inside the benchmark folder."""
+    return str(folder / ".qdrant")
+
+
+def _get_client(folder: Path):
+    """Create a Qdrant client in local (embedded) mode — no server needed."""
+    from qdrant_client import QdrantClient
+
+    return QdrantClient(path=_qdrant_path(folder))
+
+
+def _ensure_collection(client, *, recreate: bool = False) -> None:
+    """Create the collection if it does not exist (or recreate it)."""
+    from qdrant_client.models import Distance, VectorParams
+
+    if recreate:
+        if client.collection_exists(COLLECTION):
+            client.delete_collection(COLLECTION)
+    if not client.collection_exists(COLLECTION):
+        client.create_collection(
+            collection_name=COLLECTION,
+            vectors_config=VectorParams(size=DIM, distance=Distance.COSINE),
+        )
+
+
 # ---------- reading stored embeddings ----------
 
 
@@ -92,26 +122,66 @@ def _parse_embedding(raw) -> list[float] | None:
     return None
 
 
-def _source_embeddings(folder: Path) -> dict[str, list[float]]:
-    """Read the pre-computed embedding for each source whose entry in
-    ``sources.json`` carries one."""
-    out: dict[str, list[float]] = {}
-    for source in load_index(folder):
+# ---------- collection sync ----------
+
+
+def _sync_collection(folder: Path) -> None:
+    """Rebuild the Qdrant collection from sources.json embeddings.
+
+    Called under the benchmark's file lock so sources.json is stable.
+    Replaces the whole collection to stay consistent.
+    """
+    from qdrant_client.models import PointStruct
+
+    sources = load_index(folder)
+    points: list = []
+    for source in sources:
         sid = str(source.get("id") or "")
         vec = _parse_embedding(source.get("embedding"))
         if sid and vec:
-            out[sid] = vec
-    return out
+            # Use a deterministic integer id from the string hash
+            point_id = abs(hash(sid)) % (2**63)
+            points.append(PointStruct(
+                id=point_id,
+                vector=vec,
+                payload={
+                    "item_id": sid,
+                    "source_type": "paper",
+                    "title": source.get("title") or sid,
+                },
+            ))
+
+    client = _get_client(folder)
+    try:
+        _ensure_collection(client, recreate=True)
+        if points:
+            # Upsert in batches of 100
+            for i in range(0, len(points), 100):
+                client.upsert(collection_name=COLLECTION, points=points[i:i + 100])
+    finally:
+        client.close()
 
 
-# ---------- cosine similarity ----------
+def _collection_count(folder: Path) -> int:
+    """How many points the collection has, 0 if it doesn't exist."""
+    client = _get_client(folder)
+    try:
+        if not client.collection_exists(COLLECTION):
+            return 0
+        return client.count(collection_name=COLLECTION).count
+    except Exception:
+        return 0
+    finally:
+        client.close()
 
 
-def _cosine(a: list[float], b: list[float]) -> float:
-    dot = sum(x * y for x, y in zip(a, b))
-    na = math.sqrt(sum(x * x for x in a))
-    nb = math.sqrt(sum(y * y for y in b))
-    return dot / (na * nb) if na and nb else 0.0
+def _source_count_with_embeddings(folder: Path) -> int:
+    """Count sources in sources.json that have embeddings."""
+    count = 0
+    for source in load_index(folder):
+        if _parse_embedding(source.get("embedding")) is not None:
+            count += 1
+    return count
 
 
 # ---------- search ----------
@@ -119,7 +189,7 @@ def _cosine(a: list[float], b: list[float]) -> float:
 
 async def search(bench: str, query: str, k: int = 8) -> dict:
     """Rank a benchmark's papers (and optionally its exam questions) against
-    ``query`` by cosine similarity with their stored embeddings.
+    ``query`` by cosine similarity using Qdrant local mode.
 
     Papers without a stored embedding (uploaded PDFs, papers whose parquet
     row had no vector) are excluded from results — they are still searchable
@@ -131,20 +201,39 @@ async def search(bench: str, query: str, k: int = 8) -> dict:
 
     qvec = await embed_query(query.strip())
 
-    # Collect papers with their pre-computed embeddings.
+    # Ensure the Qdrant collection is in sync with sources.json.
     async with _locked(folder):
-        embeddings = _source_embeddings(folder)
-        sources_index = {str(s.get("id") or ""): s for s in load_index(folder)}
+        expected = _source_count_with_embeddings(folder)
+        actual = _collection_count(folder)
+        if actual != expected or expected == 0:
+            await asyncio.to_thread(_sync_collection, folder)
 
+    # Query Qdrant for similar papers.
     candidates: list[dict] = []
-    for sid, vec in embeddings.items():
-        score = _cosine(qvec, vec)
-        source = sources_index.get(sid, {})
+
+    def _qdrant_search():
+        client = _get_client(folder)
+        try:
+            if not client.collection_exists(COLLECTION):
+                return []
+            results = client.query_points(
+                collection_name=COLLECTION,
+                query=qvec,
+                limit=max(1, k),
+                with_payload=True,
+            )
+            return results.points
+        finally:
+            client.close()
+
+    hits = await asyncio.to_thread(_qdrant_search)
+    for hit in hits:
+        payload = hit.payload or {}
         candidates.append({
-            "id": f"src:{sid}",
-            "text": (source.get("title") or sid),
-            "score": round(score, 4),
-            "title": source.get("title") or sid,
+            "id": f"src:{payload.get('item_id', '')}",
+            "text": payload.get("title", ""),
+            "score": round(hit.score, 4),
+            "title": payload.get("title", ""),
         })
 
     # Optionally embed exam questions (at query time, since they have no
@@ -165,7 +254,14 @@ async def search(bench: str, query: str, k: int = 8) -> dict:
                 # Embed the question text with the same model.
                 try:
                     evec = await embed_query(question.strip())
-                    score = _cosine(qvec, evec)
+
+                    # Compute cosine similarity manually for exam questions
+                    # (they are not in Qdrant — embedded on-the-fly).
+                    dot = sum(a * b for a, b in zip(qvec, evec))
+                    na = sum(a * a for a in qvec) ** 0.5
+                    nb = sum(b * b for b in evec) ** 0.5
+                    score = dot / (na * nb) if na and nb else 0.0
+
                     candidates.append({
                         "id": f"exam:{row}",
                         "text": question.strip()[:200],
