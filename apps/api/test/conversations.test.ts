@@ -68,6 +68,9 @@ function fakeHermes(opts: { fail?: "chat" | "session" } = {}) {
       calls.push({ op: "quality", args: [path] });
       return { ok: true, rows: [] };
     },
+    async search() {
+      return { ok: true, query: "", results: [] };
+    },
     async addSource(bench, paper) {
       calls.push({ op: "addSource", args: [bench, paper.id] });
       return { ok: true, source: { id: `conicet-${paper.id}`, origin: "conicet", title: paper.title, authors: paper.creators, year: paper.year, url: paper.url, pdf_url: paper.pdfUrl, file: `sources/conicet-${paper.id}.md`, pages: 3, chars: 900, text: "full", added: 1 } };

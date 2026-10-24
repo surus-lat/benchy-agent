@@ -59,6 +59,9 @@ function fakeHermes() {
     async quality() {
       return { ok: true, rows: [] };
     },
+    async search() {
+      return { ok: true, query: "", results: [] };
+    },
     async addSource() {
       return { ok: false, error: { code: "no", message: "no" } };
     },

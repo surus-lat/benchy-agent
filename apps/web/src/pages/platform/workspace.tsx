@@ -2,7 +2,7 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useRef, use
 import { Link, useLocation } from "wouter";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
-import { api, errorText, newestPerModel, REGIONS, spellcheckFor, splitAsk, type CatalogModel, type Evaluation, type JudgeConfig, type LibraryCriterion, type Message } from "./data";
+import { api, errorText, newestPerModel, REGIONS, spellcheckFor, splitAsk, type CatalogModel, type Evaluation, type JudgeConfig, type LibraryCriterion, type Message, type SearchHit } from "./data";
 import { useAgentChat } from "./agent-chat";
 import { usePlatform, type BenchSummary, type PendingSource } from "./store";
 import { useEvaluation, useExam, useRunResults, useSelectedModels, type EvaluationState, type ExamState } from "./use-exam";
@@ -359,6 +359,7 @@ export default function Workspace({ slug, stage: stageParam }: { slug: string; s
               <Authoring
                 exam={exam}
                 author={me?.user.name?.trim() || me?.user.email || "vos"}
+                slug={slug}
                 openExam={openExam}
                 q={q}
                 qIndex={qIndex}
@@ -590,6 +591,7 @@ function ValidationBadge({ bench }: { bench: BenchSummary }) {
 function Authoring({
   exam,
   author,
+  slug,
   openExam,
   q,
   qIndex,
@@ -611,6 +613,8 @@ function Authoring({
   exam: ExamState;
   /** The researcher's name, recorded as who wrote a question. */
   author: string;
+  /** The benchmark's folder: semantic search runs over its papers and exam. */
+  slug: string;
   openExam: boolean;
   q: Question | undefined;
   qIndex: number;
@@ -633,6 +637,11 @@ function Authoring({
   onDelete: (q: Question) => void;
 }) {
   const [search, setSearch] = useState("");
+  // Semantic search over the benchmark's papers and exam questions: its own
+  // input, its own results (the text filter above only narrows the list).
+  const [semQuery, setSemQuery] = useState("");
+  const [semBusy, setSemBusy] = useState(false);
+  const [semResults, setSemResults] = useState<SearchHit[] | null>(null);
   const [filter, setFilter] = useState<"all" | "pend" | "issues">("all");
   const [batchOpen, setBatchOpen] = useState(false);
   const [batchN, setBatchN] = useState(5);
@@ -699,6 +708,29 @@ function Authoring({
     setSearch("");
   };
 
+  // Ask the agent to embed the benchmark's papers and questions and rank them
+  // against the query; an exam hit opens that question.
+  const runSemantic = async () => {
+    const term = semQuery.trim();
+    if (!term || semBusy) return;
+    setSemBusy(true);
+    try {
+      const r = await api.search(slug, term);
+      if (!r.ok) setSemResults([]);
+      else setSemResults(r.results);
+    } catch (err) {
+      setSemResults([]);
+      exam.setError(errorText(err));
+    } finally {
+      setSemBusy(false);
+    }
+  };
+
+  const openHit = (hit: SearchHit) => {
+    const m = /^exam:(\d+)$/.exec(hit.id);
+    if (m) setQIndex(Number(m[1]));
+  };
+
   return (
     <div className="ws-aut">
       <aside className="ws-qlist" aria-label="Preguntas">
@@ -708,6 +740,22 @@ function Authoring({
             <span>{qs.length}</span>
           </div>
           <input type="search" value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Buscar pregunta…" aria-label="Buscar pregunta" spellCheck={false} />
+          <form
+            role="search"
+            onSubmit={(e) => {
+              e.preventDefault();
+              void runSemantic();
+            }}
+          >
+            <input
+              type="search"
+              value={semQuery}
+              onChange={(e) => setSemQuery(e.target.value)}
+              placeholder="Buscar en el examen y sus fuentes…"
+              aria-label="Buscar en el examen y sus fuentes"
+              spellCheck={false}
+            />
+          </form>
           {openExam && (
           <div role="group" aria-label="Filtrar" className="ws-pills">
             {(
@@ -726,6 +774,17 @@ function Authoring({
           )}
         </div>
         <div className="ws-qlist-body" ref={listRef}>
+          {semResults !== null && (
+            <div className="ws-sem">
+              <p className="ws-group">{semBusy ? "buscando…" : `semántico · ${semResults.length}`}</p>
+              {semResults.map((hit) => (
+                <button key={hit.id} className="ws-semrow" onClick={() => openHit(hit)} disabled={!hit.id.startsWith("exam:")}>
+                  <span className="s">{hit.score.toFixed(2)}</span>
+                  <span className="t">{hit.title ?? (hit.id.startsWith("exam:") ? `pregunta ${Number(hit.id.slice(5)) + 1}` : hit.id)}</span>
+                </button>
+              ))}
+            </div>
+          )}
           {groups.map((g) => (
             <div key={g.title}>
               <p className="ws-group">

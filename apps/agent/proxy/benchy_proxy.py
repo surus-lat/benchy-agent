@@ -20,6 +20,7 @@ Hermes's API server listens on 127.0.0.1 only; this process fronts it:
   DELETE /benchy/sources?bench=...&id=...          take a paper out of a benchmark
   DELETE /benchy/benchmark?bench=...               delete a benchmark and everything in it
   DELETE /benchy/benchmark/question?bench=...&q=...  take one question out of a benchmark's exam
+  POST /benchy/search             semantic search over a benchmark's papers and exam questions
   everything else                reverse-proxied to Hermes, streamed, unmodified
 
 The /benchy routes check the same bearer key Hermes does (API_SERVER_KEY), so
@@ -47,6 +48,7 @@ from aiohttp import ClientSession, ClientTimeout, web
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "mcp"))  # /opt/benchy/mcp in the image
 import benchy_evaluation  # noqa: E402
 import benchy_sources  # noqa: E402
+import benchy_search  # noqa: E402
 from benchy_analysis import analyze  # noqa: E402
 from benchy_review import review as review_answers  # noqa: E402
 from benchy_quality import quality as score_questions  # noqa: E402
@@ -438,6 +440,26 @@ async def remove_question(request: web.Request) -> web.Response:
     return web.json_response({"ok": True})
 
 
+async def search(request: web.Request) -> web.Response:
+    """Body: {bench, q}. Semantic search over the benchmark's papers and exam
+    questions. Domain failures (no such benchmark, embedder unavailable) are
+    {ok: false, error}, not HTTP errors."""
+    if not _authorized(request):
+        return web.json_response({"error": "unauthorized"}, status=401)
+    try:
+        body = await request.json()
+        bench, q = body["bench"], body["q"]
+        if not isinstance(bench, str) or not isinstance(q, str) or not q.strip() or len(q) > 300:
+            raise TypeError
+    except (ValueError, KeyError, TypeError):
+        return web.json_response({"error": "bad_request"}, status=400)
+    try:
+        found = await benchy_search.search(bench, q)
+    except benchy_sources.SourceError as exc:
+        return web.json_response({"ok": False, "error": exc.to_dict()})
+    return web.json_response({"ok": True, **found})
+
+
 async def proxy(request: web.Request) -> web.StreamResponse:
     session: ClientSession = request.app["client"]
     headers = {k: v for k, v in request.headers.items() if k.lower() not in HOP_BY_HOP}
@@ -487,6 +509,7 @@ def main() -> None:
     app.router.add_delete("/benchy/sources", remove_source)
     app.router.add_delete("/benchy/benchmark", remove_benchmark)
     app.router.add_delete("/benchy/benchmark/question", remove_question)
+    app.router.add_post("/benchy/search", search)
     app.router.add_route("*", "/{tail:.*}", proxy)
     port = int(os.environ.get("PORT", "8080"))
     print(f"[benchy-proxy] :{port} -> {UPSTREAM}, workspace {WORKSPACE}", flush=True)

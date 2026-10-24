@@ -168,6 +168,12 @@
 .ws-qrow .n { font: 400 11.5px var(--mono); color: var(--muted); }
 .ws-qrow .q { flex: none; font: 500 10.5px var(--mono); color: var(--body); border: 1px solid var(--line); border-radius: 999px; padding: 1px 6px; }
 .ws-qrow .q.stale { color: var(--muted); }
+/* Semantic search hits above the question list (issue #4). */
+.ws-semrow { display: flex; align-items: center; gap: 10px; width: 100%; border: 0; text-align: left; padding: 6px 10px; border-radius: 10px; font-size: 13px; margin-bottom: 2px; background: transparent; color: var(--body); }
+.ws-semrow:hover:not(:disabled) { background: var(--surface); }
+.ws-semrow:disabled { cursor: default; }
+.ws-semrow .s { flex: none; font: 500 10.5px var(--mono); color: var(--muted); border: 1px solid var(--line); border-radius: 999px; padding: 1px 6px; }
+.ws-semrow .t { flex: 1; min-width: 0; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; line-height: 1.35; }
 .ws-gen { animation: ws-fade 200ms ease both; }
 .ws-skel { height: 34px; margin: 0 0 4px; border-radius: 10px; background: var(--surface-2); animation: ws-skel 1.2s ease-in-out infinite; }
 .ws-qlist-foot { flex: none; display: flex; border-top: 1px solid var(--line-soft); }

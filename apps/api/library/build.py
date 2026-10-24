@@ -39,7 +39,7 @@ TYPES = {
     "dataset": "dataset",
 }
 KINDS = {*TYPES.values(), "other"}  # already normalized (external.json)
-COLUMNS = "id, title, creators, subjects, description, date, year, type, language, publisher, rights, pdf"
+COLUMNS = "id, title, creators, subjects, description, date, year, type, language, publisher, rights, pdf, embedding"
 INDEXED = "title, creators, subjects, description"
 META = """INSERT OR REPLACE INTO library_meta (key, value) SELECT 'papers', count(*) FROM papers;
 INSERT OR REPLACE INTO library_meta (key, value) SELECT 'with_pdf', count(pdf) FROM papers;
@@ -51,6 +51,15 @@ def sql_text(value: str | None) -> str:
     if value is None:
         return "NULL"
     return "'" + value.replace("'", "''") + "'"
+
+
+def _embedding_blob(vec) -> str:
+    """Pack a 768-d float32 embedding into an X'...' hex literal, or NULL."""
+    if vec is None or not hasattr(vec, "__len__") or len(vec) != 768:
+        return "NULL"
+    import struct
+    packed = struct.pack(f"<{len(vec)}f", *[float(v) for v in vec])
+    return "X'" + packed.hex() + "'"
 
 
 def row_values(r: dict) -> str:
@@ -72,6 +81,7 @@ def row_values(r: dict) -> str:
         sql_text(r["publisher"] or ""),
         sql_text(r["rights"] or ""),
         sql_text(r["pdf"]),
+        _embedding_blob(r.get("embedding")),
     ]
     return "(" + ", ".join(values) + ")"
 

@@ -253,6 +253,10 @@ async def add_paper(bench: str, paper: dict, http: ClientSession) -> dict:
         "text": "abstract" if missing else "full",
         "added": int(time.time()),
     }
+    # Carry the pre-computed embedding from the library (parquet → D1 → Worker → here).
+    emb = paper.get("embedding")
+    if isinstance(emb, str) and emb:
+        source["embedding"] = emb
     return await _store(folder, source, str(paper.get("description") or ""), pages, missing)
 
 

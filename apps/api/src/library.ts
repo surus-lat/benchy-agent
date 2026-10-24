@@ -58,6 +58,8 @@ export type Paper = {
   rights: string;
   /** The open-access PDF (Hugging Face, or this Worker for the files we keep); null when the paper has none. */
   pdfUrl: string | null;
+  /** EmbeddingGemma-2 768d vector from the dataset, base64-encoded (null if not computed). */
+  embedding: string | null;
   /** The paper's record: CONICET Digital, or its BICyT page. */
   url: string;
 };
@@ -74,6 +76,15 @@ const STOPWORDS = new Set(
 function fold(text: string): string {
   return text.normalize("NFD").replace(/\p{Diacritic}/gu, "").toLowerCase();
 }
+
+/** Base64-encode an ArrayBuffer (D1 BLOB column) without spreading. */
+function encodeBlob(buf: ArrayBuffer): string {
+  const bytes = new Uint8Array(buf);
+  let binary = "";
+  for (let i = 0; i < bytes.byteLength; i++) binary += String.fromCharCode(bytes[i]!);
+  return btoa(binary);
+}
+
 
 /**
  * Is every word of the author box in one and the same author? FTS matches the
@@ -164,6 +175,7 @@ export function toPaper(r: PaperRow, publicUrl: string): Paper {
     publisher: r.publisher,
     rights: r.rights,
     pdfUrl: pdfUrl(r.pdf, publicUrl),
+    embedding: r.embedding ? encodeBlob(r.embedding as ArrayBuffer) : null,
     url: r.url ?? `https://ri.conicet.gov.ar/handle/11336/${r.id}`,
   };
 }
