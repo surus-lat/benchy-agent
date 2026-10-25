@@ -9,9 +9,11 @@ import { useEvaluation, useExam, useRunResults, useSelectedModels, type Evaluati
 import {
   addCriterion,
   byAgent,
+  correctOptionKey,
   criterionMet,
   groupsOf,
   hasIssue,
+  isMultipleChoiceExam,
   isOpenQuestionExam,
   isPending,
   QUALITY_CRITERIA,
@@ -79,13 +81,16 @@ const CONTEXT = /^\(Benchmark abierto en la app: [^)]*\)\n\n/;
 
 /** What the agent is asked for a batch: from the benchmark's papers when it has
  *  them. Only the validated papers are named (ids): a pending one stays out of
- *  generation until the org ticks it off in the Papers drawer. */
-function batchPrompt(n: number, slug: string, ids: string[] = []): string {
+ *  generation until the org ticks it off in the Papers drawer. Multiple-choice
+ *  exams get a different prompt: four options and the exact text of the correct one. */
+function batchPrompt(n: number, slug: string, ids: string[] = [], mc = false): string {
   const tail = `Agregalas al final de exam.jsonl y de questions.json (status draft, by agente, con su group). No toques las preguntas existentes.`;
   const which =
     ids.length > 0
       ? `estos papers del benchmark: ${ids.join(", ")} (la lista en ${slug}/sources.json, el texto de cada uno en ${slug}/sources/)`
       : `los papers del benchmark (${slug}/sources.json)`;
+  if (mc)
+    return `Generá ${n} preguntas nuevas de opción múltiple para este examen a partir de ${which}: leé los papers primero y escribí cada pregunta con sus 4 opciones (una sola correcta) desde lo que el paper sostiene. En exam.jsonl cada fila lleva input.question e input.options como objeto {"a": "…", "b": "…", "c": "…", "d": "…"}, y expected.answer con el texto EXACTO de la opción correcta (se corrige por coincidencia exacta, sin variantes). En questions.json, sources lleva el id del paper y la página (por ejemplo "conicet-179477 p. 4"). ${tail}`;
   return `Generá ${n} preguntas nuevas para este examen a partir de ${which}: leé los papers primero y escribí cada pregunta desde lo que el paper sostiene, con su respuesta experta y por qué la pregunta importa. En questions.json, sources lleva el id del paper y la página (por ejemplo "conicet-179477 p. 4"). ${tail}`;
 }
 
@@ -231,6 +236,11 @@ export default function Workspace({ slug, stage: stageParam }: { slug: string; s
   }
 
   const openExam = isOpenQuestionExam(exam.doc?.task, exam.criteria);
+  // Multiple choice is the other editable shape: question + 4 options + exact answer.
+  const mcExam = isMultipleChoiceExam(exam.doc?.task, exam.metric);
+  // Authoring, papers and generation work for both editable kinds; only the
+  // rubric affordances (criteria, judge review, quality) stay open-exam only.
+  const editable = openExam || mcExam;
   const qs = exam.questions;
   /**
    * Take a question out of the exam for good. The container deletes it and
@@ -275,7 +285,9 @@ export default function Workspace({ slug, stage: stageParam }: { slug: string; s
         ? "El agente está trabajando…"
         : openExam
           ? `${approved} de ${qs.length} preguntas aprobadas`
-          : `${qs.length} filas en el examen`;
+          : mcExam
+            ? `${qs.length} preguntas de opción múltiple`
+            : `${qs.length} filas en el examen`;
 
   return (
     <ExamLang.Provider value={exam.doc?.language ?? "es"}>
@@ -313,7 +325,7 @@ export default function Workspace({ slug, stage: stageParam }: { slug: string; s
             </nav>
             <div className="ws-toolbar-right">
               <span className="ws-saved">{savedLabel(exam.save, exam.savedAt)}</span>
-              {openExam && (
+              {editable && (
                 <button className="ws-btn-line" onClick={() => setPapersOpen(true)} title={pendingPapers ? `${pendingPapers} pendiente(s) de validación` : undefined}>
                   <span className="mono amber">{papers.length}</span>Papers
                   {pendingPapers > 0 && <span className="ws-pend">{pendingPapers} pend.</span>}
@@ -327,7 +339,7 @@ export default function Workspace({ slug, stage: stageParam }: { slug: string; s
               <button
                 className="ws-btn-dark"
                 ref={tourAnchorRef("tour-ws-ejecutar")}
-                disabled={!bench.validation?.ok || running || reviewing || (openExam && qs.length === 0)}
+                disabled={!bench.validation?.ok || running || reviewing || (editable && qs.length === 0)}
                 onClick={requestRun}
               >
                 {ev?.state === "reporting" ? "Redactando informe…" : running ? "Evaluando…" : "Ejecutar evaluación"}
@@ -360,6 +372,7 @@ export default function Workspace({ slug, stage: stageParam }: { slug: string; s
                 exam={exam}
                 author={me?.user.name?.trim() || me?.user.email || "vos"}
                 openExam={openExam}
+                mcExam={mcExam}
                 q={q}
                 qIndex={qIndex}
                 setQIndex={setQIndex}
@@ -389,7 +402,7 @@ export default function Workspace({ slug, stage: stageParam }: { slug: string; s
                 onBatch={async (n) => {
                   setGenerating(n);
                   const before = qs.length;
-                  await ask(batchPrompt(n, slug, validPapers.map((s) => s.id)));
+                  await ask(batchPrompt(n, slug, validPapers.map((s) => s.id), mcExam));
                   setGenerating(null);
                   setQIndex(before);
                 }}
@@ -443,10 +456,10 @@ export default function Workspace({ slug, stage: stageParam }: { slug: string; s
                 onReview={() => go("revision")}
               />
             ) : (
-              <PublicationStage bench={bench} exam={exam} openExam={openExam} go={go} ask={ask} showAgent={() => bringFront("B")} busy={busy} evaluation={evaluation} />
+              <PublicationStage bench={bench} exam={exam} openExam={openExam} mcExam={mcExam} go={go} ask={ask} showAgent={() => bringFront("B")} busy={busy} evaluation={evaluation} />
             )}
 
-            {openExam && (
+            {editable && (
               <PapersDrawer
                 open={papersOpen}
                 onClose={() => setPapersOpen(false)}
@@ -530,8 +543,9 @@ export default function Workspace({ slug, stage: stageParam }: { slug: string; s
           events={events}
           ask={ask}
           openExam={openExam}
+          mcExam={mcExam}
           onRun={requestRun}
-          generatePrompt={validPapers.length > 0 ? batchPrompt(5, slug, validPapers.map((s) => s.id)) : null}
+          generatePrompt={validPapers.length > 0 ? batchPrompt(5, slug, validPapers.map((s) => s.id), mcExam) : null}
         />
       </main>
 
@@ -591,6 +605,7 @@ function Authoring({
   exam,
   author,
   openExam,
+  mcExam,
   q,
   qIndex,
   setQIndex,
@@ -612,6 +627,8 @@ function Authoring({
   /** The researcher's name, recorded as who wrote a question. */
   author: string;
   openExam: boolean;
+  /** Multiple choice: question + options + exact answer, no rubric. */
+  mcExam: boolean;
   q: Question | undefined;
   qIndex: number;
   setQIndex: (i: number) => void;
@@ -638,6 +655,9 @@ function Authoring({
   const [batchN, setBatchN] = useState(5);
   // Papers waiting for the org's checklist: they stay out of generation.
   const pendingCount = papers.length - validPapers.length;
+  // MC exams get the same authoring affordances (papers, batches, the approval
+  // status) minus the rubric ones (quality scoring): its judge assumes open answers.
+  const editable = openExam || mcExam;
   const [writing, setWriting] = useState<number | null>(null);
   // Right-click on a question offers to delete it: the row becomes the confirmation.
   const [askDelete, setAskDelete] = useState<number | null>(null);
@@ -677,6 +697,38 @@ function Authoring({
     pushEvent({ who: "Vos", path: `${q.num}.${label}`, change: "editado → guardado", open: () => setQIndex(q.index) });
   };
 
+  /** One option of a multiple-choice question edited: its text changes and the
+   *  correct answer follows it (expected.answer holds the exact text of the key). */
+  const editOption = (key: string, value: string) => {
+    if (!q) return;
+    const rows = [...exam.rows];
+    const meta = [...exam.meta];
+    while (meta.length < rows.length) meta.push({});
+    const row = rows[q.index];
+    if ("raw" in row) return;
+    const options = { ...((row.input.options ?? {}) as Record<string, string>), [key]: value };
+    const wasKey = q.answer.trim() !== "" && correctOptionKey(q.options, q.answer) === key;
+    rows[q.index] = {
+      ...row,
+      input: { ...row.input, options },
+      // The correct answer stays the option's exact text when that option is the key.
+      ...(wasKey ? { expected: { ...row.expected, answer: value } } : {}),
+    };
+    const m = { ...meta[q.index] };
+    if (m.status === "approved") m.status = "draft";
+    meta[q.index] = m;
+    exam.update(rows, meta);
+    pushEvent({ who: "Vos", path: `${q.num}.opción ${key}`, change: "editado → guardado", open: () => setQIndex(q.index) });
+  };
+
+  /** The radio picks the correct option: expected.answer takes its exact text. */
+  const setCorrect = (key: string) => {
+    if (!q) return;
+    const opt = q.options?.find((o) => o.key === key);
+    if (!opt) return;
+    edit("answer", opt.text);
+  };
+
   const setSources = (list: string[]) => {
     if (!q) return;
     const meta = [...exam.meta];
@@ -688,7 +740,10 @@ function Authoring({
   };
 
   const addQuestion = () => {
-    const rows = [...exam.rows, { input: { question: "" }, expected: { answer: "" } }];
+    // An MC row carries its four options from the start: the engine rejects rows
+    // whose options object misses one of a, b, c, d.
+    const row = mcExam ? { input: { question: "", options: { a: "", b: "", c: "", d: "" } }, expected: { answer: "" } } : { input: { question: "" }, expected: { answer: "" } };
+    const rows = [...exam.rows, row];
     const meta = [...exam.meta];
     while (meta.length < rows.length - 1) meta.push({});
     meta.push({ status: "draft", by: author, group: q?.meta.group });
@@ -708,7 +763,7 @@ function Authoring({
             <span>{qs.length}</span>
           </div>
           <input type="search" value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Buscar pregunta…" aria-label="Buscar pregunta" spellCheck={false} />
-          {openExam && (
+          {editable && (
           <div role="group" aria-label="Filtrar" className="ws-pills">
             {(
               [
@@ -789,7 +844,8 @@ function Authoring({
         {batchOpen && (
           <div className="ws-batch" role="dialog" aria-label="Nuevo lote de preguntas">
             <p className="h">
-              Nuevo lote <span>· el agente las redacta con su respuesta experta</span>
+              Nuevo lote{" "}
+              <span>· el agente las redacta con {mcExam ? "sus opciones y la respuesta correcta" : "su respuesta experta"}</span>
             </p>
             <div className="ws-batch-grid">
               <label>
@@ -849,7 +905,7 @@ function Authoring({
             <div className="ws-batch-foot">
               <button
                 className="ws-btn-dark sm"
-                disabled={locked || !openExam || validPapers.length === 0}
+                disabled={locked || !editable || validPapers.length === 0}
                 onClick={() => {
                   setBatchOpen(false);
                   onBatch(batchN);
@@ -864,15 +920,17 @@ function Authoring({
           </div>
         )}
         <div className="ws-qlist-foot">
-          <button onClick={addQuestion} disabled={locked || !openExam}>
+          <button onClick={addQuestion} disabled={locked || !editable}>
             <span className="ico dashed">+</span>Pregunta
           </button>
-          <button className="warm" onClick={() => setBatchOpen((o) => !o)} disabled={!openExam}>
+          <button className="warm" onClick={() => setBatchOpen((o) => !o)} disabled={!editable}>
             <span className="ico amberbox">[·]</span>Nuevo lote
           </button>
-          <button className="warm" ref={tourAnchorRef("tour-ws-calidad")} onClick={() => void onQuality()} disabled={!openExam || scoring}>
-            <span className="ico amberbox">{scoring ? "[···]" : "[Q]"}</span>{scoring ? "Midiendo calidad…" : "Verificar calidad"}
-          </button>
+          {openExam && (
+            <button className="warm" ref={tourAnchorRef("tour-ws-calidad")} onClick={() => void onQuality()} disabled={!openExam || scoring}>
+              <span className="ico amberbox">{scoring ? "[···]" : "[Q]"}</span>{scoring ? "Midiendo calidad…" : "Verificar calidad"}
+            </button>
+          )}
         </div>
       </aside>
 
@@ -889,7 +947,7 @@ function Authoring({
             </option>
           ))}
         </select>
-        {!openExam ? (
+        {!openExam && !mcExam ? (
           <ClosedExamNote exam={exam} q={q} />
         ) : !q ? (
           papers.length === 0 ? (
@@ -933,10 +991,13 @@ function Authoring({
         ) : (
           <QuestionEditor
             q={q}
-            criteria={exam.criteria!}
+            mc={mcExam}
+            criteria={exam.criteria ?? []}
             total={qs.length}
             locked={locked}
             edit={edit}
+            editOption={editOption}
+            setCorrect={setCorrect}
             setSources={setSources}
             onDelete={() => onDelete(q)}
             onRubric={onRubric}
@@ -1061,20 +1122,27 @@ function Pips({ w }: { w: number }) {
 
 function QuestionEditor({
   q,
+  mc,
   criteria,
   total,
   locked,
   edit,
+  editOption,
+  setCorrect,
   setSources,
   onDelete,
   onRubric,
   papers,
 }: {
   q: Question;
+  /** Multiple choice: the answer is the exact text of one of the options. */
+  mc: boolean;
   criteria: Criterion[];
   total: number;
   locked: boolean;
   edit: (field: "text" | "answer" | "why", value: string) => void;
+  editOption: (key: string, value: string) => void;
+  setCorrect: (key: string) => void;
   setSources: (list: string[]) => void;
   onDelete: () => void;
   onRubric: () => void;
@@ -1102,10 +1170,17 @@ function QuestionEditor({
         </div>
         <div className="ws-card ws-qcard">
           <AutoText className="big" value={q.text} onChange={(v) => edit("text", v)} label="Texto de la pregunta" disabled={locked} placeholder="Escribí la pregunta…" />
-          <div className="ws-sep ws-answer">
-            <p className="ws-eyebrow">Respuesta experta</p>
-            <AutoText className="answer" value={q.answer} onChange={(v) => edit("answer", v)} label="Respuesta experta" disabled={locked} placeholder="La respuesta contra la que el juez compara…" />
-          </div>
+          {mc ? (
+            <div className="ws-sep ws-options">
+              <p className="ws-eyebrow">Opciones · marcá la respuesta correcta</p>
+              <McOptions q={q} locked={locked} editOption={editOption} setCorrect={setCorrect} />
+            </div>
+          ) : (
+            <div className="ws-sep ws-answer">
+              <p className="ws-eyebrow">Respuesta experta</p>
+              <AutoText className="answer" value={q.answer} onChange={(v) => edit("answer", v)} label="Respuesta experta" disabled={locked} placeholder="La respuesta contra la que el juez compara…" />
+            </div>
+          )}
           <div className="ws-byline">
             <span className="av">{agent ? "[·]" : (writer ?? "Vos").slice(0, 1).toUpperCase()}</span>
             <span>{agent ? "Propuesta del agente" : writer ? `Escrita por ${writer}` : "Escrita en la interfaz"}</span>
@@ -1115,6 +1190,23 @@ function QuestionEditor({
 
       {/* What the grader checks, why the question is asked, and where it comes from. */}
       <div className="ws-col">
+        {mc ? (
+          <>
+            <div className="ws-col-head">
+              <span className="ws-eyebrow">Corrección</span>
+            </div>
+            <div className="ws-card ws-pad">
+              <p className="ws-note">
+                Esta pregunta se corrige por coincidencia exacta: la respuesta del modelo tiene que ser el texto de la opción correcta, sin
+                criterios de evaluación ni juez. La respuesta correcta es <span className="mono">{correctOptionKey(q.options, q.answer) ?? "—"}</span>.
+              </p>
+              <p className="ws-engine-line">
+                → en el motor: scoring.field_metrics.answer · casefold_strip · {total} filas en exam.jsonl
+              </p>
+            </div>
+          </>
+        ) : (
+          <>
         <div className="ws-col-head">
           <span className="ws-eyebrow">Criterios</span>
           <button className="ws-link push" onClick={onRubric}>
@@ -1169,6 +1261,8 @@ function QuestionEditor({
             <p className="ws-note">Todavía no la midió el juez. «Verificar calidad» la puntúa en {QUALITY_CRITERIA.join(", ")}.</p>
           )}
         </div>
+          </>
+        )}
 
         <div className="ws-col-head sub">
           <span className="ws-eyebrow">Por qué esta pregunta</span>
@@ -1184,6 +1278,32 @@ function QuestionEditor({
           <SourcesEditor sources={q.meta.sources ?? []} papers={papers} locked={locked} onChange={setSources} />
         </div>
       </div>
+    </div>
+  );
+}
+
+/** The four options of a multiple-choice question: each editable, one chosen
+ *  correct. The radio writes the option's exact text into expected.answer,
+ *  which is what the engine's casefold_strip metric compares against. */
+function McOptions({ q, locked, editOption, setCorrect }: { q: Question; locked: boolean; editOption: (key: string, value: string) => void; setCorrect: (key: string) => void }) {
+  const correct = correctOptionKey(q.options, q.answer);
+  const group = `mc-${q.index}`;
+  return (
+    <div className="ws-mc" role="radiogroup" aria-label="Respuesta correcta">
+      {(q.options ?? ["a", "b", "c", "d"].map((key) => ({ key, text: "" }))).map((o) => (
+        <div key={o.key} className={`ws-mc-row${correct === o.key ? " on" : ""}`}>
+          <input
+            type="radio"
+            name={group}
+            aria-label={`Marcar la opción ${o.key} como respuesta correcta`}
+            checked={correct === o.key}
+            disabled={locked}
+            onChange={() => setCorrect(o.key)}
+          />
+          <AutoText className="answer" value={o.text} onChange={(v) => editOption(o.key, v)} label={`Opción ${o.key}`} disabled={locked} placeholder={`Opción ${o.key}…`} />
+        </div>
+      ))}
+      {!correct && <p className="ws-note">Ninguna opción coincide con la respuesta correcta: marcá una.</p>}
     </div>
   );
 }
@@ -2385,6 +2505,7 @@ function AgentWindow({
   events,
   ask,
   openExam,
+  mcExam,
   onRun,
   generatePrompt,
 }: {
@@ -2396,6 +2517,8 @@ function AgentWindow({
   events: Event[];
   ask: (t: string) => Promise<void>;
   openExam: boolean;
+  /** Multiple choice: generation works, the judge review does not. */
+  mcExam: boolean;
   onRun: () => void;
   /** Null when the benchmark has no validated papers: generation stays off. */
   generatePrompt: string | null;
@@ -2506,7 +2629,7 @@ function AgentWindow({
         </div>
         <div className="ws-b-foot">
           <div className="ws-chips">
-            {openExam && (
+            {(openExam || mcExam) && (
               <button
                 disabled={chat.pending || !generatePrompt}
                 title={generatePrompt ? undefined : "Validá un paper primero: el agente escribe solo desde los papers validados"}

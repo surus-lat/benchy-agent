@@ -7,6 +7,7 @@ import {
   questionsFrom,
   questionsQuality,
   readCriteria,
+  readMetric,
   reviewMatchesRubric,
   serializeExam,
   serializeMeta,
@@ -59,10 +60,14 @@ export function useExam(bench: BenchSummary | undefined) {
 
   const doc: BenchDoc | null = yaml && slug ? readBenchYaml(yaml.value, slug) : null;
   let criteria: Criterion[] | null = null;
+  let metric: string | null = null;
   try {
-    criteria = yaml ? readCriteria(parseBenchDoc(yaml.value)) : null;
+    const parsed = yaml ? parseBenchDoc(yaml.value) : null;
+    criteria = parsed ? readCriteria(parsed) : null;
+    metric = parsed ? readMetric(parsed) : null;
   } catch {
     criteria = null;
+    metric = null;
   }
   const examPath = doc?.examPath ?? (slug ? `${slug}/exam.jsonl` : null);
   const metaPath = slug ? `${slug}/questions.json` : null;
@@ -257,6 +262,8 @@ export function useExam(bench: BenchSummary | undefined) {
     doc,
     yamlText: yaml?.value ?? "",
     criteria,
+    /** The answer field's scoring metric (casefold_strip marks multiple choice). */
+    metric,
     rows: rows.value,
     meta: meta.value,
     review,
