@@ -110,3 +110,40 @@ it("records the change in the org's activity", async () => {
   const rows = await db.select({ kind: schema.activity.kind, who: schema.activity.who }).from(schema.activity).where(eq(schema.activity.orgId, "org_uni"));
   expect(rows.some((r) => r.kind === "org" && r.who === "Ana Pérez")).toBe(true);
 });
+
+
+it("rejects non-http(s) logo URLs", async () => {
+  const app = makeApp();
+  for (const logoUrl of ["javascript:alert(1)", "ftp://x/y.png", "data:image/svg+xml;base64,PHN2Zy8+"]) {
+    const res = await req(app, "PATCH", "/api/org/branding", ana, { color: "#1e6fd9", tagline: null, logoUrl });
+    expect(res.status, `logoUrl=${logoUrl}`).toBe(400);
+  }
+  // http and https must pass
+  const res = await req(app, "PATCH", "/api/org/branding", ana, { color: "#1e6fd9", tagline: null, logoUrl: "https://cdn.example.com/logo.png" });
+  expect(res.status).toBe(200);
+});
+
+it("rejects colors with extreme luminance (too light or too dark)", async () => {
+  const app = makeApp();
+  // White-ish: should fail
+  const r1 = await req(app, "PATCH", "/api/org/branding", ana, { color: "#ffffff", tagline: null });
+  expect(r1.status).toBe(400);
+  const b1 = await r1.json();
+  expect(b1.error).toBe("COLOR_LOW_CONTRAST");
+
+  // Near-black: should fail
+  const r2 = await req(app, "PATCH", "/api/org/branding", ana, { color: "#020202", tagline: null });
+  expect(r2.status).toBe(400);
+
+  // Light yellow: should fail
+  const r3 = await req(app, "PATCH", "/api/org/branding", ana, { color: "#ffffcc", tagline: null });
+  expect(r3.status).toBe(400);
+
+  // Reasonable color: should pass
+  const r4 = await req(app, "PATCH", "/api/org/branding", ana, { color: "#1e6fd9", tagline: null });
+  expect(r4.status).toBe(200);
+
+  // Secondary color luminance also checked
+  const r5 = await req(app, "PATCH", "/api/org/branding", ana, { color: "#1e6fd9", tagline: null, colorSecondary: "#ffffff" });
+  expect(r5.status).toBe(400);
+});

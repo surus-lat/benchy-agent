@@ -49,6 +49,8 @@
 .rp-body td:not(:first-child), .rp-body th:not(:first-child) { text-align: right; white-space: nowrap; }
 .rp-annex { margin-top: 32px; }
 .rp-annex .fine { font-size: 9pt; color: var(--rp-soft); }
+.rp-annex { border-top: 2px solid var(--rp-secondary, var(--rp-teal)); }
+.rp-body table th { border-bottom-color: var(--rp-secondary, var(--rp-teal)); }
 
 .rp-foot { display: flex; justify-content: space-between; align-items: center; gap: 16px; padding-top: 10px; margin-top: 40px; border-top: 1px dashed var(--rp-rule); font-family: var(--rp-mono); font-size: 8px; letter-spacing: 0.06em; color: var(--rp-muted); line-height: 1.5; }
 .rp-foot .links { display: flex; gap: 14px; flex-shrink: 0; }

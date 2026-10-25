@@ -743,6 +743,16 @@ export function createConversationsApp(deps: ConversationsDeps) {
     return c.json({ judgeModel: parsed.data.judgeModel });
   });
 
+
+  /** Relative luminance (WCAG). Rejects colors too close to white or too dark. */
+  function hexLuminance(hex: string): number {
+    const r = parseInt(hex.slice(1, 3), 16) / 255;
+    const g = parseInt(hex.slice(3, 5), 16) / 255;
+    const b = parseInt(hex.slice(5, 7), 16) / 255;
+    const srgb = (c: number) => (c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4);
+    return 0.2126 * srgb(r) + 0.7152 * srgb(g) + 0.0722 * srgb(b);
+  }
+
   // The org's visual identity (issue #5): an accent color and a tagline that
   // reports and publications co-brand with. Either may be null (back to the
   // platform default). Hex only, so the value can never smuggle CSS.
@@ -753,10 +763,15 @@ export function createConversationsApp(deps: ConversationsDeps) {
         color: z.string().regex(/^#[0-9a-fA-F]{6}$/).nullable(),
         colorSecondary: z.string().regex(/^#[0-9a-fA-F]{6}$/).nullable().optional(),
         tagline: z.string().trim().max(120).nullable(),
-        logoUrl: z.string().url().max(2048).nullable().optional(),
+        logoUrl: z.string().regex(/^https?:\/\//).max(2048).nullable().optional(),
       })
       .safeParse(await c.req.json().catch(() => null));
     if (!parsed.success) return c.json({ error: "INVALID_BODY" }, 400);
+    // Reject colors with extreme luminance (illegible on white paper)
+    for (const hex of [parsed.data.color, parsed.data.colorSecondary].filter(Boolean) as string[]) {
+      const lum = hexLuminance(hex);
+      if (lum > 0.85 || lum < 0.03) return c.json({ error: "COLOR_LOW_CONTRAST", message: "Elegí un color con suficiente contraste sobre blanco." }, 400);
+    }
     await db
       .update(schema.orgs)
       .set({ brandColor: parsed.data.color, brandColorSecondary: parsed.data.colorSecondary ?? undefined, brandTagline: parsed.data.tagline, brandLogoUrl: parsed.data.logoUrl ?? undefined })
