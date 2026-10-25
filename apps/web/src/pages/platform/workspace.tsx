@@ -557,7 +557,7 @@ function WsHeader({ org, front, unread, onFront }: { org?: string; front: "A" | 
         <span className="name">benchy</span>
         <span className="suffix">agent</span>
       </Link>
-      {org && <span className="ws-org">{org}</span>}
+      {org && <Link href="/app" className="ws-org">{org}</Link>}
       <div className="ws-head-right">
         <div role="group" aria-label="Ventana al frente" className="ws-seg">
           <button aria-pressed={front === "A"} className={front === "A" ? "on" : ""} onClick={() => onFront("A")}>
