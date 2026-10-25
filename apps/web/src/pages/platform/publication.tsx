@@ -516,7 +516,7 @@ function PublishView({ bench, exam, openExam, go }: { bench: BenchSummary; exam:
                 </div>
                 <h2>{title}</h2>
                 <p className="ws-note">{org}</p>
-                {me?.org?.brandTagline && <p className="ws-note" style={{ color: me?.org?.brandColor ?? undefined }}>{me.org.brandTagline}</p>}
+                {me?.org?.brandTagline && <p className="ws-note" style={{ color: me?.org?.brandColorSecondary ?? me?.org?.brandColor ?? undefined }}>{me.org.brandTagline}</p>}
               </div>
               <p className="about">
                 {n} preguntas{openExam ? ` de respuesta abierta, cada una juzgada contra una respuesta experta con ${exam.criteria!.length} criterios de evaluación.` : "."}

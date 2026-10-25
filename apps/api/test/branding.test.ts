@@ -38,7 +38,7 @@ function req(app: ReturnType<typeof makeApp>, method: string, path: string, user
 }
 
 async function brand(orgId: string) {
-  const [org] = await db.select({ brandColor: schema.orgs.brandColor, brandTagline: schema.orgs.brandTagline }).from(schema.orgs).where(eq(schema.orgs.id, orgId)).limit(1);
+  const [org] = await db.select({ brandColor: schema.orgs.brandColor, brandColorSecondary: schema.orgs.brandColorSecondary, brandTagline: schema.orgs.brandTagline, brandLogoUrl: schema.orgs.brandLogoUrl }).from(schema.orgs).where(eq(schema.orgs.id, orgId)).limit(1);
   return org;
 }
 
@@ -65,8 +65,8 @@ it("saves the brand on the caller's org and returns it on /api/me", async () => 
   const app = makeApp();
   const res = await req(app, "PATCH", "/api/org/branding", ana, { color: "#1E6FD9", tagline: "Ciencia para la política pública" });
   expect(res.status).toBe(200);
-  expect(await res.json()).toEqual({ color: "#1E6FD9", tagline: "Ciencia para la política pública" });
-  expect(await brand("org_uni")).toEqual({ brandColor: "#1E6FD9", brandTagline: "Ciencia para la política pública" });
+  expect(await res.json()).toEqual({ color: "#1E6FD9", colorSecondary: null, tagline: "Ciencia para la política pública", logoUrl: null });
+  expect(await brand("org_uni")).toEqual({ brandColor: "#1E6FD9", brandColorSecondary: null, brandTagline: "Ciencia para la política pública", brandLogoUrl: null });
 
   const me = await (await req(app, "GET", "/api/me", ana)).json();
   expect(me.org).toMatchObject({ id: "org_uni", brandColor: "#1E6FD9", brandTagline: "Ciencia para la política pública" });
@@ -77,7 +77,7 @@ it("accepts null to clear the identity", async () => {
   await req(app, "PATCH", "/api/org/branding", ana, { color: "#0f766e", tagline: "bajada" });
   const res = await req(app, "PATCH", "/api/org/branding", ana, { color: null, tagline: null });
   expect(res.status).toBe(200);
-  expect(await brand("org_uni")).toEqual({ brandColor: null, brandTagline: null });
+  expect(await brand("org_uni")).toEqual({ brandColor: null, brandColorSecondary: null, brandTagline: null, brandLogoUrl: null });
 });
 
 it("rejects malformed colors and overlong taglines", async () => {
@@ -93,15 +93,15 @@ it("rejects malformed colors and overlong taglines", async () => {
     const res = await req(app, "PATCH", "/api/org/branding", ana, body);
     expect(res.status, JSON.stringify(body)).toBe(400);
   }
-  expect(await brand("org_uni")).toEqual({ brandColor: null, brandTagline: null });
+  expect(await brand("org_uni")).toEqual({ brandColor: null, brandColorSecondary: null, brandTagline: null, brandLogoUrl: null });
 });
 
 it("never touches another org's row", async () => {
   const app = makeApp();
   await req(app, "PATCH", "/api/org/branding", ana, { color: "#1e6fd9", tagline: "de Uni" });
   await req(app, "PATCH", "/api/org/branding", ceci, { color: "#ff0000", tagline: "de Otra" });
-  expect(await brand("org_uni")).toEqual({ brandColor: "#1e6fd9", brandTagline: "de Uni" });
-  expect(await brand("org_otra")).toEqual({ brandColor: "#ff0000", brandTagline: "de Otra" });
+  expect(await brand("org_uni")).toEqual({ brandColor: "#1e6fd9", brandColorSecondary: null, brandTagline: "de Uni", brandLogoUrl: null });
+  expect(await brand("org_otra")).toEqual({ brandColor: "#ff0000", brandColorSecondary: null, brandTagline: "de Otra", brandLogoUrl: null });
 });
 
 it("records the change in the org's activity", async () => {

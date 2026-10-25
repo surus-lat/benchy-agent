@@ -127,7 +127,7 @@ export default function ReportPage({ slug }: { slug: string }) {
   }
 
   return (
-    <div className="rp" style={me?.org?.brandColor ? ({ "--rp-teal": me.org.brandColor } as CSSProperties) : undefined}>
+    <div className="rp" style={{ ...(me?.org?.brandColor ? { "--rp-teal": me.org.brandColor } : {}), ...(me?.org?.brandColorSecondary ? { "--rp-secondary": me.org.brandColorSecondary } : {}) } as CSSProperties}>
       <div className="rp-bar">
         <Link href={`/app/b/${encodeURIComponent(slug)}/publicacion`}>← Volver al benchmark</Link>
         <span className="sp" />
@@ -210,6 +210,7 @@ export default function ReportPage({ slug }: { slug: string }) {
             <header className="rp-head">
               <div className="brand">
                 <img src="/brand/surus-logo.png" alt="" />
+                {me?.org?.brandLogoUrl && <img src={me.org.brandLogoUrl} alt={me.org.name ?? ""} className="rp-org-logo" />}
                 <div>
                   <div className="name">{name}</div>
                   <div className="tag">Building the Intelligence Layer</div>

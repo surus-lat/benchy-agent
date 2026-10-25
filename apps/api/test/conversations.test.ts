@@ -299,7 +299,7 @@ it("exposes engine checks, models and the caller's org to members", async () => 
   expect((await req(app, "GET", "/api/workspace/analysis?path=x/benchmark.yaml")).status).toBe(401);
   expect(calls.map((c) => c.op)).toEqual(["models", "validate", "exam", "analysis"]);
   const me = await (await req(app, "GET", "/api/me", ana)).json();
-  expect(me).toEqual({ user: { id: ana.id, name: ana.name, email: ana.email }, org: { id: "org_uni", name: "Uni", slug: "uni", brandColor: null, brandTagline: null } });
+  expect(me).toEqual({ user: { id: ana.id, name: ana.name, email: ana.email }, org: { id: "org_uni", name: "Uni", slug: "uni", brandColor: null, brandColorSecondary: null, brandTagline: null, brandLogoUrl: null } });
   expect((await req(app, "GET", "/api/me", orphan)).status).toBe(403);
 });
 

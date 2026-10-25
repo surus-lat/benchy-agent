@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { isBrandColor, orgStats } from "./home";
+import { isBrandColor, isValidUrl, orgStats } from "./home";
 
 // The org home's pure helpers: the stats strip's numbers and the brand color
 // the settings card accepts.
@@ -31,5 +31,21 @@ describe("isBrandColor", () => {
     expect(isBrandColor("#1234567")).toBe(false);
     expect(isBrandColor("red")).toBe(false);
     expect(isBrandColor("")).toBe(false);
+  });
+});
+
+describe("isValidUrl", () => {
+  it("accepts https and http URLs", () => {
+    expect(isValidUrl("https://example.com/logo.png")).toBe(true);
+    expect(isValidUrl("http://example.com/logo.png")).toBe(true);
+    expect(isValidUrl("https://cdn.org/img/brand.svg")).toBe(true);
+  });
+
+  it("rejects non-URL strings", () => {
+    expect(isValidUrl("not-a-url")).toBe(false);
+    expect(isValidUrl("")).toBe(false);
+    expect(isValidUrl("ftp://example.com")).toBe(false);
+    expect(isValidUrl("javascript:alert(1)")).toBe(false);
+    expect(isValidUrl("/relative/path")).toBe(false);
   });
 });

@@ -4,7 +4,7 @@
 
 .rp {
   --rp-ink: oklch(0.22 0.012 240); --rp-deep: oklch(0.16 0.012 240); --rp-soft: oklch(0.45 0.012 240);
-  --rp-muted: oklch(0.50 0.012 240); --rp-rule: oklch(0.82 0.01 240); --rp-teal: oklch(0.45 0.08 175);
+  --rp-muted: oklch(0.50 0.012 240); --rp-rule: oklch(0.82 0.01 240); --rp-teal: oklch(0.45 0.08 175); --rp-secondary: oklch(0.50 0.012 240);
   --rp-sans: "Inter", system-ui, sans-serif; --rp-mono: "JetBrains Mono", ui-monospace, monospace; --rp-serif: "Instrument Serif", Georgia, serif;
   min-height: 100vh; min-height: 100dvh; background: #eeece8; color: var(--rp-ink); font-family: var(--rp-sans); -webkit-font-smoothing: antialiased;
 }
@@ -20,6 +20,7 @@
 .rp-head { display: flex; align-items: flex-end; justify-content: space-between; gap: 16px; padding-bottom: 12px; border-bottom: 1px solid var(--rp-ink); }
 .rp-head .brand { display: flex; align-items: center; gap: 12px; }
 .rp-head img { width: 34px; height: 34px; display: block; }
+.rp-head .rp-org-logo { width: 34px; height: 34px; object-fit: contain; margin-left: 4px; }
 .rp-head .name { font-weight: 600; font-size: 17px; letter-spacing: 0.14em; line-height: 1; color: var(--rp-deep); }
 .rp-head .tag, .rp-head .kind { font-family: var(--rp-mono); font-size: 8.5px; letter-spacing: 0.22em; text-transform: uppercase; color: var(--rp-muted); margin-top: 3px; }
 .rp-head .kind { color: var(--rp-teal); border: 1px dashed var(--rp-teal); padding: 5px 10px; border-radius: 4px; margin: 0; white-space: nowrap; }

@@ -53,7 +53,7 @@ export type RunResult = {
 };
 export type Me = {
   user: { id: string; name: string; email: string };
-  org: { id: string; name: string; slug?: string; brandColor?: string | null; brandTagline?: string | null } | null;
+  org: { id: string; name: string; slug?: string; brandColor?: string | null; brandColorSecondary?: string | null; brandTagline?: string | null; brandLogoUrl?: string | null } | null;
 };
 
 /**
@@ -216,8 +216,8 @@ export const api = {
   orgJudge: () => get<{ judgeModel: string | null }>("/api/org/judge"),
   setOrgJudge: (judgeModel: string | null) => put<{ judgeModel: string | null }>("/api/org/judge", { judgeModel }),
   /** The org's visual identity for reports and publications (issue #5). */
-  setOrgBranding: (branding: { color: string | null; tagline: string | null }) =>
-    patch<{ color: string | null; tagline: string | null }>("/api/org/branding", branding),
+  setOrgBranding: (branding: { color: string | null; colorSecondary?: string | null; tagline: string | null; logoUrl?: string | null }) =>
+    patch<{ color: string | null; colorSecondary: string | null; tagline: string | null; logoUrl: string | null }>("/api/org/branding", branding),
   /** One benchmark's judge: its override, the org's default, and which applies. */
   benchJudge: (bench: string) => get<JudgeConfig>(`/api/workspace/judge?bench=${encodeURIComponent(bench)}`),
   setBenchJudge: (bench: string, judgeModel: string | null) => put<JudgeConfig>("/api/workspace/judge", { bench, judgeModel }),

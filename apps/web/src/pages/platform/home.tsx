@@ -271,19 +271,33 @@ function OrgActivity() {
 function BrandingCard() {
   const { me, reloadMe } = usePlatform();
   const [color, setColor] = useState(me?.org?.brandColor ?? "");
+  const [colorSecondary, setColorSecondary] = useState(me?.org?.brandColorSecondary ?? "");
   const [tagline, setTagline] = useState(me?.org?.brandTagline ?? "");
+  const [logoUrl, setLogoUrl] = useState(me?.org?.brandLogoUrl ?? "");
   const [state, setState] = useState<"idle" | "saving" | "saved" | "error">("idle");
   useEffect(() => {
     setColor(me?.org?.brandColor ?? "");
+    setColorSecondary(me?.org?.brandColorSecondary ?? "");
     setTagline(me?.org?.brandTagline ?? "");
-  }, [me?.org?.brandColor, me?.org?.brandTagline]);
+    setLogoUrl(me?.org?.brandLogoUrl ?? "");
+  }, [me?.org?.brandColor, me?.org?.brandColorSecondary, me?.org?.brandTagline, me?.org?.brandLogoUrl]);
   const clean = isBrandColor(color) ? color : "";
-  const dirty = clean !== (me?.org?.brandColor ?? "") || tagline.trim() !== (me?.org?.brandTagline ?? "");
+  const cleanSecondary = isBrandColor(colorSecondary) ? colorSecondary : "";
+  const dirty =
+    clean !== (me?.org?.brandColor ?? "") ||
+    cleanSecondary !== (me?.org?.brandColorSecondary ?? "") ||
+    tagline.trim() !== (me?.org?.brandTagline ?? "") ||
+    logoUrl.trim() !== (me?.org?.brandLogoUrl ?? "");
 
   async function save() {
     setState("saving");
     try {
-      await api.setOrgBranding({ color: clean || null, tagline: tagline.trim() || null });
+      await api.setOrgBranding({
+        color: clean || null,
+        colorSecondary: cleanSecondary || null,
+        tagline: tagline.trim() || null,
+        logoUrl: logoUrl.trim() || null,
+      });
       // `me` carries the org's brand: reload it so the heading and the chip
       // show the new identity without a page reload.
       await reloadMe();
@@ -296,35 +310,64 @@ function BrandingCard() {
   return (
     <div style={{ padding: "16px 22px", borderTop: "1px solid var(--line-soft)", display: "grid", gap: 12 }}>
       <p className="body" style={{ margin: 0, fontSize: 13, color: "var(--muted)" }}>
-        Identidad visual de tu organización. Se aplica a los informes y publicaciones: el color acompaña el membrete y la bajada aparece bajo el nombre.
+        Identidad visual de tu organización. Se aplica a los informes y publicaciones: los colores acompañan el membrete, el logo aparece junto al nombre y la bajada debajo.
       </p>
       <div style={{ display: "flex", flexWrap: "wrap", gap: 10, alignItems: "center" }}>
-        <input
-          type="color"
-          value={clean || "#0f766e"}
-          onChange={(e) => {
-            setColor(e.target.value);
-            setState("idle");
-          }}
-          aria-label="Color de la identidad"
-          style={{ width: 44, height: 34, padding: 2 }}
-        />
+        <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 13, color: "var(--muted)" }}>
+          Primario
+          <input
+            type="color"
+            value={clean || "#0f766e"}
+            onChange={(e) => { setColor(e.target.value); setState("idle"); }}
+            aria-label="Color primario"
+            style={{ width: 44, height: 34, padding: 2 }}
+          />
+        </label>
         <input
           value={color}
-          onChange={(e) => {
-            setColor(e.target.value);
-            setState("idle");
-          }}
+          onChange={(e) => { setColor(e.target.value); setState("idle"); }}
           placeholder="#rrggbb"
           spellCheck={false}
-          style={{ width: 110 }}
+          style={{ width: 100 }}
         />
+        <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 13, color: "var(--muted)" }}>
+          Secundario
+          <input
+            type="color"
+            value={cleanSecondary || "#64748b"}
+            onChange={(e) => { setColorSecondary(e.target.value); setState("idle"); }}
+            aria-label="Color secundario"
+            style={{ width: 44, height: 34, padding: 2 }}
+          />
+        </label>
+        <input
+          value={colorSecondary}
+          onChange={(e) => { setColorSecondary(e.target.value); setState("idle"); }}
+          placeholder="#rrggbb"
+          spellCheck={false}
+          style={{ width: 100 }}
+        />
+      </div>
+      <div style={{ display: "flex", flexWrap: "wrap", gap: 10, alignItems: "center" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 10, flex: "1 1 200px", minWidth: 0 }}>
+          {logoUrl && isValidUrl(logoUrl) && (
+            <img
+              src={logoUrl}
+              alt="Logo de la organización"
+              style={{ width: 40, height: 40, objectFit: "contain", borderRadius: 6, background: "var(--surface-2)" }}
+            />
+          )}
+          <input
+            value={logoUrl}
+            onChange={(e) => { setLogoUrl(e.target.value); setState("idle"); }}
+            placeholder="URL del logo de tu organización"
+            spellCheck={false}
+            style={{ flex: 1, minWidth: 160 }}
+          />
+        </div>
         <input
           value={tagline}
-          onChange={(e) => {
-            setTagline(e.target.value);
-            setState("idle");
-          }}
+          onChange={(e) => { setTagline(e.target.value); setState("idle"); }}
           placeholder="Bajada corta, si querés (hasta 120 caracteres)"
           maxLength={120}
           style={{ flex: 1, minWidth: 220 }}
@@ -333,7 +376,9 @@ function BrandingCard() {
           {state === "saving" ? "Guardando…" : state === "saved" ? "Guardado" : "Guardar"}
         </button>
       </div>
-      {color && !isBrandColor(color) && <span style={{ color: "var(--fail)", fontSize: 13 }}>El color tiene que ser un hexadecimal, por ejemplo #1e6fd9.</span>}
+      {color && !isBrandColor(color) && <span style={{ color: "var(--fail)", fontSize: 13 }}>El color primario tiene que ser un hexadecimal, por ejemplo #1e6fd9.</span>}
+      {colorSecondary && !isBrandColor(colorSecondary) && <span style={{ color: "var(--fail)", fontSize: 13 }}>El color secundario tiene que ser un hexadecimal, por ejemplo #64748b.</span>}
+      {logoUrl && !isValidUrl(logoUrl) && <span style={{ color: "var(--fail)", fontSize: 13 }}>El logo tiene que ser una URL válida (https://…).</span>}
       {state === "error" && <span style={{ color: "var(--fail)", fontSize: 13 }}>No se pudo guardar.</span>}
     </div>
   );
@@ -342,4 +387,14 @@ function BrandingCard() {
 /** A brand color is exactly "#rrggbb"; anything else is treated as none. */
 export function isBrandColor(v: string): boolean {
   return /^#[0-9a-fA-F]{6}$/.test(v);
+}
+
+/** A logo URL must be a valid URL (http or https). */
+export function isValidUrl(v: string): boolean {
+  try {
+    const u = new URL(v);
+    return u.protocol === "https:" || u.protocol === "http:";
+  } catch {
+    return false;
+  }
 }

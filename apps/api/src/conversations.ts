@@ -751,16 +751,18 @@ export function createConversationsApp(deps: ConversationsDeps) {
     const parsed = z
       .object({
         color: z.string().regex(/^#[0-9a-fA-F]{6}$/).nullable(),
+        colorSecondary: z.string().regex(/^#[0-9a-fA-F]{6}$/).nullable().optional(),
         tagline: z.string().trim().max(120).nullable(),
+        logoUrl: z.string().url().max(2048).nullable().optional(),
       })
       .safeParse(await c.req.json().catch(() => null));
     if (!parsed.success) return c.json({ error: "INVALID_BODY" }, 400);
     await db
       .update(schema.orgs)
-      .set({ brandColor: parsed.data.color, brandTagline: parsed.data.tagline })
+      .set({ brandColor: parsed.data.color, brandColorSecondary: parsed.data.colorSecondary ?? undefined, brandTagline: parsed.data.tagline, brandLogoUrl: parsed.data.logoUrl ?? undefined })
       .where(eq(schema.orgs.id, user.orgId));
     await log(user, "", "org", parsed.data.color || parsed.data.tagline ? "actualizó la identidad visual de la organización" : "quitó la identidad visual de la organización");
-    return c.json({ color: parsed.data.color, tagline: parsed.data.tagline });
+    return c.json({ color: parsed.data.color, colorSecondary: parsed.data.colorSecondary ?? null, tagline: parsed.data.tagline, logoUrl: parsed.data.logoUrl ?? null });
   });
 
   // One benchmark's judge config: its override, the org's default, and which
@@ -826,7 +828,9 @@ export function createConversationsApp(deps: ConversationsDeps) {
         name: schema.orgs.name,
         slug: schema.orgs.slug,
         brandColor: schema.orgs.brandColor,
+        brandColorSecondary: schema.orgs.brandColorSecondary,
         brandTagline: schema.orgs.brandTagline,
+        brandLogoUrl: schema.orgs.brandLogoUrl,
       })
       .from(schema.orgs)
       .where(eq(schema.orgs.id, user.orgId))
