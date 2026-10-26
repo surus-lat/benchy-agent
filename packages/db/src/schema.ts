@@ -1,4 +1,4 @@
-import { sqliteTable, text, integer, primaryKey } from "drizzle-orm/sqlite-core";
+import { sqliteTable, text, integer, primaryKey, uniqueIndex } from "drizzle-orm/sqlite-core";
 
 export const orgs = sqliteTable("orgs", {
   id: text("id").primaryKey(),
@@ -230,6 +230,37 @@ export const sourceValidations = sqliteTable(
     updatedAt: integer("updatedAt", { mode: "timestamp" }).notNull(),
   },
   (t) => [primaryKey({ columns: [t.orgId, t.bench, t.sourceId] })],
+);
+
+// One member's peer-review vote on one question of one benchmark (issue #1):
+// +1 valida, -1 rechaza. Keyed by the 1-based question position and the
+// sha256 of the trimmed question text (qHash): if the question text changes,
+// the old votes stop matching it and are hidden. The row is the member's
+// current vote (voting again replaces it; clearing deletes the row). userId
+// goes null when the user is deleted: the tally of the work stays (a
+// deleted user's last vote keeps counting for the text it was cast on).
+export const questionValidations = sqliteTable(
+  "questionValidations",
+  {
+    id: text("id").primaryKey(),
+    orgId: text("orgId")
+      .notNull()
+      .references(() => orgs.id, { onDelete: "cascade" }),
+    // The benchmark (workspace folder) whose exam this question belongs to.
+    bench: text("bench").notNull(),
+    // 1-based question position in the exam file (delete reindexes positions).
+    q: integer("q").notNull(),
+    // sha256 hex of the trimmed question text, as voted.
+    qHash: text("qHash").notNull(),
+    userId: text("userId").references(() => user.id, { onDelete: "set null" }),
+    // +1 valida, -1 rechaza.
+    vote: integer("vote").notNull(),
+    createdAt: integer("createdAt", { mode: "timestamp" }).notNull(),
+    updatedAt: integer("updatedAt", { mode: "timestamp" }).notNull(),
+  },
+  (t) => [
+    uniqueIndex("questionValidations_org_bench_q_user").on(t.orgId, t.bench, t.q, t.userId),
+  ],
 );
 
 // A chat thread with the agent. Per-user: read with userId, never orgId.
