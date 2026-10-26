@@ -43,7 +43,8 @@
 .ws-lockup img { height: 1.18em; align-self: center; margin-right: 6px; }
 .ws-lockup .name { font-weight: 700; letter-spacing: -0.025em; line-height: 1; }
 .ws-lockup .suffix { font: 500 0.53em/1 var(--mono); color: var(--amber-ink); }
-.ws-org { font-size: 13px; color: var(--body); padding-left: 12px; border-left: 1px solid var(--line); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+.ws-org { font-size: 13px; color: var(--body); padding-left: 12px; border-left: 1px solid var(--line); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; text-decoration: none; }
+.ws-org:hover { color: var(--ink); }
 .ws-head-right { margin-left: auto; display: flex; align-items: center; gap: 10px; }
 .ws-seg { display: flex; gap: 3px; background: rgba(42, 46, 58, 0.05); border-radius: 999px; padding: 3px; }
 .ws-seg button { display: flex; align-items: center; gap: 6px; border: 0; border-radius: 999px; padding: 5px 12px; font-size: 13px; background: transparent; color: var(--body); transition: background-color 150ms ease; }
@@ -199,6 +200,13 @@
 .ws-qcard { padding: 18px 20px; display: flex; flex-direction: column; gap: 18px; }
 .ws-sep { border-top: 1px solid var(--line-soft); padding-top: 14px; }
 .ws-answer .ws-eyebrow { margin-bottom: 6px !important; }
+/* Multiple choice: the four options, the correct one marked by its radio. */
+.ws-options .ws-eyebrow { margin-bottom: 6px !important; }
+.ws-mc { display: flex; flex-direction: column; gap: 8px; }
+.ws-mc-row { display: flex; align-items: flex-start; gap: 10px; padding: 4px 8px 4px 4px; border: 1px solid transparent; border-radius: 8px; }
+.ws-mc-row.on { border-color: var(--line); background: rgba(42, 46, 58, 0.035); }
+.ws-mc-row input[type="radio"] { margin-top: 10px; accent-color: var(--ink); flex: 0 0 auto; }
+.ws-mc-row .ws-edit { flex: 1; }
 .ws-col-head.sub { margin-top: 10px; }
 .ws-col-head .push { margin-left: auto; }
 .ws-link:disabled { opacity: 0.5; text-decoration: none; }

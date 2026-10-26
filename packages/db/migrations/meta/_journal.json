@@ -75,8 +75,22 @@
     {
       "idx": 10,
       "version": "6",
+      "when": 1792700000000,
+      "tag": "0010_org_branding",
+      "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "6",
+      "when": 1792800000000,
+      "tag": "0011_org_branding_extended",
+      "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "6",
       "when": 1792792576626,
-      "tag": "0011_question_validations",
+      "tag": "0012_question_validations",
       "breakpoints": true
     }
   ]

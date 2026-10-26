@@ -1,6 +1,6 @@
 import { expect, it } from "vitest";
 import { benchmarkYaml, slugify, togglePaper, uniqueSlug, type PickedPaper } from "./new-bench-model";
-import { isOpenQuestionExam, parseBenchDoc, readCriteria } from "./exam-model";
+import { isOpenQuestionExam, isMultipleChoiceExam, parseBenchDoc, readCriteria, readMetric } from "./exam-model";
 import { readBenchYaml } from "./data";
 
 it("makes a folder name from the benchmark's name", () => {
@@ -30,6 +30,23 @@ it("writes a benchmark the editors read as an open-question exam with its rubric
     ["c3", 2],
   ]);
   expect(isOpenQuestionExam(doc.task, criteria)).toBe(true);
+});
+
+it("writes a benchmark the editors read as a multiple-choice exam scored by exact match", () => {
+  const text = benchmarkYaml("Ciclo del agua", "biology", "es", "multiple_choice");
+  const doc = readBenchYaml(text, "ciclo-del-agua");
+  expect(doc.title).toBe("Ciclo del agua");
+  expect(doc.task).toBe("answer");
+  expect(doc.domain).toBe("biology");
+  // No rubric, no grader: the answer field is scored by casefold_strip.
+  const parsed = parseBenchDoc(text);
+  expect(readCriteria(parsed)).toBeNull();
+  expect(readMetric(parsed)).toBe("casefold_strip");
+  expect(isOpenQuestionExam(doc.task, readCriteria(parsed))).toBe(false);
+  expect(isMultipleChoiceExam(doc.task, readMetric(parsed))).toBe(true);
+  // The options the MC editor writes: question plus a nested a-d options object.
+  expect(text).toContain("options: { a: string, b: string, c: string, d: string }");
+  expect(text).not.toContain("grader");
 });
 
 it("the picked bibliography keeps each paper once and toggles it in and out", () => {

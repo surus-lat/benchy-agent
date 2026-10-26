@@ -56,7 +56,8 @@
 .bp-lockup img { height: 1.18em; align-self: center; margin-right: 6px; }
 .bp-lockup .name { font-weight: 700; letter-spacing: -0.025em; line-height: 1; }
 .bp-lockup .suffix { font: 500 0.53em/1 var(--mono); color: var(--amber-ink); }
-.bp-org { font-size: 13px; color: var(--muted); padding-left: 10px; border-left: 1px solid var(--line); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+.bp-org { font-size: 13px; color: var(--muted); padding-left: 10px; border-left: 1px solid var(--line); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; text-decoration: none; }
+.bp-org:hover { color: var(--ink); }
 .bp-top-right { margin-left: auto; display: flex; align-items: center; gap: 10px; min-width: 0; }
 .bp-email { font-size: 13px; color: var(--muted); max-width: 26ch; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .bp-viewswitch { font-size: 13px; color: var(--muted); text-decoration: underline; text-underline-offset: 3px; white-space: nowrap; }
@@ -224,6 +225,11 @@ button.bp-row:hover { background: var(--paper); }
 .bp-newbench > .body { margin: 0; line-height: 1.6; }
 .bp-newbench-form { padding: 22px; display: grid; gap: 18px; }
 .bp-newbench-row { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+/* The exam-type choice: two pills, the same look as the workspace's filters. */
+.bp-newbench-kinds { display: flex; gap: 8px; margin-top: 6px; }
+.bp-newbench-kinds button { font: 13.5px/1.4 var(--sans); padding: 7px 14px; border: 1px solid var(--line); border-radius: 999px; background: transparent; color: var(--body); cursor: pointer; }
+.bp-newbench-kinds button.on { border-color: var(--ink); background: var(--ink); color: var(--paper); }
+.bp-newbench-kinds button:disabled { opacity: 0.55; cursor: not-allowed; }
 .bp-newbench-form .bp-start-paper { margin-top: 0; max-width: none; }
 .bp-newbench-error { margin: 0; font-size: 13.5px; color: var(--fail); }
 .bp-newbench-foot { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }

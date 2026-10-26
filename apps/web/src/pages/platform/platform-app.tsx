@@ -76,7 +76,7 @@ function Shell() {
           <span className="name">benchy</span>
           <span className="suffix">agent</span>
         </Link>
-        {me?.org && <span className="bp-org">{me.org.name}</span>}
+        {me?.org && <Link href="/app" className="bp-org">{me.org.name}</Link>}
         <div className="bp-top-right">
           <Link href="/app/preguntas" className={`bp-viewswitch${isQuestions ? " on" : ""}`}>
             Preguntas

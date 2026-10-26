@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, type CSSProperties } from "react";
 import { Link } from "wouter";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
@@ -127,7 +127,7 @@ export default function ReportPage({ slug }: { slug: string }) {
   }
 
   return (
-    <div className="rp">
+    <div className="rp" style={{ ...(me?.org?.brandColorSecondary ? { "--rp-secondary": me.org.brandColorSecondary } : {}) } as CSSProperties}>
       <div className="rp-bar">
         <Link href={`/app/b/${encodeURIComponent(slug)}/publicacion`}>← Volver al benchmark</Link>
         <span className="sp" />
@@ -207,9 +207,10 @@ export default function ReportPage({ slug }: { slug: string }) {
             </p>
           )}
           <article className="rp-page">
-            <header className="rp-head">
+            <header className="rp-head" style={{ ...(me?.org?.brandColor ? { "--rp-teal": me.org.brandColor } : {}) } as CSSProperties}>
               <div className="brand">
                 <img src="/brand/surus-logo.png" alt="" />
+                {me?.org?.brandLogoUrl && <img src={me.org.brandLogoUrl} alt={me.org.name ?? ""} className="rp-org-logo" />}
                 <div>
                   <div className="name">{name}</div>
                   <div className="tag">Building the Intelligence Layer</div>
@@ -234,6 +235,7 @@ export default function ReportPage({ slug }: { slug: string }) {
             </div>
 
             <div className="rp-eyebrow">Benchy · evaluación de modelos de IA{me?.org?.name ? ` · ${me.org.name}` : ""}</div>
+            {me?.org?.brandTagline && <p className="rp-tagline" style={me?.org?.brandColorSecondary ? { color: me.org.brandColorSecondary } as CSSProperties : undefined}>{me.org.brandTagline}</p>}
             <h1 className="rp-title">{title}</h1>
 
             <div className="rp-body">

@@ -47,6 +47,8 @@ type Store = {
   notProvisioned: boolean;
   loadError: string | null;
   refresh: () => Promise<void>;
+  /** Refetch who is signed in and their org (after an org setting changes). */
+  reloadMe: () => Promise<void>;
   runs: Record<string, ComparisonRun>;
   setRun: (slug: string, run: ComparisonRun | null) => void;
   /** Papers being added, wherever they were added from: every view shows them. */
@@ -136,6 +138,13 @@ export function PlatformProvider({ children }: { children: ReactNode }) {
   const [failedSources, setFailedSources] = useState<FailedSource[]>([]);
   const dismissFailedSource = useCallback((bench: string, id: number) => setFailedSources((f) => f.filter((x) => !(x.bench === bench && x.id === id))), []);
   const [lastBench, setLastBench] = useState<string | null>(null);
+  const reloadMe = useCallback(async () => {
+    try {
+      setMe(await api.me());
+    } catch {
+      // Keep the stale `me`: the settings UI still shows what was saved.
+    }
+  }, []);
   const cache = useRef(new Map<string, BenchSummary>());
   const loaded = useRef(false);
 
@@ -238,8 +247,8 @@ export function PlatformProvider({ children }: { children: ReactNode }) {
   }, [running]);
 
   const value = useMemo(
-    () => ({ me, files, benches, notProvisioned, loadError, refresh, runs, setRun, pendingSources, failedSources, dismissFailedSource, addSource, lastBench, setLastBench }),
-    [me, files, benches, notProvisioned, loadError, refresh, runs, setRun, pendingSources, failedSources, dismissFailedSource, addSource, lastBench],
+    () => ({ me, files, benches, notProvisioned, loadError, refresh, reloadMe, runs, setRun, pendingSources, failedSources, dismissFailedSource, addSource, lastBench, setLastBench }),
+    [me, files, benches, notProvisioned, loadError, refresh, reloadMe, runs, setRun, pendingSources, failedSources, dismissFailedSource, addSource, lastBench],
   );
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
 }
