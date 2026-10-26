@@ -25,6 +25,13 @@ const COUNT_CAP = 1000;
 const AUTHOR_POOL = 400;
 const DATASET = "https://huggingface.co/datasets/UNRN/ri-conicet/resolve/main/";
 
+/** Embedding dimension (EmbeddingGemma-2, 768-d float32). */
+const EMBED_DIM = 768;
+/** Papers per D1 batch when scanning embeddings. */
+const EMBED_BATCH = 2000;
+/** Default number of semantic results. */
+const SEMANTIC_K = 20;
+
 export type PaperRow = {
   id: number;
   origin: string;
@@ -40,6 +47,7 @@ export type PaperRow = {
   publisher: string;
   rights: string;
   pdf: string | null;
+  embedding: ArrayBuffer | null;
 };
 
 export type Paper = {
@@ -261,6 +269,80 @@ export function createLibraryApp(deps: LibraryDeps) {
     if (!Number.isSafeInteger(id) || id <= 0) return c.json({ error: "NOT_FOUND" }, 404);
     const paper = await getPaper(deps.library, id, deps.publicUrl);
     return paper ? c.json(paper) : c.json({ error: "NOT_FOUND" }, 404);
+  });
+
+  // Semantic search: cosine similarity over the pre-computed EmbeddingGemma-2
+  // vectors stored as BLOBs in D1. Accepts a pre-computed query vector (from
+  // the agent's embed endpoint) or a text query that the Worker forwards to
+  // the agent for embedding. Returns the top-K papers sorted by score.
+  app.post("/api/library/semantic", async (c) => {
+    const body = (await c.req.json().catch(() => null)) as {
+      vector?: unknown;
+      k?: unknown;
+      pdf?: unknown;
+    } | null;
+    if (!body) return c.json({ error: "INVALID_BODY" }, 400);
+
+    const vec = body.vector;
+    if (!Array.isArray(vec) || vec.length !== EMBED_DIM || !vec.every((v) => typeof v === "number" && Number.isFinite(v))) {
+      return c.json({ error: "INVALID_VECTOR", message: `vector must be a ${EMBED_DIM}-element number array` }, 400);
+    }
+    const query = new Float32Array(vec as number[]);
+    const k = Math.max(1, Math.min(Number(body.k) || SEMANTIC_K, 100));
+    const pdfOnly = body.pdf === true || body.pdf === 1;
+
+    // Scan papers with embeddings in batches, keeping a top-K heap by cosine.
+    type Scored = { id: number; score: number };
+    const top: Scored[] = [];
+    let offset = 0;
+
+    for (;;) {
+      const { results } = await deps.library
+        .prepare("SELECT id, embedding FROM papers WHERE embedding IS NOT NULL LIMIT ?1 OFFSET ?2")
+        .bind(EMBED_BATCH, offset)
+        .all<{ id: number; embedding: ArrayBuffer }>();
+      if (!results.length) break;
+      for (const row of results) {
+        const emb = new Float32Array(new Uint8Array(row.embedding as unknown as ArrayBufferLike).buffer);
+        if (emb.length !== EMBED_DIM) continue;
+        let dot = 0;
+        for (let i = 0; i < EMBED_DIM; i++) dot += query[i] * emb[i];
+        if (top.length < k) {
+          top.push({ id: row.id, score: dot });
+          if (top.length === k) top.sort((a, b) => a.score - b.score);
+        } else if (dot > top[0].score) {
+          top[0] = { id: row.id, score: dot };
+          top.sort((a, b) => a.score - b.score);
+        }
+      }
+      offset += results.length;
+      if (results.length < EMBED_BATCH) break;
+    }
+
+    top.sort((a, b) => b.score - a.score);
+    if (!top.length) return c.json({ papers: [] });
+
+    // Join back to get the full hit data for the top results.
+    const ids = top.map((t) => t.id);
+    const ph = ids.map(() => "?").join(",");
+    const { results: rows } = await deps.library
+      .prepare(
+        `SELECT id, origin, title, creators, year, type, language, pdf IS NOT NULL AS has_pdf,
+                substr(description, 1, 320) AS excerpt
+         FROM papers WHERE id IN (${ph})${pdfOnly ? " AND pdf IS NOT NULL" : ""}`,
+      )
+      .bind(...ids)
+      .all<Hit>();
+
+    const byId = new Map(rows.map((r) => [r.id, r]));
+    const papers = top
+      .filter((t) => byId.has(t.id))
+      .map((t) => ({
+        ...hit(byId.get(t.id)!),
+        score: Math.round(t.score * 10000) / 10000,
+      }));
+
+    return c.json({ papers });
   });
 
   // PDFs we keep ourselves (papers not in the dataset), for the reader and the agent.
