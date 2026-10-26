@@ -27,11 +27,24 @@ COPY --from=uv /uv /usr/local/bin/uv
 COPY vendor/ /tmp/vendor/
 # pypdfium2: text from the papers researchers add to a benchmark (mcp/benchy_sources.py).
 # 5.13.0, not 5.14.0: the image's uv refuses releases newer than its cutoff.
+# onnxruntime + tokenizers replace sentence-transformers + torch for embeddings.
 RUN uv pip install --python /opt/hermes/.venv/bin/python --no-cache /tmp/vendor/llm_client-*.whl \
       "benchy @ git+https://github.com/surus-lat/benchy.git@${BENCHY_ENGINE_REF}" \
       pypdfium2==5.13.0 \
-      sentence-transformers \
+      onnxruntime \
+      tokenizers \
  && rm -rf /tmp/vendor /usr/local/bin/uv
+
+# Download the pre-exported ONNX embedding model from HuggingFace Hub.
+# See: https://huggingface.co/surus-ai/embeddinggemma-2-onnx
+# Re-export with mcp/export_onnx.py if the source model changes.
+RUN /opt/hermes/.venv/bin/python -c "\
+from huggingface_hub import hf_hub_download; \
+import os; \
+d = '/opt/benchy/mcp/embed_model'; os.makedirs(d, exist_ok=True); \
+hf_hub_download('surus-ai/embeddinggemma-2-onnx', 'model_q8.onnx', local_dir=d); \
+hf_hub_download('surus-ai/embeddinggemma-2-onnx', 'tokenizer.json', local_dir=d); \
+print('Downloaded embed model to', d, os.listdir(d))"
 
 COPY --chown=root:root config.yaml SOUL.md /opt/benchy/
 COPY --chown=root:root mcp/ /opt/benchy/mcp/
@@ -49,6 +62,7 @@ ENV AWS_REGION=us-east-1 \
     API_SERVER_ENABLED=true \
     API_SERVER_HOST=127.0.0.1 \
     API_SERVER_PORT=8642 \
+    EMBED_MODEL_DIR=/opt/benchy/mcp/embed_model \
     PORT=8080
 
 # Only the proxy is public (benchy_proxy.py); Hermes listens on loopback.
