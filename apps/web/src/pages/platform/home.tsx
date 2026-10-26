@@ -23,8 +23,16 @@ export function Pip({ variant = "thinking" }: { variant?: "thinking" | "idle" | 
 
 const STATUS_LABEL = { valid: "válido", error: "con errores", draft: "borrador" } as const;
 
+/** The org home's numbers, straight from the benchmarks the store already has. */
+export function orgStats(benches: BenchSummary[]) {
+  const items = benches.reduce((s, b) => s + (b.items ?? 0), 0);
+  const evaluated = benches.filter((b) => b.runs.length > 0).length;
+  const scores = benches.map((b) => b.best).filter((v): v is number => v != null);
+  return { benches: benches.length, items, evaluated, best: scores.length ? Math.max(...scores) : null };
+}
+
 export default function Home() {
-  const { benches, files, loadError, refresh } = usePlatform();
+  const { me, benches, files, loadError, refresh } = usePlatform();
   const [, navigate] = useLocation();
   const loading = files === null;
   const empty = !loading && benches.length === 0;
@@ -32,6 +40,7 @@ export default function Home() {
   // the Worker and the agent remove it.
   const [removing, setRemoving] = useState<string | null>(null);
   const [removingState, setRemovingState] = useState<"idle" | "busy" | "failed">("idle");
+  const stats = orgStats(benches);
 
   async function confirmRemove(b: BenchSummary) {
     setRemovingState("busy");
@@ -52,7 +61,7 @@ export default function Home() {
     <section className="bp-page">
       <div style={{ display: "flex", flexWrap: "wrap", alignItems: "flex-end", justifyContent: "space-between", gap: 16 }}>
         <div>
-          <h1 className="bp-h1">Benchmarks</h1>
+          <h1 className="bp-h1">{me?.org?.name ?? "Tu organización"}</h1>
           <p style={{ margin: "6px 0 0", fontSize: 14 }} className="body">
             {loading
               ? "Cargando…"
@@ -67,6 +76,22 @@ export default function Home() {
       </div>
 
       {loadError && <p className="bp-error" style={{ marginTop: 16 }}>No pudimos cargar los benchmarks de tu organización. {loadError}</p>}
+
+      {!loading && benches.length > 0 && (
+        <div className="card" style={{ marginTop: 24, display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(140px,1fr))", gap: 16, padding: "18px 22px" }}>
+          {[
+            { k: "Evaluaciones", v: String(stats.benches) },
+            { k: "Ítems", v: String(stats.items) },
+            { k: "Con evaluación hecha", v: String(stats.evaluated) },
+            { k: "Mejor puntaje", v: stats.best == null ? "—" : stats.best.toFixed(2) },
+          ].map((s) => (
+            <div key={s.k}>
+              <div className="eyebrow" style={{ fontSize: 10 }}>{s.k}</div>
+              <div style={{ fontSize: 24, fontWeight: 500, letterSpacing: "-.02em", marginTop: 4 }}>{s.v}</div>
+            </div>
+          ))}
+        </div>
+      )}
 
       {benches.length > 0 && (
         <div className="card" style={{ marginTop: 24, overflow: "hidden" }}>
@@ -164,6 +189,20 @@ export default function Home() {
 
       <OrgActivity />
 
+      <div className="card" style={{ marginTop: 24 }}>
+        <div className="card-head">
+          <span className="eyebrow">Configuración</span>
+        </div>
+        <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", justifyContent: "space-between", gap: 12, padding: "14px 22px" }}>
+          <span style={{ minWidth: 0 }}>
+            <span className="t" style={{ display: "block", fontSize: 15 }}>Cuenta y modelo juez</span>
+            <span className="m" style={{ display: "block", fontSize: 13 }}>Tu nombre, las formas de ingresar y el juez default de la organización.</span>
+          </span>
+          <button className="bp-btn-line" onClick={() => navigate("/app/cuenta")}>Abrir cuenta</button>
+        </div>
+        {me?.org && <BrandingCard />}
+      </div>
+
       {empty && (
         <div className="bp-empty">
           <span role="img" aria-label="benchy agent">
@@ -225,4 +264,137 @@ function OrgActivity() {
       })}
     </div>
   );
+}
+
+/** The org's visual identity (issue #5): an accent color and a tagline that
+ *  the findings report and the publication card co-brand with. */
+function BrandingCard() {
+  const { me, reloadMe } = usePlatform();
+  const [color, setColor] = useState(me?.org?.brandColor ?? "");
+  const [colorSecondary, setColorSecondary] = useState(me?.org?.brandColorSecondary ?? "");
+  const [tagline, setTagline] = useState(me?.org?.brandTagline ?? "");
+  const [logoUrl, setLogoUrl] = useState(me?.org?.brandLogoUrl ?? "");
+  const [state, setState] = useState<"idle" | "saving" | "saved" | "error">("idle");
+  useEffect(() => {
+    setColor(me?.org?.brandColor ?? "");
+    setColorSecondary(me?.org?.brandColorSecondary ?? "");
+    setTagline(me?.org?.brandTagline ?? "");
+    setLogoUrl(me?.org?.brandLogoUrl ?? "");
+  }, [me?.org?.brandColor, me?.org?.brandColorSecondary, me?.org?.brandTagline, me?.org?.brandLogoUrl]);
+  const clean = isBrandColor(color) ? color : "";
+  const cleanSecondary = isBrandColor(colorSecondary) ? colorSecondary : "";
+  const dirty =
+    clean !== (me?.org?.brandColor ?? "") ||
+    cleanSecondary !== (me?.org?.brandColorSecondary ?? "") ||
+    tagline.trim() !== (me?.org?.brandTagline ?? "") ||
+    logoUrl.trim() !== (me?.org?.brandLogoUrl ?? "");
+
+  async function save() {
+    setState("saving");
+    try {
+      await api.setOrgBranding({
+        color: clean || null,
+        colorSecondary: cleanSecondary || null,
+        tagline: tagline.trim() || null,
+        logoUrl: logoUrl.trim() || null,
+      });
+      // `me` carries the org's brand: reload it so the heading and the chip
+      // show the new identity without a page reload.
+      await reloadMe();
+      setState("saved");
+    } catch {
+      setState("error");
+    }
+  }
+
+  return (
+    <div style={{ padding: "16px 22px", borderTop: "1px solid var(--line-soft)", display: "grid", gap: 12 }}>
+      <p className="body" style={{ margin: 0, fontSize: 13, color: "var(--muted)" }}>
+        Identidad visual de tu organización. Se aplica a los informes y publicaciones: los colores acompañan el membrete, el logo aparece junto al nombre y la bajada debajo.
+      </p>
+      <div style={{ display: "flex", flexWrap: "wrap", gap: 10, alignItems: "center" }}>
+        <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 13, color: "var(--muted)" }}>
+          Primario
+          <input
+            type="color"
+            value={clean || "#0f766e"}
+            onChange={(e) => { setColor(e.target.value); setState("idle"); }}
+            aria-label="Color primario"
+            style={{ width: 44, height: 34, padding: 2 }}
+          />
+        </label>
+        <input
+          value={color}
+          onChange={(e) => { setColor(e.target.value); setState("idle"); }}
+          placeholder="#rrggbb"
+          spellCheck={false}
+          style={{ width: 100 }}
+        />
+        <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 13, color: "var(--muted)" }}>
+          Secundario
+          <input
+            type="color"
+            value={cleanSecondary || "#64748b"}
+            onChange={(e) => { setColorSecondary(e.target.value); setState("idle"); }}
+            aria-label="Color secundario"
+            style={{ width: 44, height: 34, padding: 2 }}
+          />
+        </label>
+        <input
+          value={colorSecondary}
+          onChange={(e) => { setColorSecondary(e.target.value); setState("idle"); }}
+          placeholder="#rrggbb"
+          spellCheck={false}
+          style={{ width: 100 }}
+        />
+      </div>
+      <div style={{ display: "flex", flexWrap: "wrap", gap: 10, alignItems: "center" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 10, flex: "1 1 200px", minWidth: 0 }}>
+          {logoUrl && isValidUrl(logoUrl) && (
+            <img
+              src={logoUrl}
+              alt="Logo de la organización"
+              style={{ width: 40, height: 40, objectFit: "contain", borderRadius: 6, background: "var(--surface-2)" }}
+            />
+          )}
+          <input
+            value={logoUrl}
+            onChange={(e) => { setLogoUrl(e.target.value); setState("idle"); }}
+            placeholder="URL del logo de tu organización"
+            spellCheck={false}
+            style={{ flex: 1, minWidth: 160 }}
+          />
+        </div>
+        <input
+          value={tagline}
+          onChange={(e) => { setTagline(e.target.value); setState("idle"); }}
+          placeholder="Bajada corta, si querés (hasta 120 caracteres)"
+          maxLength={120}
+          style={{ flex: 1, minWidth: 220 }}
+        />
+        <button className="btn-ghost" onClick={() => void save()} disabled={state === "saving" || !dirty}>
+          {state === "saving" ? "Guardando…" : state === "saved" ? "Guardado" : "Guardar"}
+        </button>
+      </div>
+      {color && !isBrandColor(color) && <span style={{ color: "var(--fail)", fontSize: 13 }}>El color primario tiene que ser un hexadecimal, por ejemplo #1e6fd9.</span>}
+      {colorSecondary && !isBrandColor(colorSecondary) && <span style={{ color: "var(--fail)", fontSize: 13 }}>El color secundario tiene que ser un hexadecimal, por ejemplo #64748b.</span>}
+      {logoUrl && !isValidUrl(logoUrl) && <span style={{ color: "var(--fail)", fontSize: 13 }}>El logo tiene que ser una URL válida (https://…).</span>}
+      {state === "error" && <span style={{ color: "var(--fail)", fontSize: 13 }}>No se pudo guardar.</span>}
+    </div>
+  );
+}
+
+/** A brand color is exactly "#rrggbb"; anything else is treated as none. */
+export function isBrandColor(v: string): boolean {
+  return /^#[0-9a-fA-F]{6}$/.test(v);
+}
+
+/** A logo URL must be a valid URL (http or https). */
+export function isValidUrl(v: string): boolean {
+  try {
+    const u = new URL(v);
+    return u.protocol === "https:" || u.protocol === "http:";
+  } catch {
+    return false;
+  }
 }

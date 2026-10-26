@@ -8,6 +8,14 @@ export const orgs = sqliteTable("orgs", {
   // null = the benchmark's own scoring.grader. A benchmark may override it
   // (benchJudgeOverrides).
   judgeModel: text("judgeModel"),
+  // The org's visual identity for its reports and publications (issue #5):
+  // an accent hex color and a short tagline, both optional.
+  brandColor: text("brandColor"),
+  brandTagline: text("brandTagline"),
+  // Secondary accent color for reports and publications (hex, optional).
+  brandColorSecondary: text("brandColorSecondary"),
+  // URL of the org's logo, shown alongside the benchy brand on reports.
+  brandLogoUrl: text("brandLogoUrl"),
   createdAt: integer("createdAt", { mode: "timestamp" }).notNull(),
 });
 

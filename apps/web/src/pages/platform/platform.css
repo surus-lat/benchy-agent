@@ -56,7 +56,8 @@
 .bp-lockup img { height: 1.18em; align-self: center; margin-right: 6px; }
 .bp-lockup .name { font-weight: 700; letter-spacing: -0.025em; line-height: 1; }
 .bp-lockup .suffix { font: 500 0.53em/1 var(--mono); color: var(--amber-ink); }
-.bp-org { font-size: 13px; color: var(--muted); padding-left: 10px; border-left: 1px solid var(--line); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+.bp-org { font-size: 13px; color: var(--muted); padding-left: 10px; border-left: 1px solid var(--line); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; text-decoration: none; }
+.bp-org:hover { color: var(--ink); }
 .bp-top-right { margin-left: auto; display: flex; align-items: center; gap: 10px; min-width: 0; }
 .bp-email { font-size: 13px; color: var(--muted); max-width: 26ch; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .bp-viewswitch { font-size: 13px; color: var(--muted); text-decoration: underline; text-underline-offset: 3px; white-space: nowrap; }

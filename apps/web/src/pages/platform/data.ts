@@ -51,7 +51,10 @@ export type RunResult = {
   summary: { examples: number; valid: number; invalid_outputs: number; execution_errors: number };
   results: { index: number; status: string; prediction: unknown; field_scores: { path: string[]; score: number; weight: number; criteria?: Record<string, { grade: number; justification: string }> }[] | null; error: EngineError | null }[];
 };
-export type Me = { user: { id: string; name: string; email: string }; org: { id: string; name: string; slug?: string } | null };
+export type Me = {
+  user: { id: string; name: string; email: string };
+  org: { id: string; name: string; slug?: string; brandColor?: string | null; brandColorSecondary?: string | null; brandTagline?: string | null; brandLogoUrl?: string | null } | null;
+};
 
 /**
  * Whether the browser's spell checker can help with text in `lang`. The browser
@@ -131,6 +134,25 @@ async function send<T>(path: string, body?: unknown): Promise<T> {
   return (await res.json()) as T;
 }
 
+async function patch<T>(path: string, body: unknown): Promise<T> {
+  let res: Response;
+  try {
+    res = await fetch(path, {
+      method: "PATCH",
+      credentials: "same-origin",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(body),
+    });
+  } catch {
+    throw new ApiError("NETWORK", 0);
+  }
+  if (!res.ok) {
+    const body = (await res.json().catch(() => ({}))) as { error?: string };
+    throw new ApiError(body.error ?? `HTTP_${res.status}`, res.status);
+  }
+  return (await res.json()) as T;
+}
+
 async function put<T>(path: string, body: unknown): Promise<T> {
   let res: Response;
   try {
@@ -193,6 +215,9 @@ export const api = {
   /** The org's default judge model (null: each benchmark's own grader judges). */
   orgJudge: () => get<{ judgeModel: string | null }>("/api/org/judge"),
   setOrgJudge: (judgeModel: string | null) => put<{ judgeModel: string | null }>("/api/org/judge", { judgeModel }),
+  /** The org's visual identity for reports and publications (issue #5). */
+  setOrgBranding: (branding: { color: string | null; colorSecondary?: string | null; tagline: string | null; logoUrl?: string | null }) =>
+    patch<{ color: string | null; colorSecondary: string | null; tagline: string | null; logoUrl: string | null }>("/api/org/branding", branding),
   /** One benchmark's judge: its override, the org's default, and which applies. */
   benchJudge: (bench: string) => get<JudgeConfig>(`/api/workspace/judge?bench=${encodeURIComponent(bench)}`),
   setBenchJudge: (bench: string, judgeModel: string | null) => put<JudgeConfig>("/api/workspace/judge", { bench, judgeModel }),
