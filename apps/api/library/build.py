@@ -22,6 +22,7 @@ from __future__ import annotations
 import argparse
 import json
 import re
+import struct
 from pathlib import Path
 
 import duckdb
@@ -39,7 +40,7 @@ TYPES = {
     "dataset": "dataset",
 }
 KINDS = {*TYPES.values(), "other"}  # already normalized (external.json)
-COLUMNS = "id, title, creators, subjects, description, date, year, type, language, publisher, rights, pdf"
+COLUMNS = "id, title, creators, subjects, description, date, year, type, language, publisher, rights, pdf, embedding"
 INDEXED = "title, creators, subjects, description"
 META = """INSERT OR REPLACE INTO library_meta (key, value) SELECT 'papers', count(*) FROM papers;
 INSERT OR REPLACE INTO library_meta (key, value) SELECT 'with_pdf', count(pdf) FROM papers;
@@ -51,6 +52,14 @@ def sql_text(value: str | None) -> str:
     if value is None:
         return "NULL"
     return "'" + value.replace("'", "''") + "'"
+
+
+def _embedding_blob(vec: list[float] | None) -> str:
+    """Encode an embedding as a hex-literal BLOB for D1, or NULL."""
+    if vec is None:
+        return "NULL"
+    raw = struct.pack(f"<{len(vec)}f", *vec)
+    return "X'" + raw.hex() + "'"
 
 
 def row_values(r: dict) -> str:
@@ -72,6 +81,7 @@ def row_values(r: dict) -> str:
         sql_text(r["publisher"] or ""),
         sql_text(r["rights"] or ""),
         sql_text(r["pdf"]),
+        _embedding_blob(r.get("embedding")),
     ]
     return "(" + ", ".join(values) + ")"
 
@@ -114,7 +124,7 @@ def main() -> None:
         params = [args.since]
     rows = con.execute(
         f"""select item_id, title, creators, subjects, description, date, type, language,
-                   publisher, rights, pdf, coalesce(deleted, false) as deleted
+                   publisher, rights, pdf, coalesce(deleted, false) as deleted, embedding
             from read_parquet(?) where {where} order by try_cast(item_id as bigint)""",
         [str(args.parquet), *params],
     )

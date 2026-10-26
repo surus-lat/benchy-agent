@@ -49,6 +49,8 @@ export interface HermesClient {
   startEvaluation(path: string, models: string[], graderModel?: string): Promise<StartResult>;
   /** (Re)write a benchmark's findings report from the results there are; returns at once. */
   startReport(path: string): Promise<StartResult>;
+  /** Embed a query string with the agent's EmbeddingGemma-2 model, returning its 768-d vector. */
+  embed(q: string): Promise<number[]>;
 }
 
 /** Started; busy (one is already running, its state in `body`); or refused by the engine (why in `body`). */
@@ -267,6 +269,13 @@ export function hermesClient(baseUrl: string, apiKey: string): HermesClient {
     },
     async startReport(path) {
       return started(await send("POST", `/benchy/report?path=${encodeURIComponent(path)}`, {}, SESSION_TIMEOUT_MS));
+    },
+    async embed(q) {
+      const res = await send("POST", "/benchy/embed", { body: JSON.stringify({ q }), type: "application/json" }, SESSION_TIMEOUT_MS);
+      if (!res.ok) throw new HermesError(`agent returned ${res.status}`, 502);
+      const data = (await res.json()) as { vector?: number[] };
+      if (!Array.isArray(data.vector)) throw new HermesError("agent returned no vector", 502);
+      return data.vector;
     },
     async createSession(userId) {
       const data = await call("/api/sessions", userId, {}, SESSION_TIMEOUT_MS);

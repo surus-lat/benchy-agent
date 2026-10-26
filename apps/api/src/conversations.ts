@@ -108,6 +108,7 @@ export function createConversationsApp(deps: ConversationsDeps) {
   const { db } = deps;
   const app = new Hono<{ Variables: { user: CurrentUser & { orgId: string } } }>();
 
+  app.use("/api/library/*", authed);
   app.use("/api/conversations/*", authed);
   app.use("/api/conversations", authed);
   app.use("/api/workspace/*", authed);
@@ -707,6 +708,24 @@ export function createConversationsApp(deps: ConversationsDeps) {
     if (!parsed.success) return c.json({ error: "INVALID_BODY" }, 400);
     await log(c.get("user"), parsed.data.bench, parsed.data.kind, parsed.data.detail);
     return c.json({ ok: true }, 201);
+  });
+
+  // Semantic search in the library: embed the query through the org's agent,
+  // then POST the vector to the library's /api/library/semantic endpoint
+  // (handled by the Worker's library app directly — not through this app).
+  // This convenience route lets the web UI do semantic search in one call.
+  app.post("/api/library/semantic-search", async (c) => {
+    const body = (await c.req.json().catch(() => null)) as { q?: unknown; k?: unknown; pdf?: unknown } | null;
+    const q = typeof body?.q === "string" ? body.q.trim() : "";
+    if (!q) return c.json({ error: "EMPTY_QUERY" }, 400);
+    const agent = await deps.agentFor(c.get("user").orgId);
+    if (!agent) return c.json({ error: "AGENT_NOT_PROVISIONED" }, 503);
+    try {
+      const vector = await agent.embed(q);
+      return c.json({ vector, q });
+    } catch (err) {
+      return agentFailure(c, err);
+    }
   });
 
   app.get("/api/models", async (c) => {

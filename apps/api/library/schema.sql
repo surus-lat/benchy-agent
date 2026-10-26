@@ -19,7 +19,8 @@ CREATE TABLE IF NOT EXISTS papers (
   rights TEXT NOT NULL,
   pdf TEXT,                      -- papers/<shard>/<id>.pdf in the dataset, files/<key> in KV, or NULL
   origin TEXT NOT NULL DEFAULT 'conicet', -- conicet (CONICET Digital) | bicyt (BICyT record, external.json)
-  url TEXT                       -- the record's page when it is not CONICET Digital's handle
+  url TEXT,                      -- the record's page when it is not CONICET Digital's handle
+  embedding BLOB               -- 768-d EmbeddingGemma-2 vector, little-endian float32 (3072 bytes), or NULL
 );
 
 CREATE VIRTUAL TABLE IF NOT EXISTS papers_fts USING fts5(

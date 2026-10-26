@@ -19,6 +19,12 @@ export type LibraryHit = {
 
 export type SearchResult = { total: number; more: boolean; page: number; pageSize: number; papers: LibraryHit[] };
 
+/** A library hit enriched with cosine similarity score from semantic search. */
+export type SemanticHit = LibraryHit & { score: number };
+
+/** The result of a semantic search over the full library corpus. */
+export type SemanticResult = { papers: SemanticHit[] };
+
 export type Paper = {
   id: number;
   origin: string;
@@ -76,6 +82,13 @@ export const library = {
     if (q.pdf) params.set("pdf", "1");
     return call<SearchResult>(`/api/library/search?${params}`);
   },
+  /** Semantic search: embeds the query on the agent, then scores against the full library corpus. */
+  semantic: (q: string, pdf = false) =>
+    call<SemanticResult>("/api/library/semantic-search", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ q, ...(pdf ? { pdf: true } : {}) }),
+    }),
   paper: (id: number) => call<Paper>(`/api/library/papers/${id}`),
   stats: () => call<LibraryStats>("/api/library/stats"),
 };

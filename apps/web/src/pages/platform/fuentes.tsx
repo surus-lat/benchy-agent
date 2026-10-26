@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { errorText, ApiError } from "./data";
 import { usePlatform } from "./store";
-import { authorsLine, library, libraryErrorText, sources as sourcesApi, TYPE_LABEL, type LibraryHit, type Source } from "./library-data";
+import { authorsLine, library, libraryErrorText, sources as sourcesApi, TYPE_LABEL, type LibraryHit, type SemanticHit, type Source } from "./library-data";
 import { coverage, coverageNote, pickedFromSources, sourceOfPaper } from "./fuentes-model";
 import type { PickedPaper } from "./new-bench-model";
 import "./library.css";
@@ -180,7 +180,8 @@ function LibrarySearch({
 }) {
   const [text, setText] = useState("");
   const [pdfOnly, setPdfOnly] = useState(false);
-  const [rows, setRows] = useState<LibraryHit[]>([]);
+  const [semantic, setSemantic] = useState(false);
+  const [rows, setRows] = useState<(LibraryHit | SemanticHit)[]>([]);
   const [total, setTotal] = useState<number | null>(null);
   const [page, setPage] = useState(0);
   const [loading, setLoading] = useState(false);
@@ -193,32 +194,44 @@ function LibrarySearch({
       setLoading(true);
       setError(null);
       try {
-        const r = await library.search({ q: text, author: "", pdf: pdfOnly, page: p });
-        if (n !== seq.current) return;
-        setRows((cur) => (p === 0 ? r.papers : [...cur, ...r.papers]));
-        setTotal(r.total);
-        setPage(p);
+        if (semantic && text.trim()) {
+          // Semantic search: embed + cosine over the full library.
+          const r = await library.semantic(text, pdfOnly);
+          if (n !== seq.current) return;
+          setRows(r.papers);
+          setTotal(r.papers.length);
+          setPage(0);
+        } else {
+          const r = await library.search({ q: text, author: "", pdf: pdfOnly, page: p });
+          if (n !== seq.current) return;
+          setRows((cur) => (p === 0 ? r.papers : [...cur, ...r.papers]));
+          setTotal(r.total);
+          setPage(p);
+        }
       } catch (err) {
         if (n === seq.current) setError(err instanceof ApiError && err.code !== "NETWORK" ? libraryErrorText(err.code) : errorText(err));
       } finally {
         if (n === seq.current) setLoading(false);
       }
     },
-    [text, pdfOnly],
+    [text, pdfOnly, semantic],
   );
   // Typing filters the list after a short pause; an empty box lists the newest.
+  // Semantic search waits longer (it embeds on the agent).
   useEffect(() => {
-    const timer = setTimeout(() => void load(0), text ? 300 : 0);
+    const timer = setTimeout(() => void load(0), semantic ? 600 : text ? 300 : 0);
     return () => clearTimeout(timer);
-  }, [load, text]);
+  }, [load, text, semantic]);
 
-  const more = total !== null && rows.length < Math.min(total, 1000);
+  const more = total !== null && rows.length < Math.min(total, 1000) && !semantic;
   const count =
     total === null
       ? "Cargando la biblioteca…"
-      : text.trim()
-        ? `${total.toLocaleString("es-AR")} ${total === 1 ? "paper coincide" : "papers coinciden"}`
-        : `${total.toLocaleString("es-AR")} papers · los más recientes primero`;
+      : semantic && text.trim()
+        ? `${total} ${total === 1 ? "paper por similitud" : "papers por similitud"}`
+        : text.trim()
+          ? `${total.toLocaleString("es-AR")} ${total === 1 ? "paper coincide" : "papers coinciden"}`
+          : `${total.toLocaleString("es-AR")} papers · los más recientes primero`;
   const banner = toggleError ?? error;
 
   return (
@@ -237,12 +250,15 @@ function LibrarySearch({
             className="ws-fnt-search"
             value={text}
             onChange={(e) => setText(e.target.value)}
-            placeholder="Buscá por tema, autor o título…"
+            placeholder={semantic ? "Describí lo que buscás…" : "Buscá por tema, autor o título…"}
             aria-label="Buscar en la biblioteca"
             spellCheck={false}
           />
           <button className={`ws-fnt-pdf${pdfOnly ? " on" : ""}`} aria-pressed={pdfOnly} onClick={() => setPdfOnly((v) => !v)}>
             Con PDF
+          </button>
+          <button className={`ws-fnt-pdf${semantic ? " on" : ""}`} aria-pressed={semantic} onClick={() => setSemantic((v) => !v)}>
+            Semántica
           </button>
         </div>
         {banner && (
@@ -269,6 +285,7 @@ function LibrarySearch({
                       <span className={`lib-tag ${h.origin}`}>{h.origin === "bicyt" ? "BICyT" : "CONICET"}</span>
                       <span>{[authorsLine(h.creators, 3), h.year, TYPE_LABEL[h.type] ?? null].filter(Boolean).join(" · ")}</span>
                       {h.hasPdf ? <span className="pf">con PDF</span> : <span className="np">solo resumen</span>}
+                    {"score" in h ? <span className="pf">{(h as SemanticHit).score.toFixed(3)}</span> : null}
                     </span>
                     {h.excerpt ? <span className="x">{h.excerpt}</span> : null}
                   </div>

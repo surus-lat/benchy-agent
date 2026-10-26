@@ -30,6 +30,7 @@ COPY vendor/ /tmp/vendor/
 RUN uv pip install --python /opt/hermes/.venv/bin/python --no-cache /tmp/vendor/llm_client-*.whl \
       "benchy @ git+https://github.com/surus-lat/benchy.git@${BENCHY_ENGINE_REF}" \
       pypdfium2==5.13.0 \
+      sentence-transformers \
  && rm -rf /tmp/vendor /usr/local/bin/uv
 
 COPY --chown=root:root config.yaml SOUL.md /opt/benchy/

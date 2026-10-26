@@ -17,6 +17,7 @@ Hermes's API server listens on 127.0.0.1 only; this process fronts it:
   GET /benchy/backup             the whole workspace as a .tar.gz (the Worker's daily backup)
   POST /benchy/sources           add a library paper to a benchmark (fetches its PDF)
   POST /benchy/sources/upload?bench=...&name=...   add an uploaded PDF to a benchmark
+  POST /benchy/embed               embed a query string with EmbeddingGemma-2 (returns {vector})
   DELETE /benchy/sources?bench=...&id=...          take a paper out of a benchmark
   DELETE /benchy/benchmark?bench=...               delete a benchmark and everything in it
   DELETE /benchy/benchmark/question?bench=...&q=...  take one question out of a benchmark's exam
@@ -47,6 +48,7 @@ from aiohttp import ClientSession, ClientTimeout, web
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "mcp"))  # /opt/benchy/mcp in the image
 import benchy_evaluation  # noqa: E402
 import benchy_sources  # noqa: E402
+import benchy_search  # noqa: E402
 from benchy_analysis import analyze  # noqa: E402
 from benchy_review import review as review_answers  # noqa: E402
 from benchy_quality import quality as score_questions  # noqa: E402
@@ -438,6 +440,24 @@ async def remove_question(request: web.Request) -> web.Response:
     return web.json_response({"ok": True})
 
 
+async def embed(request: web.Request) -> web.Response:
+    """Body: {q}. Embeds a query string with EmbeddingGemma-2, returns {vector}."""
+    if not _authorized(request):
+        return web.json_response({"error": "unauthorized"}, status=401)
+    try:
+        body = await request.json()
+        q = body["q"]
+        if not isinstance(q, str) or not q.strip():
+            raise TypeError
+    except (ValueError, KeyError, TypeError):
+        return web.json_response({"error": "bad_request"}, status=400)
+    try:
+        vector = await benchy_search.embed_query(q.strip())
+    except benchy_search.EmbedError as exc:
+        return web.json_response({"ok": False, "error": exc.to_dict()}, status=503)
+    return web.json_response({"vector": vector})
+
+
 async def proxy(request: web.Request) -> web.StreamResponse:
     session: ClientSession = request.app["client"]
     headers = {k: v for k, v in request.headers.items() if k.lower() not in HOP_BY_HOP}
@@ -484,6 +504,7 @@ def main() -> None:
     app.router.add_get("/benchy/backup", backup)
     app.router.add_post("/benchy/sources", add_source)
     app.router.add_post("/benchy/sources/upload", upload_source)
+    app.router.add_post("/benchy/embed", embed)
     app.router.add_delete("/benchy/sources", remove_source)
     app.router.add_delete("/benchy/benchmark", remove_benchmark)
     app.router.add_delete("/benchy/benchmark/question", remove_question)

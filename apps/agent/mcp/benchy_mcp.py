@@ -28,6 +28,7 @@ from benchy_shared import MODELS, WORKSPACE, catalog, inside  # noqa: E402
 from benchy_review import review  # noqa: E402
 from benchy_quality import quality  # noqa: E402
 import benchy_sources  # noqa: E402
+import benchy_search  # noqa: E402
 from benchy_analysis import analyze  # noqa: E402
 from benchy_evaluation import run_model  # noqa: E402
 
@@ -234,12 +235,46 @@ async def benchy_library_search(query: str = "", author: str = "", pdf_only: boo
 
 
 @mcp.tool()
+async def benchy_semantic_search(query: str, pdf_only: bool = False, k: int = 20) -> dict:
+    """Semantic search over the paper library — the full 263,000-paper corpus —
+    using EmbeddingGemma-2 embeddings and cosine similarity. Use this to
+    discover relevant papers by meaning, not just keywords: describe what you
+    are looking for in natural language (e.g. "glacial biodiversity in
+    Patagonia" or "sociolinguistic variation in Bariloche").
+
+    Returns up to `k` papers (default 20), each with a cosine `score`
+    (higher = more relevant) plus the same fields as benchy_library_search.
+    Use benchy_library_search for keyword/author queries and this for
+    conceptual discovery before building a benchmark's source collection.
+    """
+    if not query.strip():
+        return {"ok": False, "error": {"code": "empty_query", "message": "give a query"}}
+    try:
+        vector = await benchy_search.embed_query(query.strip())
+    except benchy_search.EmbedError as exc:
+        return {"ok": False, "error": exc.to_dict()}
+    headers = {"Authorization": f"Bearer {benchy_sources.API_KEY}", "Content-Type": "application/json"}
+    body = {"vector": vector, "k": max(1, min(k, 100))}
+    if pdf_only:
+        body["pdf"] = True
+    try:
+        async with ClientSession(timeout=ClientTimeout(total=60)) as http:
+            async with http.post(benchy_sources.API_URL + "/api/library/semantic", json=body, headers=headers) as res:
+                if res.status != 200:
+                    return {"ok": False, "error": {"code": "library_unavailable", "message": f"the library answered HTTP {res.status}"}}
+                return {"ok": True, **(await res.json())}
+    except (ClientError, asyncio.TimeoutError) as exc:
+        return {"ok": False, "error": {"code": "library_unavailable", "message": str(exc)}}
+
+
+@mcp.tool()
 async def benchy_add_paper(bench: str, paper_id: int) -> dict:
-    """Add a library paper (an `id` from benchy_library_search) to a
-    benchmark, by the benchmark's folder name. Fetches its open PDF and keeps
-    the text, with [p. N] page markers, in `<bench>/sources/<id>.md`, listed
-    in `<bench>/sources.json` — where the app shows it as one of the
-    benchmark's papers. Without an open PDF only the abstract is kept.
+    """Add a library paper (an `id` from benchy_library_search or
+    benchy_semantic_search) to a benchmark, by the benchmark's folder name.
+    Fetches its open PDF and keeps the text, with [p. N] page markers, in
+    `<bench>/sources/<id>.md`, listed in `<bench>/sources.json` — where the
+    app shows it as one of the benchmark's papers. Without an open PDF only
+    the abstract is kept.
 
     Add papers the researcher asked for or agreed to; do not fill a benchmark
     with papers on your own. Adding one that is already there changes nothing.
