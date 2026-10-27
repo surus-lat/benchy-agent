@@ -5,12 +5,13 @@ import { parse as parseYaml } from "yaml";
 import { ApiError, api as chatApi, type WorkspaceFile } from "../app/api";
 
 export { ApiError, errorText } from "../app/api";
+import { impersonateHeaders } from "./impersonate";
 export type { Message, WorkspaceFile } from "../app/api";
 
 async function get<T>(path: string): Promise<T> {
   let res: Response;
   try {
-    res = await fetch(path, { credentials: "same-origin" });
+    res = await fetch(path, { credentials: "same-origin", headers: impersonateHeaders() });
   } catch {
     throw new ApiError("NETWORK", 0);
   }
@@ -24,7 +25,7 @@ async function get<T>(path: string): Promise<T> {
 async function del<T>(path: string): Promise<T> {
   let res: Response;
   try {
-    res = await fetch(path, { method: "DELETE", credentials: "same-origin" });
+    res = await fetch(path, { method: "DELETE", credentials: "same-origin", headers: impersonateHeaders() });
   } catch {
     throw new ApiError("NETWORK", 0);
   }
@@ -140,7 +141,7 @@ async function patch<T>(path: string, body: unknown): Promise<T> {
     res = await fetch(path, {
       method: "PATCH",
       credentials: "same-origin",
-      headers: { "content-type": "application/json" },
+      headers: { "content-type": "application/json", ...impersonateHeaders() },
       body: JSON.stringify(body),
     });
   } catch {
@@ -159,7 +160,7 @@ async function put<T>(path: string, body: unknown): Promise<T> {
     res = await fetch(path, {
       method: "PUT",
       credentials: "same-origin",
-      headers: { "content-type": "application/json" },
+      headers: { "content-type": "application/json", ...impersonateHeaders() },
       body: JSON.stringify(body),
     });
   } catch {

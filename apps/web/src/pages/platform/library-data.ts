@@ -3,6 +3,7 @@
 // the org's agent in <bench>/sources.json and <bench>/sources/<id>.md.
 
 import { ApiError } from "../app/api";
+import { impersonateHeaders } from "./impersonate";
 
 export type LibraryHit = {
   id: number;
@@ -65,7 +66,7 @@ export type SourceResult = { ok: true; source: Source } | { ok: false; error: { 
 async function call<T>(path: string, init?: RequestInit): Promise<T> {
   let res: Response;
   try {
-    res = await fetch(path, { ...init, credentials: "same-origin" });
+    res = await fetch(path, { ...init, credentials: "same-origin", headers: { ...impersonateHeaders(), ...(init?.headers ?? {}) } });
   } catch {
     throw new ApiError("NETWORK", 0);
   }

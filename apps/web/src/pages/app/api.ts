@@ -1,3 +1,5 @@
+import { impersonateHeaders } from "../platform/impersonate";
+
 // The app's only backend: the Worker's /api/conversations and /api/workspace
 // routes (same origin; the session cookie authenticates).
 
@@ -19,7 +21,7 @@ async function call<T>(path: string, init?: RequestInit): Promise<T> {
     res = await fetch(path, {
       ...init,
       credentials: "same-origin",
-      headers: { "content-type": "application/json", ...(init?.headers ?? {}) },
+      headers: { "content-type": "application/json", ...impersonateHeaders(), ...(init?.headers ?? {}) },
     });
   } catch {
     throw new ApiError("NETWORK", 0);

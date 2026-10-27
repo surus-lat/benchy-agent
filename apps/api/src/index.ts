@@ -4,7 +4,7 @@ import { env } from "cloudflare:workers";
 import { auth } from "./auth";
 import { db } from "./db";
 import { createAccessRequestsApp } from "./access-requests";
-import { createAdminApp } from "./admin";
+import { createAdminApp, ADMIN_ORG_ID } from "./admin";
 import { createConversationsApp } from "./conversations";
 import { createCriteriaLibraryApp } from "./library-criteria";
 import { createLibraryApp, getPaper } from "./library";
@@ -48,7 +48,11 @@ async function currentUser(request: Request) {
   const session = await auth.api.getSession({ headers: request.headers });
   if (!session) return null;
   const u = session.user as { id: string; name?: string; email: string; orgId?: string | null };
-  return { id: u.id, name: u.name ?? "", email: u.email, orgId: u.orgId ?? null };
+  const realOrgId = u.orgId ?? null;
+  // Admin impersonation: surus-org users may view the platform as another org.
+  const impersonate = request.headers.get("x-admin-org");
+  const orgId = impersonate && realOrgId === ADMIN_ORG_ID ? impersonate : realOrgId;
+  return { id: u.id, name: u.name ?? "", email: u.email, orgId };
 }
 
 const publicUrl = env.BETTER_AUTH_URL.replace(/\/+$/, "");
