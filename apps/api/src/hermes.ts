@@ -92,7 +92,7 @@ export class HermesError extends Error {
 
 /** A turn may run a whole benchmark (one model call per exam row). */
 const TURN_TIMEOUT_MS = 14 * 60 * 1000;
-const SESSION_TIMEOUT_MS = 30 * 1000;
+const SESSION_TIMEOUT_MS = 90 * 1000;
 /** Fetching a PDF and extracting its text. */
 const SOURCE_TIMEOUT_MS = 2 * 60 * 1000;
 
