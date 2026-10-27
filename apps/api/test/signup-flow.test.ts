@@ -35,6 +35,7 @@ beforeEach(async () => {
   await db.delete(schema.verification);
   await db.delete(schema.invites);
   await db.delete(schema.user);
+  await db.delete(schema.orgDomains);
   await db.delete(schema.orgs);
 });
 
