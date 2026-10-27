@@ -5,6 +5,7 @@ import type { DrizzleD1Database } from "drizzle-orm/d1";
 import { schema } from "@benchy/db";
 import { HermesError, type HermesClient } from "./hermes";
 import { semanticScan, type Paper } from "./library";
+import { questionHash, firstText } from "./peer-review";
 
 // Browser ↔ Worker routes for talking to the org's agent. Every route is
 // authenticated; conversations are per-user (read with userId, never orgId);
@@ -856,6 +857,119 @@ export function createConversationsApp(deps: ConversationsDeps) {
     await db.delete(schema.sourceChecklistItems).where(eq(schema.sourceChecklistItems.orgId, user.orgId));
     await db.insert(schema.sourceChecklistItems).values(items);
     return c.json({ items: items.map((it) => ({ id: it.id, label: it.label })) });
+  });
+
+  // Benchmark authorship: who created each benchmark, from the activity record.
+  app.get("/api/workspace/authors", async (c) => {
+    const user = c.get("user");
+    const rows = await db
+      .select({
+        bench: schema.activity.bench,
+        who: schema.activity.who,
+        createdAt: schema.activity.createdAt,
+      })
+      .from(schema.activity)
+      .where(
+        and(
+          eq(schema.activity.orgId, user.orgId),
+          eq(schema.activity.kind, "create"),
+        ),
+      )
+      .orderBy(asc(schema.activity.createdAt));
+    const authors: Record<string, { name: string; createdAt: string }> = {};
+    for (const r of rows) {
+      if (r.bench && !authors[r.bench]) {
+        authors[r.bench] = {
+          name: r.who,
+          createdAt: r.createdAt instanceof Date ? r.createdAt.toISOString() : new Date(r.createdAt as any).toISOString(),
+        };
+      }
+    }
+    return c.json({ authors });
+  });
+
+  // Backfill question authors for existing benchmarks: for each benchmark,
+  // attribute all questions to the 'create' activity's user; if none, to 'Agente'.
+  app.post("/api/workspace/authors/backfill", async (c) => {
+    const user = c.get("user");
+    const agent = await deps.agentFor(user.orgId);
+    if (!agent) return c.json({ error: "AGENT_NOT_PROVISIONED" }, 503);
+
+    // All 'create' activities for this org, keyed by bench.
+    const creates = await db
+      .select({
+        bench: schema.activity.bench,
+        userId: schema.activity.userId,
+        who: schema.activity.who,
+      })
+      .from(schema.activity)
+      .where(
+        and(
+          eq(schema.activity.orgId, user.orgId),
+          eq(schema.activity.kind, "create"),
+        ),
+      );
+    const creatorByBench = new Map<string, { userId: string | null; who: string }>();
+    for (const row of creates) {
+      if (row.bench && !creatorByBench.has(row.bench)) {
+        creatorByBench.set(row.bench, { userId: row.userId, who: row.who });
+      }
+    }
+
+    let listing: { files: { path: string }[] };
+    try {
+      listing = await agent.listFiles();
+    } catch (err) {
+      return agentFailure(c, err);
+    }
+    const benches = [...new Set(
+      listing.files
+        .map((f: { path: string }) => f.path.split("/"))
+        .filter((parts: string[]) => parts.length === 2 && parts[1] === "benchmark.yaml" && BENCH.test(parts[0]))
+        .map((parts: string[]) => parts[0]),
+    )];
+
+    let inserted = 0;
+    for (const bench of benches) {
+      let examResult: unknown;
+      try {
+        examResult = await agent.exam(`${bench}/benchmark.yaml`);
+      } catch {
+        continue;
+      }
+      const exam = examResult as { ok?: boolean; rows?: { input?: unknown; expected?: unknown; status?: string }[] };
+      if (!exam || exam.ok !== true || !Array.isArray(exam.rows)) continue;
+
+      const creator = creatorByBench.get(bench);
+      let q = 0;
+      for (const row of exam.rows) {
+        q += 1;
+        if (!row || row.status !== "valid") continue;
+        const text = firstText(row.input).trim();
+        if (!text) continue;
+        const hash = await questionHash(text);
+        const userName = creator?.who ?? "Agente";
+        const userId = creator?.userId ?? null;
+        try {
+          await db
+            .insert(schema.questionAuthors)
+            .values({
+              orgId: user.orgId,
+              bench,
+              q,
+              qHash: hash,
+              userId,
+              userName,
+              createdAt: new Date(),
+            })
+            .onConflictDoNothing();
+          inserted += 1;
+        } catch {
+          // skip duplicates
+        }
+      }
+    }
+    return c.json({ ok: true, inserted });
   });
 
   // Who is signed in, and their organization's display name.

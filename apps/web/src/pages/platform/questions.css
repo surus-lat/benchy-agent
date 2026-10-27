@@ -28,3 +28,10 @@
 .pr-buttons .pill:disabled { opacity: 0.5; }
 .pr-valida.on { background: rgba(46, 160, 67, 0.16); box-shadow: inset 0 0 0 1px rgba(46, 160, 67, 0.45); }
 .pr-rechaza.on { background: rgba(179, 56, 47, 0.12); box-shadow: inset 0 0 0 1px rgba(179, 56, 47, 0.4); }
+
+/* Question author attribution (issue: authorship tracking) */
+.pr-author {
+  color: var(--muted);
+  font-weight: 400;
+  font-size: 12px;
+}

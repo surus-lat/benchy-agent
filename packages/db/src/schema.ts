@@ -331,3 +331,24 @@ export const passkey = sqliteTable("passkey", {
   createdAt: integer("createdAt", { mode: "timestamp" }),
   aaguid: text("aaguid"),
 });
+
+// Who proposed each question: the benchmark creator for batch-generated
+// questions, the editing member for hand-written ones, and Agente for
+// agent-generated questions with no human attribution. Keyed by position
+// (like questionValidations); the qHash ties the attribution to the text
+// so a rewrite resets it.
+export const questionAuthors = sqliteTable(
+  "questionAuthors",
+  {
+    orgId: text("orgId")
+      .notNull()
+      .references(() => orgs.id, { onDelete: "cascade" }),
+    bench: text("bench").notNull(),
+    q: integer("q").notNull(),
+    qHash: text("qHash").notNull(),
+    userId: text("userId").references(() => user.id, { onDelete: "set null" }),
+    userName: text("userName").notNull(),
+    createdAt: integer("createdAt", { mode: "timestamp" }).notNull(),
+  },
+  (t) => [primaryKey({ columns: [t.orgId, t.bench, t.q] })],
+);

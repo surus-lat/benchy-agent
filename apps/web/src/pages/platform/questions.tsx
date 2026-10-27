@@ -94,7 +94,7 @@ export default function QuestionsPage() {
             return (
               <div key={key} className={`pr-row${q.validated ? " validated" : ""}`}>
                 <div className="pr-main">
-                  <span className="pr-qnum">Pregunta {q.q}</span>
+                  <span className="pr-qnum">Pregunta {q.q}{q.author && <span className="pr-author"> · {q.author}</span>}</span>
                   <p className="pr-text">
                     {open || !long ? q.question : truncate(q.question)}
                     {long && (

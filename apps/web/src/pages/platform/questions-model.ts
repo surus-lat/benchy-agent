@@ -7,6 +7,7 @@ export interface PeerQuestion {
   myVote: number | null;
   hash: string;
   validated: boolean;
+  author?: string;
 }
 
 // Pure view logic for the Preguntas page (issue #1): group the org's questions
