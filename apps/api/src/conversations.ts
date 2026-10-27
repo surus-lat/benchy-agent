@@ -4,7 +4,7 @@ import { and, asc, desc, eq, gt, isNull, lt, or, sql } from "drizzle-orm";
 import type { DrizzleD1Database } from "drizzle-orm/d1";
 import { schema } from "@benchy/db";
 import { HermesError, type HermesClient } from "./hermes";
-import type { Paper } from "./library";
+import { semanticScan, type Paper } from "./library";
 
 // Browser ↔ Worker routes for talking to the org's agent. Every route is
 // authenticated; conversations are per-user (read with userId, never orgId);
@@ -21,6 +21,8 @@ export type ConversationsDeps = {
   agentFor: (orgId: string) => Promise<HermesClient | null>;
   /** A paper from the library, to add to a benchmark. */
   paper: (id: number) => Promise<Paper | null>;
+  /** The library D1 binding, for inline semantic scan. */
+  library: D1Database;
 };
 
 /** The container accepts up to 25 MB per request. */
@@ -722,20 +724,10 @@ export function createConversationsApp(deps: ConversationsDeps) {
     if (!agent) return c.json({ error: "AGENT_NOT_PROVISIONED" }, 503);
     try {
       const vector = await agent.embed(q);
-      // Forward the vector to the library cosine-scan handler (same Worker).
-      const origin = new URL(c.req.url).origin;
-      const sem = await fetch(`${origin}/api/library/semantic`, {
-        method: "POST",
-        headers: {
-          "content-type": "application/json",
-          // Forward auth so the library handler authorizes the request.
-          cookie: c.req.header("cookie") ?? "",
-          authorization: c.req.header("authorization") ?? "",
-        },
-        body: JSON.stringify({ vector, k: body?.k, pdf: body?.pdf }),
-      });
-      // Relay the library response as-is (it returns { papers: [...] }).
-      return new Response(sem.body, { status: sem.status, headers: sem.headers });
+      const k = Math.max(1, Math.min(Number(body?.k) || 20, 100));
+      const pdfOnly = body?.pdf === true || body?.pdf === 1;
+      // Inline cosine scan — no subrequest, avoids Cloudflare 522 timeout.
+      return c.json(await semanticScan(deps.library, vector, k, pdfOnly));
     } catch (err) {
       return agentFailure(c, err);
     }
