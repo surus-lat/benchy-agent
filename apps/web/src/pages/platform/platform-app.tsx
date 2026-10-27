@@ -9,6 +9,7 @@ import Workspace from "./workspace";
 import LibraryPage from "./library";
 import QuestionsPage from "./questions";
 import ReportPage from "./report";
+import AdminPage from "./admin";
 import { ProcessIndicator } from "./processes";
 import { Tour, tourAnchorRef } from "./tour";
 import "./platform.css";
@@ -23,9 +24,12 @@ import "./platform.css";
 //                           add a paper to a benchmark
 //   /app/preguntas          peer review of the org's questions (issue #1)
 //   /app/cuenta             account
+//   /app/admin              admin panel (surus org only)
 //   /app/v1/b/:slug/:tab?   DEPRECATED: the previous benchmark view (tabs, with a
 //                           chat with the agent); deleted next release (bench.tsx)
 //   /app/chat               the first view: plain chat + files
+
+const ADMIN_ORG_ID = "org_4eb2a44fdc5ef17b";
 
 export default function PlatformApp() {
   const [isChat] = useRoute("/app/chat");
@@ -60,8 +64,10 @@ function Shell() {
   const [isAccount] = useRoute("/app/cuenta");
   const [isLibrary] = useRoute("/app/biblioteca");
   const [isQuestions] = useRoute("/app/preguntas");
+  const [isAdmin] = useRoute("/app/admin");
   const activeSlug = benchParams?.slug ? decodeURIComponent(benchParams.slug) : null;
-  const isHome = !activeSlug && !isNew && !isAccount && !isLibrary && !isQuestions;
+  const isHome = !activeSlug && !isNew && !isAccount && !isLibrary && !isQuestions && !isAdmin;
+  const isAdminOrg = me?.org?.id === ADMIN_ORG_ID;
   // The walkthrough (issue #11) only lives on the home and nuevo pages.
   const tourPage = isHome ? ("home" as const) : isNew ? ("nuevo" as const) : null;
 
@@ -87,6 +93,11 @@ function Shell() {
           <Link href="/app/chat" className="bp-viewswitch legacy" title="Vista anterior: chat y archivos">
             Vista chat
           </Link>
+          {isAdminOrg && (
+            <Link href="/app/admin" className={`bp-viewswitch${isAdmin ? " on" : ""}`}>
+              Admin
+            </Link>
+          )}
           <span className="bp-email">{me?.user.email}</span>
           <button className="pill" onClick={() => navigate("/app/cuenta")}>
             Cuenta
@@ -116,6 +127,11 @@ function Shell() {
           <button className={`bp-nav${isQuestions ? " on" : ""}`} onClick={() => navigate("/app/preguntas")}>
             <span>Preguntas de tu organización</span>
           </button>
+          {isAdminOrg && (
+            <button className={`bp-nav${isAdmin ? " on" : ""}`} onClick={() => navigate("/app/admin")}>
+              <span>Administración</span>
+            </button>
+          )}
           <p className="eyebrow">Tu organización</p>
           {benches.map((b) => (
             <button
@@ -132,7 +148,9 @@ function Shell() {
         </aside>
 
         <main className="bp-main" key={location.split("/").slice(0, 4).join("/")}>
-          {isAccount ? (
+          {isAdmin ? (
+            <AdminPage />
+          ) : isAccount ? (
             <Account />
           ) : isLibrary ? (
             <LibraryPage />
