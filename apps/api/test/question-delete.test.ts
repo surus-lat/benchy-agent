@@ -112,6 +112,7 @@ beforeEach(async () => {
   await db.delete(schema.activity);
   await db.delete(schema.user);
   await db.delete(schema.orgDomains);
+  await db.delete(schema.orgAgentEndpoints);
   await db.delete(schema.orgs);
   const now = new Date();
   await db.insert(schema.orgs).values({ id: "org_uni", name: "Uni", slug: "uni", createdAt: now });
