@@ -8,7 +8,7 @@ import type { CurrentUser } from "./conversations";
 type Db = DrizzleD1Database<typeof schema>;
 
 /** Only users in this org can access /api/admin/*. */
-const ADMIN_ORG_ID = "org_4eb2a44fdc5ef17b";
+export const ADMIN_ORG_ID = "org_4eb2a44fdc5ef17b";
 
 export type AdminDeps = {
   db: Db;

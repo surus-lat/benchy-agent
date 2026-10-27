@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { adminApi, type AdminOrg, type AdminUser, type AdminInvite, type AdminAccessRequest, type AdminActivity } from "./admin-data";
 import { usePlatform } from "./store";
+import { setImpersonateOrg } from "./impersonate";
 
 // Admin panel: org management, users, invites, access requests, and global
 // activity. Only visible to users in the surus org. Internal tooling — kept
@@ -256,6 +257,13 @@ function OrgRow({ org, expanded, onToggle, onReload }: { org: AdminOrg; expanded
               </div>
               <button className="btn-ghost" disabled={saving || !endpointUrl.trim() || !endpointKey.trim()} onClick={saveEndpoint}>Guardar</button>
             </div>
+          </div>
+
+          {/* Impersonate */}
+          <div style={{ borderTop: "1px solid var(--line-soft)", paddingTop: 12 }}>
+            <button className="btn-ghost" onClick={() => setImpersonateOrg(org.id, org.name)}>
+              👁 Ver como esta org
+            </button>
           </div>
         </div>
       )}

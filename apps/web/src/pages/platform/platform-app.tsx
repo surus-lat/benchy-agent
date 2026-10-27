@@ -10,6 +10,7 @@ import LibraryPage from "./library";
 import QuestionsPage from "./questions";
 import ReportPage from "./report";
 import AdminPage from "./admin";
+import { getImpersonateOrg, getImpersonateOrgName, setImpersonateOrg } from "./impersonate";
 import { ProcessIndicator } from "./processes";
 import { Tour, tourAnchorRef } from "./tour";
 import "./platform.css";
@@ -110,6 +111,16 @@ function Shell() {
           <span className="dot" style={{ background: "var(--amber)" }} />
           El agente de tu organización todavía no está activo. Te avisamos apenas esté listo.
           <span className="code">AGENT_NOT_PROVISIONED</span>
+        </div>
+      )}
+
+      {getImpersonateOrg() && (
+        <div className="bp-banner" role="status" style={{ background: "#1a1a2e", borderBottom: "2px solid var(--amber)" }}>
+          <span className="dot" style={{ background: "var(--amber)" }} />
+          Viendo como: <strong>{getImpersonateOrgName() || getImpersonateOrg()}</strong>
+          <button className="pill" style={{ marginLeft: 12 }} onClick={() => setImpersonateOrg(null)}>
+            Salir
+          </button>
         </div>
       )}
 
