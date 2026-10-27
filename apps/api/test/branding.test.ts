@@ -45,6 +45,7 @@ async function brand(orgId: string) {
 beforeEach(async () => {
   await db.delete(schema.activity);
   await db.delete(schema.user);
+  await db.delete(schema.orgDomains);
   await db.delete(schema.orgs);
   const now = new Date();
   await db.insert(schema.orgs).values([
