@@ -722,7 +722,20 @@ export function createConversationsApp(deps: ConversationsDeps) {
     if (!agent) return c.json({ error: "AGENT_NOT_PROVISIONED" }, 503);
     try {
       const vector = await agent.embed(q);
-      return c.json({ vector, q });
+      // Forward the vector to the library cosine-scan handler (same Worker).
+      const origin = new URL(c.req.url).origin;
+      const sem = await fetch(`${origin}/api/library/semantic`, {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          // Forward auth so the library handler authorizes the request.
+          cookie: c.req.header("cookie") ?? "",
+          authorization: c.req.header("authorization") ?? "",
+        },
+        body: JSON.stringify({ vector, k: body?.k, pdf: body?.pdf }),
+      });
+      // Relay the library response as-is (it returns { papers: [...] }).
+      return new Response(sem.body, { status: sem.status, headers: sem.headers });
     } catch (err) {
       return agentFailure(c, err);
     }
