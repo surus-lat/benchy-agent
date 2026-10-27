@@ -51,7 +51,7 @@ COPY --chown=root:root mcp/ /opt/benchy/mcp/
 COPY --chown=root:root proxy/ /opt/benchy/proxy/
 COPY --chown=root:root skills/ /opt/benchy/skills/
 COPY --chown=root:root rootfs/ /
-RUN chmod -R a-w,a+rX /opt/benchy && chmod -R u+w /opt/benchy/skills && chown -R 1000:1000 /opt/benchy/skills \
+RUN chmod -R a-w,a+rX /opt/benchy \
  && chmod 0755 /etc/cont-init.d/03-benchy-setup /etc/s6-overlay/s6-rc.d/benchy-proxy/run \
  && /opt/hermes/.venv/bin/python -c "import benchy, llm_client, mcp.server.mcpserver, pypdfium2; print('engine', benchy.__file__)"
 

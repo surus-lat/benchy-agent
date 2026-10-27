@@ -55,4 +55,13 @@ s6-setuidgid hermes test -r /run/s6/container_environment/API_SERVER_KEY && die 
 # 6. The org's benchmark workspace.
 install -d -o hermes -g hermes "$HERMES_HOME/workspace"
 
+# 7. Clean stale gateway PID/lock files left by a previous container on the
+# shared EFS volume. In ECS, a new task always means a fresh process tree,
+# so any PID file on the persistent volume is stale by definition.
+# Search broadly — Hermes may store the PID in different locations.
+find "$HERMES_HOME" -maxdepth 3 -name "gateway.pid" -type f 2>/dev/null | while read pidfile; do
+  say "removing stale PID file: $pidfile (new container, always stale)"
+  rm -f "$pidfile"
+done
+
 say "ok — core skills protected, config pinned, workspace ready"
