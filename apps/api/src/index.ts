@@ -4,6 +4,7 @@ import { env } from "cloudflare:workers";
 import { auth } from "./auth";
 import { db } from "./db";
 import { createAccessRequestsApp } from "./access-requests";
+import { createAdminApp } from "./admin";
 import { createConversationsApp } from "./conversations";
 import { createCriteriaLibraryApp } from "./library-criteria";
 import { createLibraryApp, getPaper } from "./library";
@@ -120,6 +121,10 @@ app.route(
   "/",
   createPeerReviewApp({ db, currentUser, agentFor }),
 );
+
+// Admin panel: org management, users, invites, access requests, global activity.
+// Only accessible to users in the surus org.
+app.route("/", createAdminApp({ db, currentUser }));
 
 app.get("/health", (c) => c.json({ ok: true }));
 // Reachable through the Pages proxy; the Worker has no public URL of its own.
