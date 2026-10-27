@@ -97,6 +97,7 @@ app.route(
     currentUser,
     paper: (id) => getPaper(env.LIBRARY, id, publicUrl),
     agentFor,
+    library: env.LIBRARY,
   }),
 );
 
