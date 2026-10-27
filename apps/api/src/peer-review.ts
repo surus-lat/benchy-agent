@@ -51,7 +51,7 @@ function newId(prefix: string): string {
 
 /** A string anywhere in a question/answer payload: input/expected are
  *  program-typed — usually a plain string, possibly a nested object. */
-function firstText(value: unknown): string {
+export function firstText(value: unknown): string {
   if (typeof value === "string") return value;
   if (Array.isArray(value)) {
     for (const v of value) {
@@ -70,7 +70,7 @@ function firstText(value: unknown): string {
 }
 
 /** sha256 hex of the trimmed text: what a vote is actually about. */
-async function questionHash(text: string): Promise<string> {
+export async function questionHash(text: string): Promise<string> {
   const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(text.trim()));
   return Array.from(new Uint8Array(digest), (b) => b.toString(16).padStart(2, "0")).join("");
 }
@@ -132,6 +132,21 @@ export function createPeerReviewApp(deps: PeerReviewDeps) {
       byQuestion.set(key, list);
     }
 
+    // Load question authors for this org
+    const authorRows = await db
+      .select({
+        bench: schema.questionAuthors.bench,
+        q: schema.questionAuthors.q,
+        qHash: schema.questionAuthors.qHash,
+        userName: schema.questionAuthors.userName,
+      })
+      .from(schema.questionAuthors)
+      .where(eq(schema.questionAuthors.orgId, user.orgId));
+    const authorMap = new Map<string, string>();
+    for (const a of authorRows) {
+      authorMap.set(`${a.bench}#${a.q}#${a.qHash}`, a.userName);
+    }
+
     const questions: {
       bench: string;
       q: number;
@@ -141,6 +156,7 @@ export function createPeerReviewApp(deps: PeerReviewDeps) {
       votes: { up: number; down: number };
       myVote: number | null;
       validated: boolean;
+      author?: string;
     }[] = [];
     // Sequential, one bench at a time: two calls each, and the cap stops the
     // loop before the workspace grows past what one page should show.
@@ -171,6 +187,7 @@ export function createPeerReviewApp(deps: PeerReviewDeps) {
         const up = current.filter((v) => v.vote === 1).length;
         const down = current.filter((v) => v.vote === -1).length;
         const mine = current.toReversed().find((v) => v.userId === user.id) ?? null;
+        const author = authorMap.get(`${bench}#${q}#${hash}`);
         questions.push({
           bench,
           q,
@@ -182,6 +199,7 @@ export function createPeerReviewApp(deps: PeerReviewDeps) {
           // Two distinct validations, more validates than rejections, over
           // the current text: one lone thumbs-up never validates a question.
           validated: up >= 2 && up - down > 0,
+          author,
         });
         if (questions.length >= MAX_QUESTIONS) break;
       }

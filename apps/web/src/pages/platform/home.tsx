@@ -40,7 +40,12 @@ export default function Home() {
   // the Worker and the agent remove it.
   const [removing, setRemoving] = useState<string | null>(null);
   const [removingState, setRemovingState] = useState<"idle" | "busy" | "failed">("idle");
+  const [authors, setAuthors] = useState<Record<string, { name: string; createdAt: string }>>({});
   const stats = orgStats(benches);
+
+  useEffect(() => {
+    void api.benchAuthors().then((r) => setAuthors(r.authors)).catch(() => {});
+  }, []);
 
   async function confirmRemove(b: BenchSummary) {
     setRemovingState("busy");
@@ -108,6 +113,7 @@ export default function Home() {
           {benches.map((b) => {
             const st = statusOf(b.validation);
             const meta = [b.slug, b.doc?.domain, b.doc?.task, b.doc?.language].filter(Boolean).join(" · ");
+            const author = authors[b.slug];
             const title = b.doc?.title ?? b.slug;
             if (removing === b.slug) {
               return (
@@ -148,7 +154,7 @@ export default function Home() {
               >
                 <span style={{ minWidth: 0 }}>
                   <span className="t">{title}</span>
-                  <span className="m">{meta}</span>
+                  <span className="m">{meta}{author && <> · Creado por {author.name}</>}</span>
                 </span>
                 <span className="num col-items">{b.items ?? "—"}</span>
                 <span className="num strong">{b.best == null ? "—" : b.best.toFixed(2)}</span>

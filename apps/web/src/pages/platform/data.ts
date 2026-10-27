@@ -212,6 +212,7 @@ export type PeerQuestion = {
   myVote: number | null;
   hash: string;
   validated: boolean;
+  author?: string;
 };
 
 /** The judge for a benchmark's next evaluation: its override, the org's default, and which one applies. */
@@ -246,6 +247,10 @@ export const api = {
   /** +1 valida, -1 rechaza, 0 quita el voto del miembro. */
   voteQuestion: (v: { bench: string; q: number; hash: string; vote: 1 | -1 | 0 }) =>
     send<{ ok: boolean; bench: string; q: number; vote: number | null }>("/api/org/questions/vote", v),
+  /** Benchmark authorship: who created each benchmark, from the activity record. */
+  benchAuthors: () => get<{ authors: Record<string, { name: string; createdAt: string }> }>("/api/workspace/authors"),
+  /** Backfill question authors for existing benchmarks. */
+  backfillAuthors: () => send<{ ok: boolean; inserted: number }>("/api/workspace/authors/backfill"),
   /** Delete a benchmark and everything it produced; the app confirms first. */
   removeBenchmark: (bench: string) => del<{ ok: boolean }>(`/api/workspace/benchmark?bench=${encodeURIComponent(bench)}`),
   removeQuestion: (bench: string, q: number) =>
