@@ -324,8 +324,8 @@ button.bp-row:hover { background: var(--paper); }
 .tour-card h3 { margin: 0 0 6px; font-size: 15px; font-weight: 600; letter-spacing: -0.01em; color: var(--ink); }
 .tour-card .tour-text { margin: 0; font-size: 13.5px; line-height: 1.55; color: var(--body); }
 .tour-actions { display: flex; align-items: center; gap: 10px; margin-top: 14px; }
-.tour-btn { border: 0; border-radius: 9px; padding: 8px 14px; background: var(--ink); color: #fff; font-size: 13px; font-weight: 600; cursor: pointer; transition: background 160ms ease; }
-.tour-btn:hover { background: #1b1e27; }
-.tour-btn-line { border: 0; background: none; padding: 8px 4px; font-size: 13px; color: var(--muted); cursor: pointer; }
-.tour-btn-line:hover { color: var(--ink); }
+.bp .tour-btn { border: 0; border-radius: 9px; padding: 8px 14px; background: var(--ink); color: #fff; font-size: 13px; font-weight: 600; cursor: pointer; transition: background 160ms ease; }
+.bp .tour-btn:hover { background: #1b1e27; }
+.bp .tour-btn-line { border: 0; background: none; padding: 8px 4px; font-size: 13px; color: var(--muted); cursor: pointer; }
+.bp .tour-btn-line:hover { color: var(--ink); }
 @keyframes tour-pop { from { opacity: 0; transform: translateY(4px) scale(0.985); } }
