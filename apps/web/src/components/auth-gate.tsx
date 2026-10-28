@@ -31,7 +31,7 @@ export function AuthGate({ children }: { children: ReactNode }) {
           </div>
           <div className="au-alt">
             <a href="/#access" className="au-btn">
-              Solicitar acceso
+              Solicitar acceso para tu institución
             </a>
             <button className="au-btn ghost" onClick={() => void signOut().then(() => (window.location.href = "/login"))}>
               Entrar con otro mail
