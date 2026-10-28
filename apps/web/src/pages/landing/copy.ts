@@ -87,7 +87,7 @@ const en: LandingCopy = {
     github: "Benchy Agent on GitHub",
     engine: "benchy::engine",
     login: "Log in",
-    request: "Request access",
+    request: "Request access for your institution",
   },
   hero: {
     h1: ["Turn your research knowledge", "into AI Benchmarks"],
@@ -95,7 +95,7 @@ const en: LandingCopy = {
     pipLabel: "benchy agent thinking",
     paragraph:
       "Evaluate what AI knows, uncover its blind spots & biases, and build the data that shapes what comes next.",
-    cta: "Request access",
+    cta: "Request access for your institution",
   },
   aws: {
     badgeAlt: "Powered by AWS Cloud Computing",
@@ -112,11 +112,11 @@ const en: LandingCopy = {
   },
   access: {
     eyebrow: "INVITATION ONLY",
-    title: "Built for universities and research groups",
+    title: "Request access for your institution",
     body: "Access is granted per institution while we are in early release. Tell us about your university and what you want to evaluate, and we will send credentials for your group.",
     emailLabel: "Institutional email",
     orgLabel: "University or research group",
-    cta: "Request access",
+    cta: "Request access for your institution",
     sending: "Sending…",
     // Same vocabulary as the CTAs: you request access, then you have it.
     invitedPrompt: "Already have access?",
@@ -192,7 +192,7 @@ const en: LandingCopy = {
   closer: {
     pipLabel: "benchy agent",
     title: "Shape the future of Intelligence",
-    cta: "Request access",
+    cta: "Request access for your institution",
   },
   footer: {
     by: "by SURUS",
@@ -209,7 +209,7 @@ const es: LandingCopy = {
     github: "Benchy Agent en GitHub",
     engine: "benchy::engine",
     login: "Ingresar",
-    request: "Solicitar acceso",
+    request: "Solicitar acceso para tu institución",
   },
   hero: {
     h1: ["Convertí tu conocimiento", "académico en benchmarks de IA"],
@@ -217,7 +217,7 @@ const es: LandingCopy = {
     pipLabel: "benchy agent pensando",
     paragraph:
       "Evaluá a distintos modelos de IA. Identificá sus puntos ciegos, vulnerabilidades y sesgos, y construí los criterios que definirán lo que se viene.",
-    cta: "Solicitar acceso",
+    cta: "Solicitar acceso para tu institución",
   },
   aws: {
     badgeAlt: "Powered by AWS Cloud Computing",
@@ -234,11 +234,11 @@ const es: LandingCopy = {
   },
   access: {
     eyebrow: "SOLO POR INVITACIÓN",
-    title: "Pensado para universidades y grupos de investigación",
+    title: "Solicita acceso para tu institución",
     body: "El acceso se otorga por institución mientras estamos en etapa temprana. Contanos sobre tu universidad y qué querés evaluar, y te enviamos las credenciales para tu grupo.",
     emailLabel: "Correo institucional",
     orgLabel: "Universidad o grupo de investigación",
-    cta: "Solicitar acceso",
+    cta: "Solicitar acceso para tu institución",
     sending: "Enviando…",
     invitedPrompt: "¿Ya tenés acceso?",
     login: "Ingresar",
@@ -313,7 +313,7 @@ const es: LandingCopy = {
   closer: {
     pipLabel: "benchy agent",
     title: "Dale forma al futuro de la Inteligencia",
-    cta: "Solicitar acceso",
+    cta: "Solicitar acceso para tu institución",
   },
   footer: {
     by: "by SURUS",

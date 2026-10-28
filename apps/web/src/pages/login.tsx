@@ -287,7 +287,7 @@ export default function Login() {
         )}
 
         <p className="au-foot">
-          ¿Todavía no tenés acceso? <a href="/#access">Solicitalo</a>
+          ¿Todavía no tenés acceso? <a href="/#access">Solicitá acceso</a>
         </p>
       </div>
     </AuthShell>
