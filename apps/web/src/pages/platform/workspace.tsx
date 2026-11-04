@@ -25,7 +25,7 @@ import {
 import { LibraryBrowser, SourceRow } from "./library";
 import { CriteriaStage } from "./criteria";
 import { SourcesStage } from "./fuentes";
-import { StageNext } from "./stage-next";
+import { useStageCta, type StageCta } from "./stage-next";
 import { PublicationStage } from "./publication";
 import {
   citation,
@@ -125,6 +125,11 @@ export default function Workspace({ slug, stage: stageParam }: { slug: string; s
     go("evaluacion");
     setRunRequest((n) => n + 1);
   }, [go]);
+
+  // What the next step is belongs to the stage, but it is shown in the toolbar:
+  // only one stage is mounted at a time, so the one that is up owns the button.
+  const [cta, setCta] = useState<StageCta | null>(null);
+  const publishCta = useCallback((next: StageCta | null) => setCta(next), []);
 
   // The org's checklist for validating new material, and this bench's
   // per-source state against it. A source without a row predates the feature:
@@ -278,6 +283,17 @@ export default function Workspace({ slug, stage: stageParam }: { slug: string; s
             ? `${qs.length} preguntas de opción múltiple`
             : `${qs.length} filas en el examen`;
 
+  // The bottom status bar is gone: the same readout sits in the toolbar, with
+  // the full sentence here in the tooltip.
+  const liveTip = [
+    statusText,
+    savedLabel(exam.save, exam.savedAt) ? `archivo: ${savedLabel(exam.save, exam.savedAt)}` : "",
+    exam.doc?.grader ? `juez · ${exam.doc.grader}` : "",
+    bench.validation ? "motor conectado" : "motor sin respuesta",
+  ]
+    .filter(Boolean)
+    .join(" · ");
+
   return (
     <ExamLang.Provider value={exam.doc?.language ?? "es"}>
     <div className="ws">
@@ -313,7 +329,34 @@ export default function Workspace({ slug, stage: stageParam }: { slug: string; s
               ))}
             </nav>
             <div className="ws-toolbar-right">
+              {/* The status bar's readout, moved up: the stage keeps the room. */}
+              <span className="ws-live" title={liveTip}>
+                <span className={`mono gl${busy || running ? " busy" : exam.save === "error" ? " bad" : ""}`}>
+                  {busy || running ? "[···]" : exam.save === "error" ? "[!]" : "[·]"}
+                </span>
+                {openExam && qs.length > 0 && (
+                  <>
+                    <span className="ws-prog"><span style={{ transform: `scaleX(${approved / Math.max(qs.length, 1)})` }} /></span>
+                    <span className="mono muted">{approved}/{qs.length}</span>
+                  </>
+                )}
+                <span className={`mono eng${bench.validation ? "" : " off"}`} aria-hidden="true">●</span>
+              </span>
               <span className="ws-saved">{savedLabel(exam.save, exam.savedAt)}</span>
+              {cta && (
+                // aria-disabled instead of disabled: a blocked step still has to
+                // be readable, and a disabled button shows no tooltip.
+                <button
+                  className={`ws-btn-dark sm ws-cta${cta.disabled ? " off" : ""}`}
+                  aria-disabled={cta.disabled || undefined}
+                  title={cta.tip}
+                  onClick={() => {
+                    if (!cta.disabled) cta.onClick();
+                  }}
+                >
+                  {cta.label} <span className="amber">→</span>
+                </button>
+              )}
             </div>
           </div>
 
@@ -335,6 +378,7 @@ export default function Workspace({ slug, stage: stageParam }: { slug: string; s
                 mcExam={mcExam}
                 questionCount={qs.length}
                 onNext={() => go("fuentes")}
+                setStageCta={publishCta}
                 ask={ask}
                 showAgent={() => bringFront("B")}
               />
@@ -346,6 +390,7 @@ export default function Workspace({ slug, stage: stageParam }: { slug: string; s
                 criteriaCount={exam.criteria?.length ?? 0}
                 questionCount={qs.length}
                 onNext={() => go("autoria")}
+                setStageCta={publishCta}
                 onCriteria={() => go("criterios")}
                 onChanged={(change) => {
                   pushEvent({ who: "Vos", path: "papers", change, open: () => go("fuentes") });
@@ -359,6 +404,7 @@ export default function Workspace({ slug, stage: stageParam }: { slug: string; s
                 openExam={openExam}
                 mcExam={mcExam}
                 criteriaCount={exam.criteria?.length ?? 0}
+                setStageCta={publishCta}
                 q={q}
                 qIndex={qIndex}
                 setQIndex={setQIndex}
@@ -430,6 +476,7 @@ export default function Workspace({ slug, stage: stageParam }: { slug: string; s
                 runRequest={runRequest}
                 unapproved={openExam ? qs.length - approved : 0}
                 noCriteria={noCriteria}
+                setStageCta={publishCta}
                 onReview={() => go("autoria")}
                 onCriteria={() => go("criterios")}
                 onNext={() => go("publicacion")}
@@ -458,21 +505,6 @@ export default function Workspace({ slug, stage: stageParam }: { slug: string; s
               />
             )}
           </div>
-
-          <footer className="ws-status">
-            <span className="mono amber">{busy || running ? "[···]" : "[·]"}</span>
-            <span className="txt">{statusText}</span>
-            {openExam && (
-              <>
-                <span className="ws-prog"><span style={{ transform: `scaleX(${approved / Math.max(qs.length, 1)})` }} /></span>
-                <span className="mono muted">{approved} / {qs.length} listas</span>
-              </>
-            )}
-            <span className="ws-engine">
-              {exam.doc?.grader ? `juez · ${exam.doc.grader} · ` : ""}
-              {bench.validation ? <span className="ok">● motor conectado</span> : <span className="muted">● motor sin respuesta</span>}
-            </span>
-          </footer>
         </section>
 
         <AgentWindow
@@ -550,6 +582,7 @@ function Authoring({
   openExam,
   mcExam,
   criteriaCount,
+  setStageCta,
   q,
   qIndex,
   setQIndex,
@@ -580,6 +613,8 @@ function Authoring({
   mcExam: boolean;
   /** Criteria in the rubric: with none, the judge has nothing to grade with. */
   criteriaCount: number;
+  /** Publishes this stage's next step into the toolbar. */
+  setStageCta: (cta: StageCta | null) => void;
   q: Question | undefined;
   qIndex: number;
   setQIndex: (i: number) => void;
@@ -624,6 +659,17 @@ function Authoring({
   const qs = exam.questions;
   const approved = qs.filter((x) => x.status === "done").length;
   const verified = qs.filter((x) => !!x.review).length;
+
+  // What comes after writing questions, in the toolbar's corner.
+  useStageCta(setStageCta, {
+    label: "Ir a Evaluación",
+    tip: !openExam
+      ? "04 · Evaluación. Este examen se corrige por coincidencia exacta: no hay claves que verificar ni preguntas que aprobar. Elegí los modelos y corré la evaluación."
+      : ready
+        ? "04 · Evaluación. El juez verificó todas las respuestas expertas y aprobaste todas: elegí los modelos y corré la evaluación."
+        : "04 · Evaluación. Cuando el juez haya verificado las respuestas expertas y hayas aprobado cada pregunta, el examen queda listo. Podés evaluar igual para probar, pero el resultado para publicar sale del examen aprobado.",
+    onClick: onNext,
+  });
 
   const term = search.trim().toLowerCase();
   const visible = qs.filter(
@@ -943,9 +989,6 @@ function Authoring({
               <strong>Examen listo.</strong> El juez verificó las {qs.length} respuestas expertas y aprobaste todas. El siguiente paso es elegir los
               modelos y evaluarlos.
             </span>
-            <button className="ws-btn-dark sm" onClick={onNext}>
-              Ir a Evaluación →
-            </button>
           </div>
         )}
         {locked && (
@@ -1020,21 +1063,6 @@ function Authoring({
             papers={papers}
           />
         )}
-        <div className="ws-aut-next">
-          <StageNext
-            eyebrow="04 · Evaluación"
-            title={ready ? "Examen listo: elegí los modelos" : "Siguiente: evaluar los modelos"}
-            text={
-              mcExam || !openExam
-                ? "Este examen se corrige por coincidencia exacta: no hay claves que verificar ni preguntas que aprobar. Elegí los modelos y corré la evaluación."
-                : ready
-                  ? "El juez verificó todas las respuestas expertas y aprobaste todas. Elegí los modelos y corré la evaluación."
-                  : "Cuando el juez haya verificado las respuestas expertas y hayas aprobado cada pregunta, el examen queda listo. Podés evaluar igual para probar, pero el resultado para publicar sale del examen aprobado."
-            }
-            action="Ir a Evaluación"
-            onClick={onNext}
-          />
-        </div>
       </div>
     </div>
   );
@@ -1878,6 +1906,7 @@ function EvaluationStage({
   runRequest,
   unapproved,
   noCriteria,
+  setStageCta,
   onReview,
   onCriteria,
   onNext,
@@ -1889,6 +1918,8 @@ function EvaluationStage({
   unapproved: number;
   /** No criteria in the rubric: the judge has nothing to grade with. */
   noCriteria: boolean;
+  /** Publishes this stage's next step into the toolbar. */
+  setStageCta: (cta: StageCta | null) => void;
   onReview: () => void;
   onCriteria: () => void;
   onNext: () => void;
@@ -1942,6 +1973,20 @@ function EvaluationStage({
   const judgeName = (id: string) => catalog.find((c) => c.id === id)?.name ?? id;
   const results = useRunResults(bench);
   const board = newestPerModel(results, bench.doc?.model);
+
+  // Where to go from here, in the toolbar's corner: with no rubric the next
+  // step is writing it, otherwise telling what the run found.
+  useStageCta(setStageCta, noCriteria
+    ? {
+        label: "Ir a Criterios",
+        tip: "01 · Criterios. Sin criterios el juez no tiene con qué medir: escribilos o pedile al agente que los genere antes de evaluar.",
+        onClick: onCriteria,
+      }
+    : {
+        label: "Ir a Publicación",
+        tip: `05 · Publicación. ${board.length ? "Con lo que arrojó esta corrida, contá qué encontraste" : "Cuando haya resultados, contá qué encontraste"}: en Publicación van el análisis por criterio, el informe de hallazgos y la ficha pública del benchmark.`,
+        onClick: onNext,
+      });
   const start = useCallback(async () => {
     const chosen = models.filter((m) => selected.has(m));
     if (chosen.length === 0 || running || noCriteria) return;
@@ -2097,16 +2142,6 @@ function EvaluationStage({
           );
         })}
         {board.length > 0 && top === 0 && <p className="ws-note">Todos en 0: revisá las fallas antes de leer el puntaje.</p>}
-      </div>
-
-      <div className="ws-eval-next">
-        <StageNext
-          eyebrow="05 · Publicación"
-          title={board.length ? "Con los resultados, contá qué encontraste" : "Cuando haya resultados, contá qué encontraste"}
-          text="La evaluación dice cómo respondió cada modelo. En Publicación eso se convierte en el análisis por criterio, el informe de hallazgos y la ficha pública del benchmark."
-          action="Ir a Publicación"
-          onClick={onNext}
-        />
       </div>
     </div>
   );

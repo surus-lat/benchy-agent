@@ -5,7 +5,7 @@ import { authorsLine, library, libraryErrorText, sources as sourcesApi, TYPE_LAB
 import { coverage, coverageNote, pickedFromSources, sourceOfPaper } from "./fuentes-model";
 import type { PickedPaper } from "./new-bench-model";
 import type { Design } from "./exam-model";
-import { StageNext } from "./stage-next";
+import { useStageCta, type StageCta } from "./stage-next";
 import "./library.css";
 
 // 02 · Fuentes — curaduría como pantalla completa: la colección elegida a la
@@ -14,8 +14,9 @@ import "./library.css";
 // candidata muestra lo que un investigador necesita para juzgarla sin abrirla
 // (autores, año, origen, tipo de publicación, una muestra del texto y si hay
 // PDF legible); el cabezal de la colección resume con qué se queda el agente
-// (textos completos vs solo resúmenes). Cierra con el paso a 03 · Preguntas;
-// el drawer de Papers en Preguntas sigue como la entrada rápida.
+// (textos completos vs solo resúmenes). El paso a 03 · Preguntas está en el
+// cabezal de la ventana, con su explicación en el tooltip; el drawer de Papers
+// en Preguntas sigue como la entrada rápida.
 
 export function SourcesStage({
   bench,
@@ -24,6 +25,7 @@ export function SourcesStage({
   criteriaCount,
   questionCount,
   onNext,
+  setStageCta,
   onCriteria,
   onChanged,
 }: {
@@ -34,12 +36,24 @@ export function SourcesStage({
   criteriaCount: number;
   questionCount: number;
   onNext: () => void;
+  /** Publishes this stage's next step into the toolbar. */
+  setStageCta: (cta: StageCta | null) => void;
   onCriteria: () => void;
   onChanged: (change: string) => void;
 }) {
   const { pendingSources, failedSources, dismissFailedSource, addSource } = usePlatform();
   const reading = pendingSources.filter((p) => p.bench === bench);
   const failed = failedSources.filter((p) => p.bench === bench);
+
+  // Where the curaduría leads: writing the questions from what was picked.
+  useStageCta(setStageCta, {
+    label: "Ir a Preguntas",
+    tip:
+      list.length > 0
+        ? `03 · Preguntas. Con ${list.length === 1 ? "esta fuente" : `estas ${list.length} fuentes`} el agente puede escribir preguntas que pongan a prueba los criterios de 01 · Criterios; allá las revisás, verificás la clave y aprobás una por una.${questionCount > 0 ? ` El examen ya tiene ${questionCount} ${questionCount === 1 ? "pregunta" : "preguntas"}.` : ""}`
+        : "03 · Preguntas. Todavía no elegiste fuentes: el agente no puede escribir preguntas sin material. Podés seguir y volver, o elegir una candidata de la biblioteca ahora.",
+    onClick: onNext,
+  });
   const [removing, setRemoving] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   // On narrow screens the two panes become tabs; wide screens keep both up.
@@ -189,26 +203,6 @@ export function SourcesStage({
 
       <LibrarySearch chosen={chosen} busyIds={busy} onToggle={(p) => void toggle(p)} toggleError={error} onDismissError={() => setError(null)} />
       </div>
-      <StageNext
-        eyebrow="03 · Preguntas"
-        title="Siguiente: escribir las preguntas"
-        text={
-          list.length > 0 ? (
-            <>
-              Con {list.length === 1 ? "esta fuente" : `estas ${list.length} fuentes`} el agente puede escribir preguntas que pongan a prueba los
-              criterios de 01 · Criterios. En 03 · Preguntas las revisás, verificás la clave y aprobás una por una.
-              {questionCount > 0 ? ` El examen ya tiene ${questionCount} ${questionCount === 1 ? "pregunta" : "preguntas"}.` : ""}
-            </>
-          ) : (
-            <>
-              Todavía no elegiste fuentes: el agente no puede escribir preguntas sin material. Podés seguir y volver, o elegir una candidata de la
-              biblioteca ahora.
-            </>
-          )
-        }
-        action="Ir a Preguntas"
-        onClick={onNext}
-      />
     </div>
   );
 }

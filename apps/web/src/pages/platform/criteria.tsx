@@ -10,6 +10,7 @@ import {
   type Design,
 } from "./exam-model";
 import { STARTER_CRITERIA } from "./new-bench-model";
+import { useStageCta, type StageCta } from "./stage-next";
 import type { ExamState } from "./use-exam";
 
 // 01 · Criterios — el paso que decide todo lo demás. Antes de buscar papers o
@@ -112,6 +113,7 @@ export function CriteriaStage({
   mcExam,
   questionCount,
   onNext,
+  setStageCta,
   ask,
   showAgent,
 }: {
@@ -122,6 +124,8 @@ export function CriteriaStage({
   mcExam: boolean;
   questionCount: number;
   onNext: () => void;
+  /** Publishes this stage's next step into the toolbar. */
+  setStageCta: (cta: StageCta | null) => void;
   ask: (t: string) => Promise<void>;
   showAgent: () => void;
 }) {
@@ -251,6 +255,31 @@ export function CriteriaStage({
     }
   };
 
+  // The two steps of this stage, published into the toolbar's corner: the stage
+  // keeps the room it needs instead of spending it on a bar at the bottom.
+  useStageCta(setStageCta,
+    step === "design"
+      ? {
+          label: "Siguiente: criterios",
+          tip: canLeaveDesign
+            ? "Paso 1 de 2. Al seguir, el agente escribe los criterios a partir de lo que definiste."
+            : "Paso 1 de 2. Completá la pregunta y la capacidad para seguir.",
+          disabled: !canLeaveDesign,
+          onClick: () => void goCriteria(),
+        }
+      : {
+          label: "Ir a Fuentes",
+          // Empty rubric is a dead end on purpose: without criteria the judge has
+          // nothing to measure with, so the way forward stays shut.
+          tip:
+            openExam && criteria.length === 0
+              ? "Paso 2 de 2. Sin criterios el juez no tiene con qué medir: el examen no se puede evaluar ni publicar. Escribí o generá al menos uno para seguir."
+              : "Paso 2 de 2. El juez verifica las claves con estos criterios; aprobar cada pregunta pasa en 03 · Preguntas.",
+          disabled: openExam && criteria.length === 0,
+          onClick: next,
+        },
+  );
+
   // What still needs deciding: only the question, then the capability. Once
   // both are there, asking the agent for criteria makes sense; before that it
   // would have nothing to work from. The label is what the researcher reads;
@@ -287,9 +316,16 @@ export function CriteriaStage({
             <p className="ws-eyebrow">01 · Criterios de evaluación · Paso {step === "design" ? "1" : "2"} de 2</p>
             <div className="ws-crit-title">
               <h2>{step === "design" ? "¿Qué queremos averiguar?" : "¿Cómo se mide cada respuesta?"}</h2>
-              {step === "criteria" && openExam && (
-                <span className="ws-crit-count mono" title={`Máximo ${MAX_CRITERIA} criterios`}>
-                  {criteria.length} de {MAX_CRITERIA}
+              {step === "criteria" && (
+                <span className="ws-crit-tools">
+                  <button className="ws-link" onClick={() => setStep("design")}>
+                    Volver al diseño
+                  </button>
+                  {openExam && (
+                    <span className="ws-crit-count mono" title={`Máximo ${MAX_CRITERIA} criterios`}>
+                      {criteria.length} de {MAX_CRITERIA}
+                    </span>
+                  )}
                 </span>
               )}
             </div>
@@ -397,39 +433,6 @@ export function CriteriaStage({
               </>
             )}
           </div>
-
-          <footer className="ws-crit-foot">
-            <div className="txt">
-              <p className="ws-eyebrow">{step === "design" ? "Paso 1 de 2" : "Paso 2 de 2"}</p>
-              <p>
-                {step === "design"
-                  ? canLeaveDesign
-                    ? "Al seguir, el agente escribe los criterios a partir de lo que definiste."
-                    : "Completá la pregunta y la capacidad para seguir."
-                  : criteria.length === 0
-                    ? "Sin criterios el juez no tiene con qué medir: el examen no se puede evaluar ni publicar. Escribí o generá al menos uno para seguir."
-                    : "El juez verifica las claves con estos criterios; aprobar cada pregunta pasa en 03 · Preguntas."}
-              </p>
-            </div>
-            <div className="btns">
-              {step === "criteria" && (
-                <button className="ws-btn-line" onClick={() => setStep("design")}>
-                  Volver al diseño
-                </button>
-              )}
-              {step === "design" ? (
-                <button className="ws-btn-dark" onClick={() => void goCriteria()} disabled={!canLeaveDesign}>
-                  Siguiente: criterios <span className="amber">→</span>
-                </button>
-              ) : (
-                // Empty rubric is a dead end on purpose: without criteria the judge
-                // has nothing to measure with, so the path forward stays shut.
-                <button className="ws-btn-dark" onClick={next} disabled={openExam && criteria.length === 0}>
-                  Ir a Fuentes <span className="amber">→</span>
-                </button>
-              )}
-            </div>
-          </footer>
         </div>
       </div>
     </Lang.Provider>

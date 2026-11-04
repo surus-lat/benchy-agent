@@ -100,6 +100,9 @@
 .ws-stages button.on .n { color: var(--amber); }
 .ws-toolbar-right { margin-left: auto; display: flex; align-items: center; gap: 8px; }
 .ws-saved { font: 400 12px var(--mono); color: var(--muted); white-space: nowrap; }
+/* The stage's next step, kept out of the working area; the tooltip explains it. */
+.ws-cta { flex: none; }
+.ws-cta.off { opacity: 0.4; cursor: not-allowed; }
 
 .ws-btn-dark, .ws-btn-line { display: inline-flex; align-items: center; justify-content: center; gap: 8px; white-space: nowrap; transition: transform 160ms var(--eo), background-color 150ms ease, border-color 150ms ease; }
 .ws-btn-dark:active:not(:disabled), .ws-btn-line:active:not(:disabled), .ws-chips button:active:not(:disabled) { transform: scale(0.97); }
@@ -441,13 +444,17 @@
 .ws-pub .ws-note.center { font-size: 12px; }
 
 /* ---- status bar ---- */
-.ws-status { flex: none; display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px; padding: 9px 16px; border-top: 1px solid var(--line-soft); background: var(--paper-2); }
-.ws-status .mono { font-size: 12px; }
-.ws-status .amber { font-weight: 500; }
-.ws-status .txt { font-size: 13px; min-width: 0; }
+/* The exam's pulse, moved into the toolbar: the stage keeps the whole column. */
+.ws-live { display: inline-flex; align-items: center; gap: 7px; white-space: nowrap; }
+.ws-live .gl { font: 400 12px var(--mono); color: var(--ok); }
+.ws-live .gl.busy { color: var(--amber); }
+.ws-live .gl.bad { color: var(--fail); }
+.ws-live .mono { font: 400 11.5px var(--mono); }
+.ws-live .eng { font-size: 9px; color: var(--ok-dot); }
+.ws-live .eng.off { color: var(--faint); }
+.ws-live .ws-prog { width: 72px; }
 .ws-prog { width: 140px; height: 4px; border-radius: 999px; background: var(--line-soft); overflow: hidden; }
 .ws-prog span { display: block; height: 100%; width: 100%; background: var(--amber); border-radius: 999px; transform-origin: left; transition: transform 400ms var(--eo); }
-.ws-engine { margin-left: auto; font: 400 12px var(--mono); color: var(--body); }
 
 /* ---- B · Agente ---- */
 .ws-b-main { flex: 1; min-width: 0; display: flex; flex-direction: column; }
@@ -636,9 +643,24 @@
 .ws-eval-warn { margin: 0; padding: 10px 14px; border-top: 1px solid var(--amber-line); background: var(--amber-soft); font-size: 12.5px; line-height: 1.5; color: var(--amber-deep); }
 /* A hard stop, not a soft warning: without criteria there is nothing to grade. */
 .ws-eval-warn.stop { border-top-color: var(--fail-line); background: var(--fail-bg); color: var(--fail); }
-.ws-eval-next { grid-column: 1 / -1; }
+
+@media (max-width: 1150px) {
+  /* Keep the stage tabs and the next-step button on one row: a second row in the
+     toolbar costs the same room the stage footers used to. The step numbers and
+     the saved label ride along in the tab order and the live readout's tooltip. */
+  .ws-toolbar { gap: 8px 10px; }
+  .ws-stages { margin-left: 4px; gap: 2px; }
+  .ws-stages button { padding: 6px 8px; gap: 6px; }
+  .ws-stages .n { display: none; }
+  .ws-crumb { max-width: 22ch; }
+  .ws-saved { display: none; }
+}
 
 @media (max-width: 900px) {
+  /* Tighter toolbar: the tabs and the next step should stay on one row here too. */
+  .ws-toolbar { gap: 8px; }
+  .ws-stages button { padding: 6px 7px; font-size: 12.5px; }
+  .ws-live .ws-prog, .ws-live .mono:not(.gl) { display: none; }
   .ws-win { left: 8px !important; right: 8px !important; width: auto !important; top: 56px !important; bottom: 8px !important; transform: none !important; }
   .ws-win:not(.front) { visibility: hidden; }
   .ws-win-back, .ws-strip { display: none !important; }
@@ -655,7 +677,7 @@
   .ws-hard { padding-left: 14px; }
   .ws-pub-tabs { width: 100%; }
   .ws-pub-tabs button { flex: 1; }
-  .ws-org, .ws-saved, .ws-engine, .ws-head-right .ws-seg { display: none; }
+  .ws-org, .ws-saved, .ws-live .eng, .ws-head-right .ws-seg { display: none; }
   .ws-toolbar { padding: 8px 10px; gap: 8px; }
   .ws-stages { margin-left: 0; width: 100%; overflow-x: auto; flex-wrap: nowrap; }
   .ws-toolbar-right { margin-left: 0; width: 100%; flex-wrap: wrap; }
@@ -696,15 +718,11 @@
 .ws-criteria { width: 100%; max-width: 1000px; margin: 0 auto; flex: 1; min-height: 0; display: flex; flex-direction: column; gap: 14px; }
 .ws-crit-hero { flex: none; display: flex; flex-direction: column; gap: 4px; }
 .ws-crit-title { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
+.ws-crit-tools { flex: none; display: inline-flex; align-items: center; gap: 10px; }
 .ws-crit-title h2 { margin: 0; font-size: clamp(20px, 2.4vw, 26px); font-weight: 600; letter-spacing: -0.02em; }
 .ws-crit-hero .ws-note { max-width: 90ch; font-size: 13px; }
 .ws-crit-body { flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain; display: flex; flex-direction: column; gap: 12px; padding: 2px 4px 2px 0; }
 .ws-crit-body .ws-edit.design { max-height: 140px; overflow-y: auto; }
-.ws-crit-foot { flex: none; display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px 16px; border-top: 1px solid var(--line-soft); padding-top: 12px; }
-.ws-crit-foot .txt { flex: 1 1 18rem; min-width: 0; }
-.ws-crit-foot .ws-eyebrow { margin: 0 0 2px !important; }
-.ws-crit-foot .txt p:last-child { font-size: 13px; line-height: 1.45; color: var(--body); }
-.ws-crit-foot .btns { display: flex; flex-wrap: wrap; gap: 8px; }
 .ws-crit-ask { display: flex; flex-direction: column; gap: 6px; }
 .ws-crit-ask .ws-eyebrow { margin: 0 !important; }
 .ws-crit-ask .ws-chips { margin: 0; }
@@ -761,15 +779,6 @@
 .ws-crit-addrow .ws-crit-add { flex: 1; }
 .ws-crit-gen-btn { flex: none; }
 
-/* The end of every stage says what comes next. */
-.ws-next { display: flex; flex-wrap: wrap; align-items: center; gap: 14px; border: 1px solid var(--amber-line); border-radius: 12px; background: var(--amber-paper); padding: 14px 16px; }
-.ws-next .b { flex: 1 1 20rem; min-width: 0; }
-.ws-next .t { font-size: 15px; font-weight: 600; }
-.ws-next .d { margin-top: 3px !important; font-size: 13.5px; line-height: 1.55; color: var(--body); }
-.ws-next .ws-eyebrow { margin: 0 0 4px !important; color: var(--amber-deep); }
-.ws-next .ws-btn-dark { flex: none; }
-.ws-next.done { border-color: var(--ok-line); background: var(--ok-bg); }
-
 /* Verification of the expert answer, inline in Preguntas. */
 .ws-keybar { display: flex; flex-wrap: wrap; align-items: flex-start; gap: 10px; margin-bottom: 12px; padding: 10px 12px; border: 1px solid var(--line-soft); border-radius: 12px; background: var(--paper-2); }
 .ws-keybar.ready { border-color: var(--ok-line); background: var(--ok-bg); }
@@ -787,19 +796,14 @@
 .ws-approve .ws-row-btns { align-items: center; }
 .ws-approve .ws-note.ok { margin: 0; font-size: 12.5px; }
 
-/* Fuentes: the collection pane sits inside a column with the next-step footer. */
+/* Fuentes: the collection and the library share one scrolling column. */
 .ws-fuentes-wrap { flex: 1; min-height: 0; display: flex; flex-direction: column; overflow: hidden; }
-.ws-fuentes-wrap > .ws-next { flex: none; margin: 10px 14px 14px; }
 .ws-fnt-design { display: flex; flex-direction: column; gap: 3px; border-top: 1px solid var(--line-soft); margin-top: 2px; padding-top: 8px; }
 .ws-fnt-design .ws-eyebrow { margin: 0 !important; }
 .ws-fnt-design p { font-size: 12.5px; line-height: 1.45; color: var(--ink-soft); }
 .ws-fnt-design .ws-link { align-self: flex-start; }
 
 @media (max-width: 640px) {
-  .ws-crit-foot .btns { width: 100%; }
-  .ws-crit-foot .btns .ws-btn-dark, .ws-crit-foot .btns .ws-btn-line { flex: 1 1 auto; }
   .ws-crit-more { align-self: stretch; flex-wrap: wrap; }
-  .ws-next .ws-btn-dark { width: 100%; }
-  .ws-fuentes-wrap > .ws-next { margin: 8px 10px 10px; }
   .ws-keybar .ws-btn-line { width: 100%; }
 }
