@@ -2,12 +2,11 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useRef, use
 import { Link, useLocation } from "wouter";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
-import { api, errorText, newestPerModel, REGIONS, spellcheckFor, splitAsk, type CatalogModel, type Evaluation, type JudgeConfig, type LibraryCriterion, type Message } from "./data";
+import { api, errorText, newestPerModel, REGIONS, spellcheckFor, splitAsk, type CatalogModel, type Evaluation, type JudgeConfig, type Message } from "./data";
 import { useAgentChat } from "./agent-chat";
 import { usePlatform, type BenchSummary, type PendingSource } from "./store";
 import { useEvaluation, useExam, useRunResults, useSelectedModels, type EvaluationState, type ExamState } from "./use-exam";
 import {
-  addCriterion,
   byAgent,
   correctOptionKey,
   criterionMet,
@@ -17,9 +16,6 @@ import {
   isOpenQuestionExam,
   isPending,
   QUALITY_CRITERIA,
-  MAX_CRITERIA,
-  removeCriterion,
-  setCriterion,
   shareOf,
   titleOf,
   type Criterion,
@@ -27,7 +23,9 @@ import {
   type QStatus,
 } from "./exam-model";
 import { LibraryBrowser, SourceRow } from "./library";
+import { CriteriaStage } from "./criteria";
 import { SourcesStage } from "./fuentes";
+import { StageNext } from "./stage-next";
 import { PublicationStage } from "./publication";
 import {
   citation,
@@ -51,9 +49,9 @@ import { Tour, tourAnchorRef } from "./tour";
 // agent turn, and A's saves appear in B's thread as events.
 
 const STAGES = [
-  ["fuentes", "01", "Fuentes"],
-  ["autoria", "02", "Autoría"],
-  ["revision", "03", "Revisión"],
+  ["criterios", "01", "Criterios"],
+  ["fuentes", "02", "Fuentes"],
+  ["autoria", "03", "Preguntas"],
   ["evaluacion", "04", "Evaluación"],
   ["publicacion", "05", "Publicación"],
 ] as const;
@@ -89,16 +87,19 @@ function batchPrompt(n: number, slug: string, ids: string[] = [], mc = false): s
     ids.length > 0
       ? `estos papers del benchmark: ${ids.join(", ")} (la lista en ${slug}/sources.json, el texto de cada uno en ${slug}/sources/)`
       : `los papers del benchmark (${slug}/sources.json)`;
+  const design = `Antes de escribirlas, leé el diseño del benchmark en ${slug}/design.json (qué queremos averiguar, qué debería poder hacer un modelo que domina el tema y qué errores buscamos exponer) y los criterios de evaluación en ${slug}/benchmark.yaml. Cada pregunta tiene que poner a prueba al menos un criterio y apuntar a un error del diseño.`;
   if (mc)
-    return `Generá ${n} preguntas nuevas de opción múltiple para este examen a partir de ${which}: leé los papers primero y escribí cada pregunta con sus 4 opciones (una sola correcta) desde lo que el paper sostiene. En exam.jsonl cada fila lleva input.question e input.options como objeto {"a": "…", "b": "…", "c": "…", "d": "…"}, y expected.answer con el texto EXACTO de la opción correcta (se corrige por coincidencia exacta, sin variantes). En questions.json, sources lleva el id del paper y la página (por ejemplo "conicet-179477 p. 4"). ${tail}`;
-  return `Generá ${n} preguntas nuevas para este examen a partir de ${which}: leé los papers primero y escribí cada pregunta desde lo que el paper sostiene, con su respuesta experta y por qué la pregunta importa. En questions.json, sources lleva el id del paper y la página (por ejemplo "conicet-179477 p. 4"). ${tail}`;
+    return `Generá ${n} preguntas nuevas de opción múltiple para este examen a partir de ${which}: leé los papers primero y escribí cada pregunta con sus 4 opciones (una sola correcta) desde lo que el paper sostiene. ${design} En exam.jsonl cada fila lleva input.question e input.options como objeto {"a": "…", "b": "…", "c": "…", "d": "…"}, y expected.answer con el texto EXACTO de la opción correcta (se corrige por coincidencia exacta, sin variantes). En questions.json, sources lleva el id del paper y la página (por ejemplo "conicet-179477 p. 4"). ${tail}`;
+  return `Generá ${n} preguntas nuevas para este examen a partir de ${which}: leé los papers primero y escribí cada pregunta desde lo que el paper sostiene, con su respuesta experta y por qué la pregunta importa. ${design} En questions.json, sources lleva el id del paper y la página (por ejemplo "conicet-179477 p. 4"). ${tail}`;
 }
 
 export default function Workspace({ slug, stage: stageParam }: { slug: string; stage?: string }) {
   const { me, benches, files, refresh, setLastBench, pendingSources } = usePlatform();
   const [, navigate] = useLocation();
   const bench = benches.find((b) => b.slug === slug);
-  const stage = (STAGES.some(([k]) => k === stageParam) ? stageParam : "autoria") as Stage;
+  // `revision` was a separate stage before: it is now part of Preguntas.
+  const wanted = stageParam === "revision" ? "autoria" : stageParam;
+  const stage = (STAGES.some(([k]) => k === wanted) ? wanted : "criterios") as Stage;
   const go = useCallback((s: Stage) => navigate(`/app/b/${encodeURIComponent(slug)}/${s}`), [navigate, slug]);
 
   const exam = useExam(bench);
@@ -111,7 +112,6 @@ export default function Workspace({ slug, stage: stageParam }: { slug: string; s
   const [unread, setUnread] = useState(0);
   const [events, setEvents] = useState<Event[]>([]);
   const [qIndex, setQIndex] = useState(0);
-  const [rubricOpen, setRubricOpen] = useState(false);
   const [papersOpen, setPapersOpen] = useState(false);
   const [reviewing, setReviewing] = useState(false);
   const [scoring, setScoring] = useState(false);
@@ -131,19 +131,6 @@ export default function Workspace({ slug, stage: stageParam }: { slug: string; s
   // it counts as validated (grandfathered).
   const [checklist, setChecklist] = useState<ChecklistItem[] | null>(null);
   const [validations, setValidations] = useState<Record<string, SourceValidation>>({});
-  // The org's saved criteria (issue #12): offered in the drawer, fed by what
-  // the drawer saves back. A library the fetch cannot reach reads as empty.
-  const [savedCriteria, setSavedCriteria] = useState<LibraryCriterion[]>([]);
-  const reloadCriteria = useCallback(async () => {
-    try {
-      setSavedCriteria((await api.criteria()).criteria);
-    } catch {
-      // The drawer offers no imports until the next open retries the fetch.
-    }
-  }, []);
-  useEffect(() => {
-    void reloadCriteria();
-  }, [reloadCriteria]);
   const reloadValidation = useCallback(async () => {
     try {
       const [c, v] = await Promise.all([validationApi.checklist(), validationApi.forBench(slug)]);
@@ -181,7 +168,6 @@ export default function Workspace({ slug, stage: stageParam }: { slug: string; s
         });
       }
       if (e.key === "Escape") {
-        setRubricOpen(false);
         setPapersOpen(false);
       }
     };
@@ -332,7 +318,7 @@ export default function Workspace({ slug, stage: stageParam }: { slug: string; s
                 </button>
               )}
               {openExam && (
-                <button className="ws-btn-line" onClick={() => setRubricOpen(true)}>
+                <button className="ws-btn-line" onClick={() => go("criterios")}>
                   <span className="mono amber">{exam.criteria!.length}</span>Criterios
                 </button>
               )}
@@ -358,10 +344,25 @@ export default function Workspace({ slug, stage: stageParam }: { slug: string; s
           <div className="ws-stage">
             {exam.loading ? (
               <p className="ws-note ws-pad">Cargando el examen…</p>
+            ) : stage === "criterios" ? (
+              <CriteriaStage
+                exam={exam}
+                openExam={openExam}
+                mcExam={mcExam}
+                questionCount={qs.length}
+                onNext={() => go("fuentes")}
+                ask={ask}
+                showAgent={() => bringFront("B")}
+              />
             ) : stage === "fuentes" ? (
               <SourcesStage
                 bench={slug}
                 list={papers}
+                design={exam.design}
+                criteriaCount={exam.criteria?.length ?? 0}
+                questionCount={qs.length}
+                onNext={() => go("autoria")}
+                onCriteria={() => go("criterios")}
                 onChanged={(change) => {
                   pushEvent({ who: "Vos", path: "papers", change, open: () => go("fuentes") });
                   void exam.reload();
@@ -380,6 +381,8 @@ export default function Workspace({ slug, stage: stageParam }: { slug: string; s
                 reading={pendingSources.filter((p) => p.bench === slug).length}
                 generating={generating}
                 scoring={scoring}
+                reviewing={reviewing}
+                ready={ready}
                 pushEvent={pushEvent}
                 onQuality={async () => {
                   setScoring(true);
@@ -394,11 +397,33 @@ export default function Workspace({ slug, stage: stageParam }: { slug: string; s
                     await exam.reload();
                   }
                 }}
-                onRubric={() => setRubricOpen(true)}
+                onReview={async () => {
+                  setReviewing(true);
+                  try {
+                    const r = await api.review(bench.yamlPath);
+                    if (!r.ok) exam.setError(`La verificación no pudo correr: ${r.error.code} · ${r.error.message}`);
+                    else pushEvent({ who: "Juez", path: "review.json", change: `${qs.length} claves verificadas`, open: () => go("autoria") });
+                  } catch (err) {
+                    exam.setError(errorText(err));
+                  } finally {
+                    setReviewing(false);
+                    await exam.reload();
+                  }
+                }}
+                onApprove={(question) => {
+                  const meta = [...exam.meta];
+                  const who = me?.user.name?.trim() || me?.user.email || "vos";
+                  meta[question.index] = { ...meta[question.index], status: "approved", approved_by: who, approved_at: new Date().toISOString() };
+                  exam.updateMeta(meta);
+                  void api.logActivity(slug, "approve", `aprobó la pregunta ${question.num}`);
+                  pushEvent({ who: "Vos", path: `${question.num}.aprobación`, change: "verificada → aprobada", open: () => go("autoria") });
+                }}
+                onCriteria={() => go("criterios")}
                 papers={papers}
                 validPapers={validPapers}
                 onPapers={() => setPapersOpen(true)}
                 onDelete={deleteQuestion}
+                onNext={() => go("evaluacion")}
                 onBatch={async (n) => {
                   setGenerating(n);
                   const before = qs.length;
@@ -413,47 +438,14 @@ export default function Workspace({ slug, stage: stageParam }: { slug: string; s
                   ).finally(() => setDrafting(false));
                 }}
               />
-            ) : stage === "revision" ? (
-              <ReviewStage
-                exam={exam}
-                openExam={openExam}
-                busy={reviewing}
-                ready={ready}
-                onNext={() => go("evaluacion")}
-                onReview={async () => {
-                  setReviewing(true);
-                  try {
-                    const r = await api.review(bench.yamlPath);
-                    if (!r.ok) exam.setError(`La revisión no pudo correr: ${r.error.code} · ${r.error.message}`);
-                    else pushEvent({ who: "Juez", path: "review.json", change: `${qs.length} respuestas revisadas`, open: () => go("revision") });
-                  } catch (err) {
-                    exam.setError(errorText(err));
-                  } finally {
-                    setReviewing(false);
-                    await exam.reload();
-                  }
-                }}
-                onApprove={(question) => {
-                  const meta = [...exam.meta];
-                  const who = me?.user.name?.trim() || me?.user.email || "vos";
-                  meta[question.index] = { ...meta[question.index], status: "approved", approved_by: who, approved_at: new Date().toISOString() };
-                  exam.updateMeta(meta);
-                  void api.logActivity(slug, "approve", `aprobó la pregunta ${question.num}`);
-                  pushEvent({ who: "Vos", path: `${question.num}.revisión`, change: "por aprobar → aprobada", open: () => go("revision") });
-                }}
-                onOpen={(question) => {
-                  setQIndex(question.index);
-                  go("autoria");
-                }}
-                onDelete={deleteQuestion}
-              />
             ) : stage === "evaluacion" ? (
               <EvaluationStage
                 bench={bench}
                 evaluation={evaluation}
                 runRequest={runRequest}
                 unapproved={openExam ? qs.length - approved : 0}
-                onReview={() => go("revision")}
+                onReview={() => go("autoria")}
+                onNext={() => go("publicacion")}
               />
             ) : (
               <PublicationStage bench={bench} exam={exam} openExam={openExam} mcExam={mcExam} go={go} ask={ask} showAgent={() => bringFront("B")} busy={busy} evaluation={evaluation} />
@@ -475,44 +467,6 @@ export default function Workspace({ slug, stage: stageParam }: { slug: string; s
                   pushEvent({ who: "Vos", path: "papers", change, open: () => setPapersOpen(true) });
                   void exam.reload();
                   void reloadValidation();
-                }}
-              />
-            )}
-
-            {openExam && (
-              <RubricDrawer
-                open={rubricOpen}
-                onClose={() => setRubricOpen(false)}
-                criteria={exam.criteria!}
-                total={qs.length}
-                locked={false}
-                onChange={(c, patch, label) => {
-                  void exam.saveYaml(setCriterion(exam.yamlText, c.key, patch));
-                  pushEvent({ who: "Vos", path: `criterios.${c.key}.${label}`, change: "editado → guardado", open: () => setRubricOpen(true) });
-                }}
-                onAdd={(description, weight) => {
-                  void exam.saveYaml(addCriterion(exam.yamlText, description, weight));
-                  pushEvent({ who: "Vos", path: "criterios", change: "criterio agregado", open: () => setRubricOpen(true) });
-                }}
-                onRemove={(c) => {
-                  void exam.saveYaml(removeCriterion(exam.yamlText, c.key));
-                  pushEvent({ who: "Vos", path: `criterios.${c.key}`, change: "criterio quitado", open: () => setRubricOpen(true) });
-                }}
-                library={savedCriteria}
-                onAddFromLibrary={(item) => {
-                  void exam.saveYaml(addCriterion(exam.yamlText, item.description, item.weight, item.levels));
-                  pushEvent({ who: "Vos", path: "criterios", change: `criterio «${item.name}» de la biblioteca`, open: () => setRubricOpen(true) });
-                }}
-                onSaveToLibrary={(c) => {
-                  void api
-                    .saveCriterion({
-                      name: c.description.length > 48 ? c.description.slice(0, 46).trimEnd() + "…" : c.description,
-                      description: c.description,
-                      weight: c.weight,
-                      levels: Object.fromEntries(c.levels.map((g) => [String(g), g === 0 ? "No lo cumple" : "Lo cumple"])),
-                    })
-                    .then((r) => setSavedCriteria((list) => [...list, r.criterion]))
-                    .catch(() => {});
                 }}
               />
             )}
@@ -599,7 +553,7 @@ function ValidationBadge({ bench }: { bench: BenchSummary }) {
   );
 }
 
-// ---- 02 · Autoría ---------------------------------------------------------------
+// ---- 03 · Preguntas -------------------------------------------------------------
 
 function Authoring({
   exam,
@@ -613,15 +567,20 @@ function Authoring({
   reading,
   generating,
   scoring,
+  reviewing,
+  ready,
   pushEvent,
   onQuality,
-  onRubric,
+  onReview,
+  onApprove,
+  onCriteria,
   papers,
   validPapers,
   onPapers,
   onBatch,
   onDraft,
   onDelete,
+  onNext,
 }: {
   exam: ExamState;
   /** The researcher's name, recorded as who wrote a question. */
@@ -638,9 +597,16 @@ function Authoring({
   generating: number | null;
   /** The judge is scoring the questions' quality right now. */
   scoring: boolean;
+  /** The judge is verifying the expert answers against the rubric right now. */
+  reviewing: boolean;
+  /** Every question is verified and approved, and the benchmark compiles. */
+  ready: boolean;
   pushEvent: (e: Omit<Event, "id" | "at">) => void;
   onQuality: () => void;
-  onRubric: () => void;
+  onReview: () => void;
+  onApprove: (q: Question) => void;
+  /** Open 01 · Criterios, where the rubric is edited. */
+  onCriteria: () => void;
   papers: Source[];
   /** The papers whose validation passed: the only ones the agent may write from. */
   validPapers: Source[];
@@ -648,6 +614,7 @@ function Authoring({
   onBatch: (n: number) => void;
   onDraft: (q: Question) => void;
   onDelete: (q: Question) => void;
+  onNext: () => void;
 }) {
   const [search, setSearch] = useState("");
   const [filter, setFilter] = useState<"all" | "pend" | "issues">("all");
@@ -663,6 +630,8 @@ function Authoring({
   const [askDelete, setAskDelete] = useState<number | null>(null);
   const listRef = useRef<HTMLDivElement>(null);
   const qs = exam.questions;
+  const approved = qs.filter((x) => x.status === "done").length;
+  const verified = qs.filter((x) => !!x.review).length;
 
   const term = search.trim().toLowerCase();
   const visible = qs.filter(
@@ -935,6 +904,40 @@ function Authoring({
       </aside>
 
       <div className="ws-editor">
+        {openExam && qs.length > 0 && (
+          <div className={`ws-keybar${ready ? " ready" : ""}`} role="status">
+            <span className="mono amber">{reviewing ? "[···]" : ready ? "[✓]" : "[·]"}</span>
+            <span className="txt">
+              <strong>
+                {approved} de {qs.length} preguntas aprobadas.
+              </strong>{" "}
+              {verified === qs.length
+                ? "El juez ya verificó todas las respuestas expertas."
+                : `${verified} de ${qs.length} respuestas expertas verificadas por el juez.`}{" "}
+              Verificar la clave es comprobar que la respuesta experta cumple los criterios; aprobar la pregunta sigue siendo tu decisión.
+            </span>
+            <button className="ws-btn-line sm" onClick={onReview} disabled={locked || reviewing}>
+              {reviewing ? "Verificando…" : verified ? "Volver a verificar" : "Verificar claves"}
+            </button>
+          </div>
+        )}
+        {openExam && qs.length > 0 && exam.reviewOutdated && (
+          <p className="ws-outdated" role="status">
+            Los criterios cambiaron después de la última verificación: volvé a verificar para que cada clave quede medida con los criterios de ahora.
+          </p>
+        )}
+        {openExam && ready && (
+          <div className="ws-ready" role="status">
+            <span className="mono ok">[✓]</span>
+            <span>
+              <strong>Examen listo.</strong> El juez verificó las {qs.length} respuestas expertas y aprobaste todas. El siguiente paso es elegir los
+              modelos y evaluarlos.
+            </span>
+            <button className="ws-btn-dark sm" onClick={onNext}>
+              Ir a Evaluación →
+            </button>
+          </div>
+        )}
         {locked && (
           <p className="ws-locked" role="status">
             <span className="mono amber">[···]</span> El agente está escribiendo preguntas en este examen: los campos se habilitan apenas termina.
@@ -952,26 +955,26 @@ function Authoring({
         ) : !q ? (
           papers.length === 0 ? (
             <EmptyCard
-              title="Empezá por los papers"
-              text="Agregá los papers de los que salen las preguntas, de la biblioteca de CONICET o subiendo el PDF. El agente los lee y escribe cada pregunta con su respuesta experta y la página que la respalda."
+              title="Empezá por las fuentes"
+              text="Las preguntas salen de los papers: elegilos en 02 · Fuentes o agregalos acá, de la biblioteca de CONICET o subiendo el PDF. El agente los lee y escribe cada pregunta con su respuesta experta y la página que la respalda."
               onAgent={onPapers}
-              agentLabel="Agregar papers"
+              agentLabel="Agregar fuentes"
               onSelf={addQuestion}
               locked={false}
             />
           ) : validPapers.length === 0 ? (
             <EmptyCard
-              title="Papers pendientes de validación"
+              title="Fuentes pendientes de validación"
               text="Antes de que el agente escriba preguntas desde un paper, alguien de la organización tiene que validarlo con el checklist de Papers. Mientras tanto, podés escribir la primera pregunta vos."
               onAgent={onPapers}
-              agentLabel="Validar papers"
+              agentLabel="Validar fuentes"
               onSelf={addQuestion}
               locked={false}
             />
           ) : (
             <EmptyCard
               title="Todavía no hay preguntas"
-              text={`El agente puede escribir un primer lote a partir de ${validPapers.length === 1 ? "tu paper validado" : `tus ${validPapers.length} papers validados`}, cada pregunta con su respuesta experta y la página que la respalda. O escribí la primera vos.`}
+              text={`El agente puede escribir un primer lote a partir de ${validPapers.length === 1 ? "tu paper validado" : `tus ${validPapers.length} papers validados`}, para poner a prueba los criterios de 01 · Criterios. Cada pregunta lleva su respuesta experta y la página que la respalda. O escribí la primera vos.`}
               onAgent={() => onBatch(5)}
               agentLabel="Pedile 5 preguntas al agente"
               onSelf={addQuestion}
@@ -1000,10 +1003,28 @@ function Authoring({
             setCorrect={setCorrect}
             setSources={setSources}
             onDelete={() => onDelete(q)}
-            onRubric={onRubric}
+            onCriteria={onCriteria}
+            onReview={onReview}
+            reviewing={reviewing}
+            onApprove={() => onApprove(q)}
             papers={papers}
           />
         )}
+        <div className="ws-aut-next">
+          <StageNext
+            eyebrow="04 · Evaluación"
+            title={ready ? "Examen listo: elegí los modelos" : "Siguiente: evaluar los modelos"}
+            text={
+              mcExam || !openExam
+                ? "Este examen se corrige por coincidencia exacta: no hay claves que verificar ni preguntas que aprobar. Elegí los modelos y corré la evaluación."
+                : ready
+                  ? "El juez verificó todas las respuestas expertas y aprobaste todas. Elegí los modelos y corré la evaluación."
+                  : "Cuando el juez haya verificado las respuestas expertas y hayas aprobado cada pregunta, el examen queda listo. Podés evaluar igual para probar, pero el resultado para publicar sale del examen aprobado."
+            }
+            action="Ir a Evaluación"
+            onClick={onNext}
+          />
+        </div>
       </div>
     </div>
   );
@@ -1131,7 +1152,10 @@ function QuestionEditor({
   setCorrect,
   setSources,
   onDelete,
-  onRubric,
+  onCriteria,
+  onReview,
+  reviewing,
+  onApprove,
   papers,
 }: {
   q: Question;
@@ -1145,11 +1169,18 @@ function QuestionEditor({
   setCorrect: (key: string) => void;
   setSources: (list: string[]) => void;
   onDelete: () => void;
-  onRubric: () => void;
+  /** Open 01 · Criterios: the rubric is edited there, not in a drawer. */
+  onCriteria: () => void;
+  onReview: () => void;
+  reviewing: boolean;
+  onApprove: () => void;
   papers: Source[];
 }) {
   const agent = byAgent(q.meta);
   const writer = !agent && q.meta.by && q.meta.by !== "vos" ? q.meta.by : null;
+  // Approval comes after the grader's verification of the answer as it stands.
+  const canApprove = (q.status === "progress" || q.status === "new") && !!q.review;
+  const missed = q.review ? criteria.filter((c) => criterionMet(q.review!, c) === false).length : 0;
   return (
     <div className="ws-twocol">
       {/* The question and, right below it, its answer: read one, write the other. */}
@@ -1160,7 +1191,7 @@ function QuestionEditor({
             <span key={t} className="ws-chip">{t}</span>
           ))}
           {q.status === "new" && <span className="ws-flag amber">propuesta del agente · revisala</span>}
-          {q.stale && <span className="ws-flag">editada · vuelve a revisión</span>}
+          {q.stale && <span className="ws-flag">editada · hay que verificarla de nuevo</span>}
           {q.status === "done" && (
             <span className="ws-flag ok" title={q.meta.approved_at ? new Date(q.meta.approved_at).toLocaleString("es-AR") : undefined}>
               ● aprobada{q.meta.approved_by ? ` por ${q.meta.approved_by}` : ""}
@@ -1209,8 +1240,8 @@ function QuestionEditor({
           <>
         <div className="ws-col-head">
           <span className="ws-eyebrow">Criterios</span>
-          <button className="ws-link push" onClick={onRubric}>
-            {criteria.length} {criteria.length === 1 ? "criterio" : "criterios"} · configurar ↗
+          <button className="ws-link push" onClick={onCriteria}>
+            {criteria.length} {criteria.length === 1 ? "criterio" : "criterios"} · editar en 01 Criterios ↗
           </button>
         </div>
         <div className="ws-card ws-pad ws-rubric-mini">
@@ -1230,6 +1261,58 @@ function QuestionEditor({
           <p className="ws-engine-line">
             → en el motor: un campo answer juzgado con {criteria.length} criterios · pesos {criteria.map((c) => c.weight).join(" / ")} · {total} filas en exam.jsonl
           </p>
+        </div>
+
+        <div className="ws-col-head sub">
+          <span className="ws-eyebrow">Verificación de la clave</span>
+          {q.review ? (
+            <span className={`ws-met ${missed ? "no" : "ok"}`}>{missed ? `${missed} sin cumplir` : "verificada"}</span>
+          ) : (
+            <span className="ws-met no">sin verificar</span>
+          )}
+        </div>
+        <div className="ws-card ws-pad ws-approve">
+          {q.review ? (
+            <>
+              <p className="ws-note">
+                El juez comparó la respuesta experta con los {criteria.length} criterios. Una clave que no los cumple hace que todos los modelos se
+                comparen contra una referencia floja.
+              </p>
+              <div className="ws-approve-grid">
+                {criteria.map((c) => {
+                  const met = criterionMet(q.review!, c);
+                  const why = q.review!.criteria?.[c.key]?.justification;
+                  return (
+                    <div key={c.key} className={met === false ? "warm" : ""}>
+                      <span className="ct">{c.description || c.key}</span>
+                      <span className={`rg ${met === null ? "muted" : met ? "ok" : "fail"}`}>{met === null ? "—" : met ? "sí" : "no"}</span>
+                      {met === false && why && <span className="note">{why}</span>}
+                    </div>
+                  );
+                })}
+              </div>
+            </>
+          ) : (
+            <p className="ws-note">
+              Todavía no la verificó el juez. Verificar la clave es comprobar que la respuesta experta cumple los criterios, no aprobar la pregunta:
+              la aprobación es tuya y viene después.
+            </p>
+          )}
+          <div className="ws-row-btns">
+            {canApprove && (
+              <button className="ws-btn-dark sm" onClick={onApprove} disabled={locked}>
+                Aprobar pregunta
+              </button>
+            )}
+            <button className="ws-btn-line sm" onClick={onReview} disabled={locked || reviewing}>
+              {reviewing ? "Verificando…" : q.review ? "Volver a verificar" : "Verificar ahora"}
+            </button>
+            {q.status === "done" && (
+              <span className="ws-note ok">
+                ● Aprobada{q.meta.approved_by ? ` por ${q.meta.approved_by}` : ""}
+              </span>
+            )}
+          </div>
         </div>
 
         <div className="ws-col-head sub">
@@ -1436,238 +1519,6 @@ function SourcesEditor({ sources, papers, locked, onChange }: { sources: string[
   );
 }
 
-/** Importance from 1 to 5. */
-function WeightScale({ value, label, disabled, onPick }: { value: number; label: string; disabled: boolean; onPick: (n: number) => void }) {
-  return (
-    <div role="radiogroup" aria-label={label} className="ws-scale">
-      {[1, 2, 3, 4, 5].map((n) => (
-        <button
-          key={n}
-          role="radio"
-          aria-checked={n === value}
-          aria-label={`Importancia ${n}`}
-          className={n === value ? "on" : n < value ? "under" : ""}
-          disabled={disabled}
-          onClick={() => n !== value && onPick(n)}
-        >
-          {n}
-        </button>
-      ))}
-    </div>
-  );
-}
-
-function RubricDrawer({
-  open,
-  onClose,
-  criteria,
-  total,
-  locked,
-  onChange,
-  onAdd,
-  onRemove,
-  library,
-  onAddFromLibrary,
-  onSaveToLibrary,
-}: {
-  open: boolean;
-  onClose: () => void;
-  criteria: Criterion[];
-  total: number;
-  locked: boolean;
-  onChange: (c: Criterion, patch: { weight?: number; description?: string }, label: string) => void;
-  onAdd: (description: string, weight: number) => void;
-  onRemove: (c: Criterion) => void;
-  library: LibraryCriterion[];
-  onAddFromLibrary: (item: LibraryCriterion) => void;
-  onSaveToLibrary: (c: Criterion) => void;
-}) {
-  // The criteria this drawer added but the org has not saved to the library yet.
-  const [addedKeys, setAddedKeys] = useState<Set<string>>(new Set());
-  const [savedKeys, setSavedKeys] = useState<Set<string>>(new Set());
-  const [libraryOpen, setLibraryOpen] = useState(true);
-  const [drafts, setDrafts] = useState<Record<string, string>>({});
-  const [removing, setRemoving] = useState<string | null>(null);
-  const [adding, setAdding] = useState(false);
-  const [newText, setNewText] = useState("");
-  const [newWeight, setNewWeight] = useState(3);
-  useEffect(() => {
-    if (!open) return;
-    setDrafts({});
-    setRemoving(null);
-    setAdding(false);
-    setNewText("");
-    setNewWeight(3);
-    setAddedKeys(new Set());
-    setSavedKeys(new Set());
-  }, [open]);
-  const full = criteria.length >= MAX_CRITERIA;
-  return (
-    <>
-      <div className={`ws-drawer-overlay${open ? " open" : ""}`} onClick={onClose} />
-      <aside className={`ws-drawer${open ? " open" : ""}`} role="dialog" aria-label="Criterios de evaluación" aria-hidden={!open}>
-        <div className="ws-drawer-head">
-          <span className="t">Criterios de evaluación</span>
-          <span className="mono muted">
-            {criteria.length} de {MAX_CRITERIA} criterios
-          </span>
-          <button onClick={onClose} aria-label="Cerrar">✕</button>
-        </div>
-        <div className="ws-drawer-body">
-          <p className="ws-note">
-            Cada criterio se aplica a las {total} preguntas: el juez compara cada respuesta con la respuesta experta y decide si lo cumple. Podés
-            tener hasta {MAX_CRITERIA} criterios, cada uno con una importancia de 1 a 5.
-          </p>
-          {criteria.map((c, i) => (
-            <div key={c.key} className="ws-crit-card">
-              <div className="row">
-                <span className="mono muted">{String(i + 1).padStart(2, "0")}</span>
-                <span className="lbl">Importancia</span>
-                <WeightScale value={c.weight} label={`Importancia del criterio ${i + 1}`} disabled={locked} onPick={(n) => onChange(c, { weight: n }, "importancia")} />
-                <span className="share">{shareOf(c, criteria)} del puntaje</span>
-              </div>
-              <AutoText
-                className="crit"
-                value={drafts[c.key] ?? c.description}
-                label={`Criterio ${i + 1}`}
-                disabled={locked}
-                onChange={(v) => setDrafts((d) => ({ ...d, [c.key]: v }))}
-              />
-              {drafts[c.key] !== undefined && drafts[c.key] !== c.description ? (
-                <div className="ws-crit-save">
-                  <button className="ws-btn-dark sm" disabled={locked || !drafts[c.key].trim()} onClick={() => onChange(c, { description: drafts[c.key].trim() }, "texto")}>
-                    Guardar criterio
-                  </button>
-                  <button className="ws-btn-line sm" onClick={() => setDrafts((d) => ({ ...d, [c.key]: c.description }))}>
-                    Deshacer
-                  </button>
-                </div>
-              ) : removing === c.key ? (
-                <div className="ws-crit-save">
-                  <span className="ws-note">¿Quitar este criterio?</span>
-                  <button
-                    className="ws-btn-danger sm"
-                    disabled={locked}
-                    onClick={() => {
-                      setRemoving(null);
-                      onRemove(c);
-                    }}
-                  >
-                    Quitar
-                  </button>
-                  <button className="ws-btn-line sm" onClick={() => setRemoving(null)}>
-                    Cancelar
-                  </button>
-                </div>
-              ) : (
-                <div className="ws-crit-actions">
-                  {criteria.length > 1 && (
-                    <button className="ws-link ws-crit-remove" disabled={locked} onClick={() => setRemoving(c.key)} aria-label={`Quitar el criterio ${i + 1}`}>
-                      Quitar
-                    </button>
-                  )}
-                  {addedKeys.has(c.key) && !savedKeys.has(c.key) && (
-                    <button
-                      className="ws-link"
-                      disabled={locked}
-                      onClick={() => {
-                        onSaveToLibrary(c);
-                        setSavedKeys((k) => new Set(k).add(c.key));
-                      }}
-                    >
-                      Guardar en la biblioteca
-                    </button>
-                  )}
-                </div>
-              )}
-            </div>
-          ))}
-          {library.length > 0 && (
-            <div className="ws-crit-library">
-              <button className="ws-crit-library-head" onClick={() => setLibraryOpen((o) => !o)} aria-expanded={libraryOpen}>
-                <span className="t">Biblioteca de criterios</span>
-                <span className="mono muted">{library.length} guardados</span>
-                <span className="chev">{libraryOpen ? "▾" : "▸"}</span>
-              </button>
-              {libraryOpen &&
-                library.map((item) => (
-                  <div key={item.id} className="ws-crit-lib-row">
-                    <span className="d">{item.description}</span>
-                    <span className="w mono muted">imp. {item.weight}</span>
-                    <button
-                      className="ws-btn-line sm"
-                      disabled={locked || full}
-                      onClick={() => onAddFromLibrary(item)}
-                    >
-                      Agregar a este examen
-                    </button>
-                  </div>
-                ))}
-            </div>
-          )}
-          {adding ? (
-            <div className="ws-crit-card new">
-              <div className="row">
-                <span className="mono muted">{String(criteria.length + 1).padStart(2, "0")}</span>
-                <span className="lbl">Importancia</span>
-                <WeightScale value={newWeight} label="Importancia del nuevo criterio" disabled={locked} onPick={setNewWeight} />
-              </div>
-              <AutoText
-                className="crit"
-                value={newText}
-                label="Nuevo criterio"
-                disabled={locked}
-                onChange={setNewText}
-                placeholder="Una oración que el juez pueda verificar: «Menciona…», «Distingue…»"
-              />
-              <div className="ws-crit-save">
-                <button
-                  className="ws-btn-dark sm"
-                  disabled={locked || !newText.trim()}
-                  onClick={() => {
-                    onAdd(newText.trim(), newWeight);
-                    // The drawer adds the new criterion as the next c<n>; the
-                    // card that appears carries the same key, read off the
-                    // same rule exam-model's addCriterion uses.
-                    setAddedKeys((k) => new Set(k).add(nextCriterionKey(criteria)));
-                    setAdding(false);
-                    setNewText("");
-                    setNewWeight(3);
-                  }}
-                >
-                  Agregar criterio
-                </button>
-                <button
-                  className="ws-btn-line sm"
-                  onClick={() => {
-                    setAdding(false);
-                    setNewText("");
-                  }}
-                >
-                  Cancelar
-                </button>
-              </div>
-            </div>
-          ) : (
-            <button className="ws-crit-add" disabled={locked || full} onClick={() => setAdding(true)}>
-              {full ? `Máximo ${MAX_CRITERIA} criterios` : "+ Agregar criterio"}
-            </button>
-          )}
-          <p className="ws-note">Si agregás, quitás o reescribís un criterio, el juez tiene que volver a revisar las respuestas expertas en Revisión.</p>
-        </div>
-        <p className="ws-drawer-foot">→ en el motor: scoring.field_metrics.answer · rubric · pesos {criteria.map((c) => c.weight).join(" / ")}</p>
-      </aside>
-    </>
-  );
-}
-
-/** The key exam-model's addCriterion gives to the next criterion added to this list. */
-function nextCriterionKey(criteria: Criterion[]): string {
-  const top = Math.max(0, ...criteria.map((c) => Number(/^c(\d+)$/.exec(c.key)?.[1] ?? 0)));
-  let n = top + 1;
-  while (criteria.some((c) => c.key === `c${n}`)) n++;
-  return `c${n}`;
-}
 
 const MAX_UPLOAD = 24 * 1024 * 1024;
 
@@ -2003,209 +1854,6 @@ function PapersDrawer({
   );
 }
 
-// ---- 03 · Revisión -------------------------------------------------------------
-
-function ReviewStage({
-  exam,
-  openExam,
-  busy,
-  ready,
-  onNext,
-  onReview,
-  onApprove,
-  onOpen,
-  onDelete,
-}: {
-  exam: ExamState;
-  openExam: boolean;
-  busy: boolean;
-  ready: boolean;
-  onNext: () => void;
-  onReview: () => void;
-  onApprove: (q: Question) => void;
-  onOpen: (q: Question) => void;
-  onDelete: (q: Question) => void;
-}) {
-  const [openRow, setOpenRow] = useState<number | null>(null);
-  // Right-click on a question offers to delete it: the row shows the confirmation.
-  const [askDelete, setAskDelete] = useState<number | null>(null);
-  if (!openExam) {
-    return <p className="ws-note ws-pad">La revisión por criterios de evaluación es para exámenes de preguntas abiertas. Este benchmark se corrige por coincidencia exacta.</p>;
-  }
-  const qs = exam.questions;
-  const criteria = exam.criteria!;
-  const reviewed = qs.filter((q) => q.review).length;
-  const summary = `${qs.filter((q) => q.status === "done").length} aprobadas · ${qs.filter((q) => q.status === "progress" || q.status === "new").length} por aprobar · ${qs.filter((q) => q.status === "attention").length} con criterios sin cumplir`;
-  return (
-    <div className="ws-scroll ws-pad-lg">
-      <div className="ws-narrow">
-        <div className="ws-rev-head">
-          <p className="ws-note">
-            Antes de evaluar, el juez verifica que cada respuesta experta cumpla los {criteria.length} criterios de evaluación. Vos aprobás
-            cada pregunta o la abrís en Autoría para corregirla.
-          </p>
-          <div className="r">
-            <span className="mono muted">{summary}</span>
-            <button className="ws-btn-dark sm" ref={tourAnchorRef("tour-ws-revision")} onClick={onReview} disabled={busy || qs.length === 0}>
-              {reviewed ? "Volver a revisar" : "Revisar respuestas expertas"}
-            </button>
-          </div>
-        </div>
-        {exam.reviewOutdated && qs.length > 0 && (
-          <p className="ws-note ws-outdated" role="status">
-            Los criterios de evaluación cambiaron después de la última revisión del juez. Volvé a revisar para que cada respuesta experta quede verificada con los
-            criterios de ahora.
-          </p>
-        )}
-        {qs.length > 0 && qs.every((q) => q.status === "done") && qs.some((q) => !q.review) && !exam.reviewOutdated && (
-          <p className="ws-note" style={{ margin: "0 0 10px" }}>
-            Todas están aprobadas, pero {qs.filter((q) => !q.review).length === 1 ? "una no tiene" : "algunas no tienen"} la revisión del juez de su
-            versión actual. Volvé a revisar para concretar el examen.
-          </p>
-        )}
-        {ready && (
-          <div className="ws-ready" role="status">
-            <span className="mono ok">[✓]</span>
-            <span>
-              <strong>Examen listo.</strong> El juez revisó las {qs.length} preguntas y las aprobaste todas. El siguiente paso es elegir los modelos y evaluarlos.
-            </span>
-            <button className="ws-btn-dark sm" onClick={onNext}>
-              Ir a Evaluación →
-            </button>
-          </div>
-        )}
-        {exam.review && (
-          <p className="ws-note" style={{ margin: "0 0 10px" }}>
-            Última revisión: {new Date(exam.review.created * 1000).toLocaleString("es-AR", { dateStyle: "short", timeStyle: "short" })} · juez{" "}
-            <span className="mono">{exam.review.grader?.model ?? "—"}</span>
-          </p>
-        )}
-        <div className="ws-card ws-clip">
-          {qs.map((q) => {
-            const open = openRow === q.index;
-            const r = q.review;
-            const missed = r ? criteria.filter((c) => criterionMet(r, c) === false).length : 0;
-            const [label, tone] =
-              q.status === "done"
-                ? ["aprobada", "ok"]
-                : q.status === "attention"
-                  ? [r?.error ? "el juez falló" : `${missed} criterio${missed === 1 ? "" : "s"} sin cumplir`, "a"]
-                  : q.status === "error"
-                    ? ["sin respuesta experta", "err"]
-                    : q.status === "empty"
-                      ? ["vacía", "n"]
-                      : [q.stale ? "editada · revisar" : r ? "por aprobar" : "sin revisar", "a"];
-            // Approval comes after the grader's review of the question as it stands.
-            const canApprove = (q.status === "progress" || q.status === "new") && !!q.review;
-            return (
-              <div key={q.index} className="ws-rev-row">
-                <ContextMenu>
-                  <ContextMenuTrigger asChild>
-                    <button className={`ws-rev-toggle${open ? " open" : ""}`} aria-expanded={open} onClick={() => setOpenRow(open ? null : q.index)}>
-                  <span className="n">{q.num}</span>
-                  <span className="t">{titleOf(q)}</span>
-                  <span className="mini" title={r ? `${criteria.length - missed} de ${criteria.length} criterios cumplidos` : "sin verificar"}>
-                    {criteria.map((c) => {
-                      const met = r ? criterionMet(r, c) : null;
-                      return <span key={c.key} className={met === null ? "" : met ? "ok" : "no"} />;
-                    })}
-                  </span>
-                  <span className={`ws-state ${tone}`}>{label}</span>
-                  <span className="chev" aria-hidden="true">›</span>
-                    </button>
-                  </ContextMenuTrigger>
-                  <ContextMenuContent>
-                    <ContextMenuItem className="text-destructive" disabled={busy} onSelect={() => setAskDelete(q.index)}>
-                      Borrar pregunta…
-                    </ContextMenuItem>
-                  </ContextMenuContent>
-                </ContextMenu>
-                {askDelete === q.index && (
-                  <div className="ws-rev-ask">
-                    <DeleteConfirm
-                      num={q.num}
-                      locked={busy}
-                      onDelete={() => {
-                        setAskDelete(null);
-                        onDelete(q);
-                      }}
-                      onCancel={() => setAskDelete(null)}
-                    />
-                  </div>
-                )}
-                <div className={`ws-rev-panel${open ? " open" : ""}`}>
-                  <div>
-                    <div className="ws-rev-body">
-                      {q.text && q.answer ? (
-                        <>
-                          <div className="ws-twocol tight">
-                            <div>
-                              <p className="ws-eyebrow">Pregunta</p>
-                              <p className="clamp">{q.text}</p>
-                            </div>
-                            <div>
-                              <p className="ws-eyebrow">Respuesta experta</p>
-                              <p className="clamp soft">{q.answer}</p>
-                            </div>
-                          </div>
-                          {r?.error ? (
-                            <p className="ws-note">El juez no pudo calificar esta respuesta: {r.error.message}</p>
-                          ) : (
-                            <div className="ws-card ws-clip">
-                              <div className="ws-rev-grid head">
-                                <span>Criterio</span>
-                                <span>Importancia</span>
-                                <span className="right">¿La cumple?</span>
-                              </div>
-                              {criteria.map((c) => {
-                                const met = r ? criterionMet(r, c) : null;
-                                const why = r?.criteria?.[c.key]?.justification;
-                                return (
-                                  <div key={c.key} className={`ws-rev-grid${met === false ? " warm" : ""}`}>
-                                    <span>
-                                      <span className="ct">{c.description || c.key}</span>
-                                      {met === false && why && <span className="note">{why}</span>}
-                                    </span>
-                                    <Pips w={c.weight} />
-                                    <span className={`right mono ${met === null ? "muted" : met ? "ok" : "fail"}`}>{met === null ? "—" : met ? "sí" : "no"}</span>
-                                  </div>
-                                );
-                              })}
-                            </div>
-                          )}
-                        </>
-                      ) : (
-                        <p className="ws-note">
-                          {q.status === "empty" ? "Pregunta vacía: escribila en Autoría o borrala si no la vas a usar." : "Sin respuesta experta el juez no tiene contra qué comparar."}
-                        </p>
-                      )}
-                      {!r && (q.status === "progress" || q.status === "new") && (
-                        <p className="ws-note">Para aprobarla, primero la revisa el juez: «{reviewed ? "Volver a revisar" : "Revisar respuestas expertas"}».</p>
-                      )}
-                      <div className="ws-row-btns">
-                        {canApprove && (
-                          <button className="ws-btn-dark sm" onClick={() => onApprove(q)}>
-                            Aprobar
-                          </button>
-                        )}
-                        <button className="ws-btn-line sm" onClick={() => onOpen(q)}>
-                          {q.status === "attention" ? "Corregir en Autoría" : "Abrir en Autoría"}
-                        </button>
-                        <DeleteQuestion num={q.num} locked={busy} onDelete={() => onDelete(q)} button />
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            );
-          })}
-          {qs.length === 0 && <p className="ws-note ws-pad">Todavía no hay preguntas para revisar.</p>}
-        </div>
-      </div>
-    </div>
-  );
-}
-
 // ---- 04 · Evaluación -------------------------------------------------------------
 
 function EvaluationStage({
@@ -2214,6 +1862,7 @@ function EvaluationStage({
   runRequest,
   unapproved,
   onReview,
+  onNext,
 }: {
   bench: BenchSummary;
   evaluation: EvaluationState;
@@ -2221,6 +1870,7 @@ function EvaluationStage({
   /** Questions not yet approved: the exam is not "concretado" until they are. */
   unapproved: number;
   onReview: () => void;
+  onNext: () => void;
 }) {
   const running = evaluation.active;
   const [models, setModels] = useState<string[]>([]);
@@ -2374,7 +2024,7 @@ function EvaluationStage({
             {unapproved === 1 ? "Falta aprobar 1 pregunta" : `Faltan aprobar ${unapproved} preguntas`}: el examen todavía no está listo. Podés evaluar igual
             para probar, pero el resultado para publicar sale del examen aprobado.{" "}
             <button className="ws-link" onClick={onReview}>
-              Revisión ↗
+              Ver preguntas ↗
             </button>
           </p>
         )}
@@ -2413,6 +2063,16 @@ function EvaluationStage({
           );
         })}
         {board.length > 0 && top === 0 && <p className="ws-note">Todos en 0: revisá las fallas antes de leer el puntaje.</p>}
+      </div>
+
+      <div className="ws-eval-next">
+        <StageNext
+          eyebrow="05 · Publicación"
+          title={board.length ? "Con los resultados, contá qué encontraste" : "Cuando haya resultados, contá qué encontraste"}
+          text="La evaluación dice cómo respondió cada modelo. En Publicación eso se convierte en el análisis por criterio, el informe de hallazgos y la ficha pública del benchmark."
+          action="Ir a Publicación"
+          onClick={onNext}
+        />
       </div>
     </div>
   );
@@ -2641,8 +2301,8 @@ function AgentWindow({
               </button>
             )}
             {openExam && (
-              <button disabled={chat.pending} onClick={() => void ask("Revisá las respuestas expertas con benchy_review y contame cuáles no cumplen los criterios de evaluación y por qué.")}>
-                Revisá las respuestas expertas
+              <button disabled={chat.pending} onClick={() => void ask("Verificá las respuestas expertas con benchy_review y contame cuáles no cumplen los criterios de evaluación y por qué.")}>
+                Verificá las claves
               </button>
             )}
             <button onClick={onRun}>

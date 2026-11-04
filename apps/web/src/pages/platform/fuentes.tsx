@@ -4,18 +4,39 @@ import { usePlatform } from "./store";
 import { authorsLine, library, libraryErrorText, sources as sourcesApi, TYPE_LABEL, type LibraryHit, type SemanticHit, type Source } from "./library-data";
 import { coverage, coverageNote, pickedFromSources, sourceOfPaper } from "./fuentes-model";
 import type { PickedPaper } from "./new-bench-model";
+import type { Design } from "./exam-model";
+import { StageNext } from "./stage-next";
 import "./library.css";
 
-// 01 · Fuentes — curaduría como pantalla completa: la colección elegida a la
+// 02 · Fuentes — curaduría como pantalla completa: la colección elegida a la
 // izquierda, siempre a la vista, y la biblioteca a la derecha para el circuito
 // buscar → evaluar → decidir sin perder el contexto de lo que ya tenés. Cada
 // candidata muestra lo que un investigador necesita para juzgarla sin abrirla
 // (autores, año, origen, tipo de publicación, una muestra del texto y si hay
 // PDF legible); el cabezal de la colección resume con qué se queda el agente
-// (textos completos vs solo resúmenes). El drawer de Papers en Autoría sigue
-// como la entrada rápida; acá va la curaduría completa.
+// (textos completos vs solo resúmenes). Cierra con el paso a 03 · Preguntas;
+// el drawer de Papers en Preguntas sigue como la entrada rápida.
 
-export function SourcesStage({ bench, list, onChanged }: { bench: string; list: Source[]; onChanged: (change: string) => void }) {
+export function SourcesStage({
+  bench,
+  list,
+  design,
+  criteriaCount,
+  questionCount,
+  onNext,
+  onCriteria,
+  onChanged,
+}: {
+  bench: string;
+  list: Source[];
+  /** What the researcher set out to evaluate (design.json), shown as context. */
+  design: Design;
+  criteriaCount: number;
+  questionCount: number;
+  onNext: () => void;
+  onCriteria: () => void;
+  onChanged: (change: string) => void;
+}) {
   const { pendingSources, failedSources, dismissFailedSource, addSource } = usePlatform();
   const reading = pendingSources.filter((p) => p.bench === bench);
   const failed = failedSources.filter((p) => p.bench === bench);
@@ -64,33 +85,42 @@ export function SourcesStage({ bench, list, onChanged }: { bench: string; list: 
   };
 
   return (
-    <div className={`ws-fuentes show-${pane}`}>
-      <div className="ws-pills ws-fnt-pills">
-        <button className={pane === "col" ? "on" : ""} onClick={() => setPane("col")}>
-          Elegidas <span className="c">{list.length}</span>
-        </button>
-        <button className={pane === "lib" ? "on" : ""} onClick={() => setPane("lib")}>
-          Biblioteca
-        </button>
-      </div>
-
-      <aside className="ws-fnt-col" aria-label="Fuentes elegidas">
-        <div className="ws-fnt-col-head">
-          <div className="top">
-            <span className="ws-eyebrow">Elegidas</span>
-            <span className="ws-fnt-count">{list.length === 1 ? "1 fuente" : `${list.length} fuentes`}</span>
-          </div>
-          {cov.total > 0 || reading.length > 0 ? (
-            <span className="ws-fnt-cov">
-              {coverageNote(cov)}
-              {reading.length ? `${cov.total > 0 ? " · " : ""}${reading.length} leyéndose` : ""}
-            </span>
-          ) : null}
-          <p className="ws-fnt-note">
-            Las preguntas salen de estas fuentes: el agente las lee y en cada una cita el paper y la página. Sin PDF abierto, solo tiene el resumen.
-          </p>
+    <div className="ws-fuentes-wrap">
+      <div className={`ws-fuentes show-${pane}`}>
+        <div className="ws-pills ws-fnt-pills">
+          <button className={pane === "col" ? "on" : ""} onClick={() => setPane("col")}>
+            Elegidas <span className="c">{list.length}</span>
+          </button>
+          <button className={pane === "lib" ? "on" : ""} onClick={() => setPane("lib")}>
+            Biblioteca
+          </button>
         </div>
-        <div className="ws-fnt-col-body">
+
+        <aside className="ws-fnt-col" aria-label="Fuentes elegidas">
+          <div className="ws-fnt-col-head">
+            <div className="top">
+              <span className="ws-eyebrow">Elegidas</span>
+              <span className="ws-fnt-count">{list.length === 1 ? "1 fuente" : `${list.length} fuentes`}</span>
+            </div>
+            {cov.total > 0 || reading.length > 0 ? (
+              <span className="ws-fnt-cov">
+                {coverageNote(cov)}
+                {reading.length ? `${cov.total > 0 ? " · " : ""}${reading.length} leyéndose` : ""}
+              </span>
+            ) : null}
+            <div className="ws-fnt-design">
+              <span className="ws-eyebrow">Qué vamos a evaluar</span>
+              <p>{design.purpose.trim() || "Todavía no lo definiste: 01 · Criterios dice qué querés averiguar."}</p>
+              <button className="ws-link" onClick={onCriteria}>
+                {criteriaCount > 0 ? `${criteriaCount} ${criteriaCount === 1 ? "criterio" : "criterios"} · abrir 01 · Criterios ↗` : "Abrir 01 · Criterios ↗"}
+              </button>
+            </div>
+            <p className="ws-fnt-note">
+              Estás en 02 · Fuentes. Elegí el material con el que el agente escribirá las preguntas: las lee y en cada una cita el paper y la página.
+              Sin PDF abierto, solo tiene el resumen. Cuando tengas al menos una, seguí a 03 · Preguntas.
+            </p>
+          </div>
+          <div className="ws-fnt-col-body">
           {reading.map((p) => (
             <div key={`r-${p.id}`} className="ws-fnt-src reading">
               <span className="t">{p.title}</span>
@@ -146,17 +176,39 @@ export function SourcesStage({ bench, list, onChanged }: { bench: string; list: 
             <div className="ws-fnt-empty">
               <span className="t">Tu colección está vacía</span>
               <ol>
+                <li>Mirá 01 · Criterios: ahí está qué querés evaluar y con qué criterios.</li>
                 <li>Buscá en la biblioteca los papers del tema del benchmark.</li>
                 <li>Evaluá cada candidata: quién la publica, de qué año es y si tiene PDF legible.</li>
                 <li>Elegila: el agente lee el PDF y cada pregunta cita el paper y la página.</li>
               </ol>
-              <span className="d">¿Un PDF propio? Se sube desde Papers, en Autoría.</span>
+              <span className="d">¿Un PDF propio? Se sube desde el botón Papers, en 03 · Preguntas.</span>
             </div>
           )}
         </div>
       </aside>
 
       <LibrarySearch chosen={chosen} busyIds={busy} onToggle={(p) => void toggle(p)} toggleError={error} onDismissError={() => setError(null)} />
+      </div>
+      <StageNext
+        eyebrow="03 · Preguntas"
+        title="Siguiente: escribir las preguntas"
+        text={
+          list.length > 0 ? (
+            <>
+              Con {list.length === 1 ? "esta fuente" : `estas ${list.length} fuentes`} el agente puede escribir preguntas que pongan a prueba los
+              criterios de 01 · Criterios. En 03 · Preguntas las revisás, verificás la clave y aprobás una por una.
+              {questionCount > 0 ? ` El examen ya tiene ${questionCount} ${questionCount === 1 ? "pregunta" : "preguntas"}.` : ""}
+            </>
+          ) : (
+            <>
+              Todavía no elegiste fuentes: el agente no puede escribir preguntas sin material. Podés seguir y volver, o elegir una candidata de la
+              biblioteca ahora.
+            </>
+          )
+        }
+        action="Ir a Preguntas"
+        onClick={onNext}
+      />
     </div>
   );
 }

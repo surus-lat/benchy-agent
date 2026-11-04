@@ -144,11 +144,11 @@ export default function Home() {
                 className="bp-row bp-row-click"
                 role="button"
                 tabIndex={0}
-                onClick={() => navigate(`/app/b/${encodeURIComponent(b.slug)}/autoria`)}
+                onClick={() => navigate(`/app/b/${encodeURIComponent(b.slug)}/criterios`)}
                 onKeyDown={(e) => {
                   if (e.key === "Enter" || e.key === " ") {
                     e.preventDefault();
-                    navigate(`/app/b/${encodeURIComponent(b.slug)}/autoria`);
+                    navigate(`/app/b/${encodeURIComponent(b.slug)}/criterios`);
                   }
                 }}
               >
@@ -261,7 +261,7 @@ function OrgActivity() {
       {items.map((a) => {
         const bench = benches.find((b) => b.slug === a.bench);
         return (
-          <button key={a.id} className="bp-act-row" onClick={() => a.bench && navigate(`/app/b/${encodeURIComponent(a.bench)}/autoria`)}>
+          <button key={a.id} className="bp-act-row" onClick={() => a.bench && navigate(`/app/b/${encodeURIComponent(a.bench)}/criterios`)}>
             <span className="t">{activityLine(a)}</span>
             <span className="b">{bench?.doc?.title ?? a.bench}</span>
             <span className="w">{since(Date.parse(a.createdAt) / 1000)}</span>

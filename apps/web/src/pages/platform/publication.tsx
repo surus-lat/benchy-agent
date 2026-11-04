@@ -2,14 +2,15 @@ import { useEffect, useMemo, useState } from "react";
 import { api, errorText, newestPerModel, publicPath, type Analysis } from "./data";
 import { usePlatform, type BenchSummary } from "./store";
 import { useRunResults, type EvaluationState, type ExamState } from "./use-exam";
+import { hasDesign } from "./exam-model";
 
-// 04 · Publicación: what the results say (the analysis: by criterion, topic,
+// 05 · Publicación: what the results say (the analysis: by criterion, topic,
 // paper and question), the findings report (report.md: the agent writes it on
 // its own when an evaluation ends, and the researcher adjusts it with the agent;
 // rendered on the SURUS letterhead at /app/b/:slug/informe), and the public
 // card, still a preview.
 
-export type PubStage = "autoria" | "revision" | "evaluacion" | "publicacion";
+export type PubStage = "criterios" | "fuentes" | "autoria" | "evaluacion" | "publicacion";
 
 type Tab = "analisis" | "informe" | "publicar";
 
@@ -492,9 +493,15 @@ function PublishView({ bench, exam, openExam, mcExam, go }: { bench: BenchSummar
   const title = exam.doc?.title ?? bench.slug;
   const org = me?.org?.name ?? "";
   const checks = [
-    { ok: approved > 0, label: `${approved} de ${qs.length} preguntas aprobadas`, go: "revision" as PubStage, goLabel: "Revisión" },
+    {
+      ok: hasDesign(exam.design),
+      label: hasDesign(exam.design) ? "El diseño dice qué se evalúa" : "Falta definir qué se quiere evaluar",
+      go: "criterios" as PubStage,
+      goLabel: "Criterios",
+    },
+    { ok: approved > 0, label: `${approved} de ${qs.length} preguntas aprobadas`, go: "autoria" as PubStage, goLabel: "Preguntas" },
     { ok: board.length > 0, label: board.length ? "Hay una evaluación para adjuntar" : "Falta ejecutar la evaluación", go: "evaluacion" as PubStage, goLabel: "Evaluación" },
-    { ok: !!bench.validation?.ok, label: bench.validation?.ok ? "El benchmark compila (benchy_validate)" : "El benchmark no compila todavía", go: "autoria" as PubStage, goLabel: "Autoría" },
+    { ok: !!bench.validation?.ok, label: bench.validation?.ok ? "El benchmark compila (benchy_validate)" : "El benchmark no compila todavía", go: "autoria" as PubStage, goLabel: "Preguntas" },
   ];
   const radio = (on: boolean) => `ws-radio${on ? " on" : ""}`;
   return (

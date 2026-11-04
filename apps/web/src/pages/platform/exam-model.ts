@@ -70,6 +70,52 @@ export type Quality = {
 
 export type Criterion = { key: string; weight: number; description: string; levels: number[] };
 
+/**
+ * The benchmark's design, written before any question: what we set out to find
+ * out, what a model that masters the subject should do, the errors the exam
+ * should expose, and what the score leaves out. It lives in `design.json` so
+ * the researcher and the agent work on the same explicit text.
+ */
+export type Design = {
+  /** The question the benchmark answers: what we want to find out. */
+  purpose: string;
+  /** What a model that masters the subject should be able to do. */
+  construct: string;
+  /** The errors or blind spots the exam should expose. */
+  failureModes: string;
+  /** What the score captures and what it hides. */
+  notes: string;
+};
+
+export const EMPTY_DESIGN: Design = { purpose: "", construct: "", failureModes: "", notes: "" };
+
+const designField = (v: unknown) => (typeof v === "string" ? v : "");
+
+/** Read `design.json`; a missing or unreadable file reads as an empty design. */
+export function parseDesign(text: string | null | undefined): Design {
+  if (!text) return { ...EMPTY_DESIGN };
+  try {
+    const d = JSON.parse(text) as Partial<Design>;
+    return {
+      purpose: designField(d.purpose),
+      construct: designField(d.construct),
+      failureModes: designField(d.failureModes),
+      notes: designField(d.notes),
+    };
+  } catch {
+    return { ...EMPTY_DESIGN };
+  }
+}
+
+export function serializeDesign(d: Design): string {
+  return JSON.stringify({ ...d, updatedAt: new Date().toISOString() }, null, 2) + "\n";
+}
+
+/** Has the researcher said anything about what the benchmark evaluates? */
+export function hasDesign(d: Design): boolean {
+  return !!(d.purpose.trim() || d.construct.trim() || d.failureModes.trim() || d.notes.trim());
+}
+
 /** Status in the question list. */
 export type QStatus = "done" | "progress" | "attention" | "new" | "error" | "empty";
 

@@ -1,7 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { api, ApiError, errorText, readBenchYaml, type BenchDoc, type Evaluation, type RunResult } from "./data";
 import {
+  EMPTY_DESIGN,
   parseBenchDoc,
+  parseDesign,
   parseExam,
   parseMeta,
   questionsFrom,
@@ -9,9 +11,11 @@ import {
   readCriteria,
   readMetric,
   reviewMatchesRubric,
+  serializeDesign,
   serializeExam,
   serializeMeta,
   type Criterion,
+  type Design,
   type ExamRow,
   type QuestionMeta,
   type Quality,
@@ -50,13 +54,15 @@ export function useExam(bench: BenchSummary | undefined) {
   const [review, setReview] = useState<Review | null>(null);
   const [quality, setQuality] = useState<Quality | null>(null);
   const [sources, setSources] = useState<Source[]>([]);
+  const [design, setDesign] = useState<Versioned<Design>>({ value: { ...EMPTY_DESIGN } });
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [save, setSave] = useState<SaveState>("idle");
   const [savedAt, setSavedAt] = useState<number | null>(null);
   const { files } = usePlatform();
-  // The review's, the quality's and the papers' versions as last read: written by the container, never by A.
-  const side = useRef<{ review?: number; quality?: number; sources?: number }>({});
+  // The review's, the quality's, the papers' and the design's versions as last
+  // read: written by the container, never by A.
+  const side = useRef<{ review?: number; quality?: number; sources?: number; design?: number }>({});
 
   const doc: BenchDoc | null = yaml && slug ? readBenchYaml(yaml.value, slug) : null;
   let criteria: Criterion[] | null = null;
@@ -71,30 +77,33 @@ export function useExam(bench: BenchSummary | undefined) {
   }
   const examPath = doc?.examPath ?? (slug ? `${slug}/exam.jsonl` : null);
   const metaPath = slug ? `${slug}/questions.json` : null;
+  const designPath = slug ? `${slug}/design.json` : null;
 
   const reload = useCallback(async () => {
     if (!bench) return;
     try {
       const y = await api.file(bench.yamlPath);
-      const d = readBenchYaml(y.content, bench.slug);
-      const ePath = d.examPath ?? `${bench.slug}/exam.jsonl`;
+      const benchDoc = readBenchYaml(y.content, bench.slug);
+      const ePath = benchDoc.examPath ?? `${bench.slug}/exam.jsonl`;
       // A fresh listing: the agent may have written files since the platform's last refresh.
       const known = await api
         .files()
         .then((r) => new Set(r.files.map((f) => f.path)))
         .catch(() => null);
-      const [e, m, r, q, src] = await Promise.all([
+      const [e, m, r, q, src, designFile] = await Promise.all([
         readOptional(ePath, known),
         readOptional(`${bench.slug}/questions.json`, known),
         readOptional(`${bench.slug}/review.json`, known),
         readOptional(`${bench.slug}/quality.json`, known),
         readOptional(`${bench.slug}/sources.json`, known),
+        readOptional(`${bench.slug}/design.json`, known),
       ]);
       setSources(parseSources(src?.content));
-      side.current = { review: r?.modified, quality: q?.modified, sources: src?.modified };
+      side.current = { review: r?.modified, quality: q?.modified, sources: src?.modified, design: designFile?.modified };
       setYaml({ value: y.content, modified: y.modified });
       setRows({ value: e ? parseExam(e.content) : [], modified: e?.modified });
       setMeta({ value: parseMeta(m?.content), modified: m?.modified });
+      setDesign({ value: parseDesign(designFile?.content), modified: designFile?.modified });
       try {
         setReview(r ? (JSON.parse(r.content) as Review) : null);
       } catch {
@@ -121,14 +130,16 @@ export function useExam(bench: BenchSummary | undefined) {
   /** Re-read what only the container writes (the papers, the grader's review and quality), leaving edits alone. */
   const refreshSide = useCallback(async () => {
     if (!slug) return;
-    const [r, q, src] = await Promise.all([
+    const [r, q, src, d] = await Promise.all([
       readOptional(`${slug}/review.json`, null),
       readOptional(`${slug}/quality.json`, null),
       readOptional(`${slug}/sources.json`, null),
-    ]).catch(() => [undefined, undefined, undefined]);
+      readOptional(`${slug}/design.json`, null),
+    ]).catch(() => [undefined, undefined, undefined, undefined]);
     if (r === undefined) return;
-    side.current = { review: r?.modified, quality: q?.modified, sources: src?.modified };
+    side.current = { review: r?.modified, quality: q?.modified, sources: src?.modified, design: d?.modified };
     setSources(parseSources(src?.content));
+    setDesign({ value: parseDesign(d?.content), modified: d?.modified });
     try {
       setReview(r ? (JSON.parse(r.content) as Review) : null);
     } catch {
@@ -144,8 +155,8 @@ export function useExam(bench: BenchSummary | undefined) {
   // Saving: the latest rows/meta are written after a pause in typing.
   const pending = useRef<{ rows?: (ExamRow | { raw: string })[]; meta?: QuestionMeta[] } | null>(null);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const versions = useRef({ exam: rows.modified, meta: meta.modified, yaml: yaml?.modified });
-  versions.current = { exam: rows.modified, meta: meta.modified, yaml: yaml?.modified };
+  const versions = useRef({ exam: rows.modified, meta: meta.modified, yaml: yaml?.modified, design: design.modified });
+  versions.current = { exam: rows.modified, meta: meta.modified, yaml: yaml?.modified, design: design.modified };
 
   const flush = useCallback(async () => {
     const job = pending.current;
@@ -227,6 +238,27 @@ export function useExam(bench: BenchSummary | undefined) {
     [bench, reload],
   );
 
+  const saveDesign = useCallback(
+    async (next: Design) => {
+      if (!designPath) return;
+      setDesign((cur) => ({ ...cur, value: next }));
+      setSave("saving");
+      try {
+        const r = await api.write(designPath, serializeDesign(next), versions.current.design);
+        setDesign({ value: next, modified: r.modified });
+        versions.current.design = r.modified;
+        side.current.design = r.modified;
+        setSave("saved");
+        setSavedAt(Date.now());
+      } catch (err) {
+        setSave("error");
+        setError(errorText(err));
+        if (err instanceof ApiError && err.code === "CONFLICT") await reload();
+      }
+    },
+    [designPath, reload],
+  );
+
   // The platform's listing says a file changed behind this window (the agent, a
   // colleague, a paper read in the background): load it, without losing typing.
   const stamp = (p: string | null | undefined) => (p ? files?.find((f) => f.path === p)?.modified : undefined);
@@ -237,6 +269,7 @@ export function useExam(bench: BenchSummary | undefined) {
     review: stamp(slug && `${slug}/review.json`),
     quality: stamp(slug && `${slug}/quality.json`),
     sources: stamp(slug && `${slug}/sources.json`),
+    design: stamp(designPath),
   };
   useEffect(() => {
     if (loading || !files) return;
@@ -244,10 +277,15 @@ export function useExam(bench: BenchSummary | undefined) {
     const v = versions.current;
     if ((newer(remote.exam, v.exam) || newer(remote.meta, v.meta) || newer(remote.yaml, v.yaml)) && !pending.current) {
       void reload();
-    } else if (newer(remote.review, side.current.review) || newer(remote.quality, side.current.quality) || newer(remote.sources, side.current.sources)) {
+    } else if (
+      newer(remote.review, side.current.review) ||
+      newer(remote.quality, side.current.quality) ||
+      newer(remote.sources, side.current.sources) ||
+      newer(remote.design, side.current.design)
+    ) {
       void refreshSide();
     }
-  }, [remote.exam, remote.meta, remote.yaml, remote.review, remote.quality, remote.sources, loading]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [remote.exam, remote.meta, remote.yaml, remote.review, remote.quality, remote.sources, remote.design, loading]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const questions = questionsQuality(questionsFrom(rows.value, meta.value, review, criteria), quality);
   // The last review was made with a rubric that has changed since.
@@ -272,11 +310,15 @@ export function useExam(bench: BenchSummary | undefined) {
     questions,
     /** The benchmark's papers (sources.json). */
     sources,
+    /** What the benchmark sets out to evaluate (design.json). */
+    design: design.value,
+    designPath,
     examPath,
     reload,
     update,
     updateMeta,
     saveYaml,
+    saveDesign,
     flush,
   };
 }

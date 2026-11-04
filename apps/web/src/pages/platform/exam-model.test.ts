@@ -5,6 +5,7 @@ import {
   criterionMet,
   groupsOf,
   parseBenchDoc,
+  parseDesign,
   parseExam,
   parseMeta,
   questionsFrom,
@@ -16,10 +17,13 @@ import {
   removeCriterion,
   removeQuestion,
   reviewMatchesRubric,
+  serializeDesign,
   serializeExam,
   serializeMeta,
   setCriterion,
   shareOf,
+  hasDesign,
+  EMPTY_DESIGN,
   type Quality,
   type Review,
 } from "./exam-model";
@@ -150,6 +154,29 @@ data: { path: ./exam.jsonl }
     expect(readMetric(parseBenchDoc(mcYaml))).toBe("casefold_strip");
     expect(readMetric(parseBenchDoc(YAML))).toBe("rubric");
     expect(readMetric(parseBenchDoc("benchmark: { task: extract }"))).toBeNull();
+  });
+});
+
+describe("benchmark design (design.json)", () => {
+  it("reads an empty design from a missing or unreadable file", () => {
+    expect(parseDesign(null)).toEqual(EMPTY_DESIGN);
+    expect(parseDesign(undefined)).toEqual(EMPTY_DESIGN);
+    expect(parseDesign("nope")).toEqual(EMPTY_DESIGN);
+    expect(parseDesign("{}")).toEqual(EMPTY_DESIGN);
+  });
+
+  it("reads the four fields and ignores anything else", () => {
+    const d = parseDesign(JSON.stringify({ purpose: "qué", construct: "puede", failureModes: "errores", notes: "límites", updatedAt: "ayer" }));
+    expect(d).toEqual({ purpose: "qué", construct: "puede", failureModes: "errores", notes: "límites" });
+    expect(hasDesign(d)).toBe(true);
+    expect(hasDesign({ ...EMPTY_DESIGN, notes: "  " })).toBe(false);
+  });
+
+  it("round-trips through serializeDesign with an updatedAt stamp", () => {
+    const d = { purpose: "qué", construct: "puede", failureModes: "errores", notes: "límites" };
+    const text = serializeDesign(d);
+    expect(parseDesign(text)).toEqual(d);
+    expect(JSON.parse(text).updatedAt).toEqual(expect.any(String));
   });
 });
 

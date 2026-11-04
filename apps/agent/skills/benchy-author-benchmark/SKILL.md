@@ -16,6 +16,7 @@ benchmarks is `/opt/data/workspace`):
 
 ```
 /opt/data/workspace/<slug>/benchmark.yaml
+/opt/data/workspace/<slug>/design.json
 /opt/data/workspace/<slug>/exam.jsonl
 ```
 
@@ -26,6 +27,17 @@ update it if the benchmark's purpose changes.
 
 Tools take paths **relative to the workspace**: `benchy_validate("<slug>/benchmark.yaml")`.
 The workspace is shared by the whole organization — name folders clearly.
+
+## Start with what the benchmark evaluates
+
+Before the four questions below, settle **what the benchmark sets out to find
+out**: apply `benchy-evaluation-criteria`. It produces `<slug>/design.json`
+(purpose, construct, failureModes, notes) and, for open questions, the rubric
+criteria in `benchmark.yaml`. The app shows this as **01 · Criterios**, before
+Fuentes and Preguntas. The design is the north: every source, question and
+criterion must trace back to it. If the researcher asks for questions while the
+design is empty, ask the four design questions first (or fill what they have
+already said) instead of inventing a topic.
 
 ## The four questions, in order
 
@@ -115,12 +127,13 @@ ai-system:
 
 - **Criteria** are named `c1`, `c2`, … in order, each with `levels {0: No lo
   cumple, 1: Lo cumple}` and a `weight` from 1 to 5: how important it is. Write
-  each `description` as one checkable sentence. The researcher decides how many
-  (one to ten: the app allows up to ten, and adds and removes them too); the same
-  rubric applies to every question. A new criterion takes the next number after
-  the highest (`c4` after `c1`–`c3`, even if `c2` was removed). After any change
-  to the rubric, run `benchy_review` again: the app counts a review only for the
-  rubric it was made with.
+  each `description` as one checkable sentence, derived from `design.json`. The
+  researcher decides how many (one to ten: the app allows up to ten, and adds and
+  removes them too); the same rubric applies to every question. A new criterion
+  takes the next number after the highest (`c4` after `c1`–`c3`, even if `c2` was
+  removed). After any change to the rubric, run `benchy_review` again: the app
+  counts a review only for the rubric it was made with. The full workflow is in
+  `benchy-evaluation-criteria`.
 - **Exam rows** are `{"input": {"question": "..."}, "expected": {"answer": "..."}}`:
   the expected answer is the expert answer — the key the grader compares with.
 - **Question notes** go in `<slug>/questions.json`, never in the exam (the
@@ -153,7 +166,9 @@ write every question from them:
 
 - Each question tests something a specialist would know **from that paper** —
   a finding, an argument, a method and why it was chosen — not trivia (a date,
-  a sample size alone) and not something answerable from the title.
+  a sample size alone) and not something answerable from the title. It must also
+  put at least one rubric criterion to the test and aim at a failure mode named
+  in `design.json`; if it does neither, it is not part of this benchmark.
 - The expert answer is what the paper supports, in your own words, complete
   enough that the grader can check every rubric criterion against it.
 - In `questions.json`, `sources` cites the paper by id and page:
@@ -179,7 +194,8 @@ scored by `metric: casefold_strip` — no `params`, no `grader`. Each exam row i
 `{"input": {"question": "…", "options": {"a": "…", "b": "…", "c": "…", "d": "…"}},
 "expected": {"answer": "<exact text of the correct option>"}}`: the answer is
 the option's exact text (the metric only folds case and accents), and the
-distractors stay plausible and clearly wrong. When the researcher's benchmark is
+distractors stay plausible and clearly wrong. Distractors should catch the
+failure modes named in `design.json`. When the researcher's benchmark is
 this shape, write MC rows, not open questions.
 
 ## Closed answers: exact match

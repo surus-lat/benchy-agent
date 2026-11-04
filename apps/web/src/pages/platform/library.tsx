@@ -325,7 +325,7 @@ function PaperDetail({ id, onClose }: { id: number; onClose: () => void }) {
               <p className="lib-ok">
                 Agregado a {benches.find((b) => b.slug === added.bench)?.doc?.title ?? added.bench}
                 {added.source.text === "full" ? ` · ${added.source.pages} páginas de texto` : " · solo el resumen (sin PDF abierto)"}.{" "}
-                <button className="lib-link" onClick={() => navigate(`/app/b/${encodeURIComponent(added.bench)}/autoria`)}>
+                <button className="lib-link" onClick={() => navigate(`/app/b/${encodeURIComponent(added.bench)}/fuentes`)}>
                   Abrir el benchmark →
                 </button>
               </p>

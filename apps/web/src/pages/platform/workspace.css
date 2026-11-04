@@ -315,7 +315,7 @@
 .ws-crit-lib-row .d { flex: 1; min-width: 0; font-size: 12.5px; line-height: 1.4; }
 .ws-crit-lib-row .w { flex: none; font-size: 11px; }
 
-/* ---- 02 Revisión ---- */
+/* ---- Filas plegables (publicación) ---- */
 .ws-rev-head { display: flex; flex-wrap: wrap; align-items: flex-end; justify-content: space-between; gap: 10px 16px; margin-bottom: 12px; }
 .ws-rev-head .ws-note { max-width: 38rem; font-size: 14px; }
 .ws-rev-head .r { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
@@ -627,6 +627,7 @@
 .ws-ready { display: flex; align-items: center; gap: 10px; margin: 0 0 12px; padding: 10px 12px; border: 1px solid var(--ok-line); border-radius: 12px; background: var(--ok-bg); font-size: 13.5px; line-height: 1.5; color: var(--ink-soft); animation: ws-fade 200ms ease both; }
 .ws-ready > span:nth-child(2) { flex: 1; min-width: 0; }
 .ws-eval-warn { margin: 0; padding: 10px 14px; border-top: 1px solid var(--amber-line); background: var(--amber-soft); font-size: 12.5px; line-height: 1.5; color: var(--amber-deep); }
+.ws-eval-next { grid-column: 1 / -1; }
 
 @media (max-width: 900px) {
   .ws-win { left: 8px !important; right: 8px !important; width: auto !important; top: 56px !important; bottom: 8px !important; transform: none !important; }
@@ -681,3 +682,70 @@
 .ws-val-edit-row input { flex: 1; font: inherit; font-size: 13px; padding: 6px 8px; border: 1px solid var(--line); border-radius: 6px; background: var(--paper-2); color: var(--ink); }
 .ws-val-edit-row input:focus { outline: none; border-color: var(--amber); }
 .ws-val-edit-foot { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+
+/* ---- 01 · Criterios ---- */
+.ws-criteria { max-width: 1000px; margin: 0 auto; display: flex; flex-direction: column; gap: 18px; }
+.ws-crit-hero { display: flex; flex-direction: column; gap: 10px; }
+.ws-crit-hero h2 { margin: 0; font-size: clamp(24px, 3vw, 32px); font-weight: 600; letter-spacing: -0.02em; }
+.ws-crit-hero .ws-note { max-width: 62ch; font-size: 14px; }
+.ws-crit-ask { display: flex; flex-direction: column; gap: 6px; margin-top: 4px; }
+.ws-crit-ask .ws-eyebrow { margin: 0 !important; }
+.ws-crit-design { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(300px, 100%), 1fr)); gap: 12px; }
+.ws-design { display: flex; flex-direction: column; gap: 5px; border: 1px solid var(--line-soft); border-radius: 12px; background: #fff; padding: 14px 16px; }
+.ws-design .t { font-size: 14px; font-weight: 600; }
+.ws-design .q { font-size: 12.5px; line-height: 1.4; color: var(--body); }
+.ws-design .h { font-size: 12px; line-height: 1.45; color: var(--muted); }
+.ws-edit.design { margin: 4px -8px; font: 14px/1.55 var(--sans); }
+.ws-design-save { grid-column: 1 / -1; font-size: 12px; color: var(--muted); }
+.ws-design-save .mono { color: var(--body); }
+.ws-crit-rubric { display: flex; flex-direction: column; gap: 10px; }
+.ws-crit-rubric-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
+.ws-crit-rubric-head .ws-note { max-width: 62ch; }
+.ws-crit-count { flex: none; border: 1px solid var(--line); border-radius: 999px; padding: 3px 10px; font-size: 11.5px; color: var(--body); }
+.ws-crit-list { display: flex; flex-direction: column; gap: 10px; }
+.ws-crit-how { display: flex; flex-direction: column; gap: 8px; border: 1px solid var(--line-soft); border-radius: 12px; background: var(--paper-2); padding: 14px 16px; }
+.ws-crit-how .ws-eyebrow { margin: 0 !important; }
+.ws-crit-how p { font-size: 13.5px; line-height: 1.6; color: var(--body); }
+.ws-crit-how strong { color: var(--ink); font-weight: 600; }
+.ws-crit-closed { display: flex; flex-direction: column; gap: 10px; }
+
+/* The end of every stage says what comes next. */
+.ws-next { display: flex; flex-wrap: wrap; align-items: center; gap: 14px; border: 1px solid var(--amber-line); border-radius: 12px; background: var(--amber-paper); padding: 14px 16px; }
+.ws-next .b { flex: 1 1 20rem; min-width: 0; }
+.ws-next .t { font-size: 15px; font-weight: 600; }
+.ws-next .d { margin-top: 3px !important; font-size: 13.5px; line-height: 1.55; color: var(--body); }
+.ws-next .ws-eyebrow { margin: 0 0 4px !important; color: var(--amber-deep); }
+.ws-next .ws-btn-dark { flex: none; }
+.ws-next.done { border-color: var(--ok-line); background: var(--ok-bg); }
+
+/* Verification of the expert answer, inline in Preguntas. */
+.ws-keybar { display: flex; flex-wrap: wrap; align-items: flex-start; gap: 10px; margin-bottom: 12px; padding: 10px 12px; border: 1px solid var(--line-soft); border-radius: 12px; background: var(--paper-2); }
+.ws-keybar.ready { border-color: var(--ok-line); background: var(--ok-bg); }
+.ws-keybar .txt { flex: 1 1 18rem; min-width: 0; font-size: 12.5px; line-height: 1.5; color: var(--body); }
+.ws-keybar .txt strong { color: var(--ink); }
+.ws-keybar .ws-btn-line { flex: none; }
+.ws-approve { display: flex; flex-direction: column; gap: 8px; }
+.ws-approve-grid { display: flex; flex-direction: column; }
+.ws-approve-grid > div { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 3px 10px; padding: 7px 0; border-top: 1px solid var(--line-soft); }
+.ws-approve-grid > div:first-child { border-top: 0; padding-top: 0; }
+.ws-approve-grid > div.warm { background: var(--amber-soft); }
+.ws-approve-grid .ct { font-size: 13px; line-height: 1.4; }
+.ws-approve-grid .rg { font: 500 11.5px var(--mono); }
+.ws-approve-grid .note { grid-column: 1 / -1; font-size: 12px; line-height: 1.45; color: var(--amber-deep); }
+.ws-approve .ws-row-btns { align-items: center; }
+.ws-approve .ws-note.ok { margin: 0; font-size: 12.5px; }
+
+/* Fuentes: the collection pane sits inside a column with the next-step footer. */
+.ws-fuentes-wrap { flex: 1; min-height: 0; display: flex; flex-direction: column; overflow: hidden; }
+.ws-fuentes-wrap > .ws-next { flex: none; margin: 10px 14px 14px; }
+.ws-fnt-design { display: flex; flex-direction: column; gap: 3px; border-top: 1px solid var(--line-soft); margin-top: 2px; padding-top: 8px; }
+.ws-fnt-design .ws-eyebrow { margin: 0 !important; }
+.ws-fnt-design p { font-size: 12.5px; line-height: 1.45; color: var(--ink-soft); }
+.ws-fnt-design .ws-link { align-self: flex-start; }
+
+@media (max-width: 640px) {
+  .ws-crit-rubric-head { flex-direction: column; }
+  .ws-next .ws-btn-dark { width: 100%; }
+  .ws-fuentes-wrap > .ws-next { margin: 8px 10px 10px; }
+  .ws-keybar .ws-btn-line { width: 100%; }
+}

@@ -34,7 +34,7 @@ const PAGE_LEVEL: Record<TourPage, TourLevel> = { home: "home", nuevo: "home", w
 const PAGE_RANK: Record<TourPage, number> = { home: 0, nuevo: 1, workspace: 2 };
 
 // One continuous list: home first, then the workspace stages in the real flow
-// order (fuentes → autoría → revisión → evaluación → publicación).
+// order (criterios → fuentes → preguntas → evaluación → publicación).
 export const TOUR_STEPS: TourStep[] = [
   {
     id: "home-new",
@@ -49,7 +49,16 @@ export const TOUR_STEPS: TourStep[] = [
     page: "nuevo",
     route: "/app/nuevo",
     title: "Creá y abrí",
-    text: "Ponele un nombre y crealo: se abre en Fuentes, donde elegís las bases del examen.",
+    text: "Ponele un nombre y crealo: se abre en 01 · Criterios, donde definís qué querés averiguar.",
+  },
+  {
+    id: "ws-criterios",
+    anchor: "tour-ws-tab-criterios",
+    page: "workspace",
+    route: "/app/b/{slug}/criterios",
+    requireBench: true,
+    title: "01 · Criterios",
+    text: "Decidí con el agente qué querés evaluar y escribí los criterios con los que el juez medirá cada respuesta.",
   },
   {
     id: "ws-fuentes",
@@ -57,26 +66,17 @@ export const TOUR_STEPS: TourStep[] = [
     page: "workspace",
     route: "/app/b/{slug}/fuentes",
     requireBench: true,
-    title: "01 · Fuentes",
-    text: "Subí o buscá las fuentes sobre las que vas a examinar: las preguntas salen de acá.",
+    title: "02 · Fuentes",
+    text: "Elegí los papers sobre los que vas a examinar: las preguntas salen de ahí y cada una cita paper y página.",
   },
   {
     id: "ws-autoria",
-    anchor: "tour-ws-calidad",
+    anchor: "tour-ws-tab-autoria",
     page: "workspace",
     route: "/app/b/{slug}/autoria",
     requireBench: true,
-    title: "02 · Autoría",
-    text: "Escribí preguntas o pedí un lote al agente, y medilas con Verificar calidad.",
-  },
-  {
-    id: "ws-revision",
-    anchor: "tour-ws-revision",
-    page: "workspace",
-    route: "/app/b/{slug}/revision",
-    requireBench: true,
-    title: "03 · Revisión",
-    text: "Antes de evaluar, el juez revisa cada respuesta experta y vos aprobás la pregunta.",
+    title: "03 · Preguntas",
+    text: "Escribí preguntas o pedí un lote al agente, verificá la clave y aprobá cada una: el examen se arma acá.",
   },
   {
     id: "ws-evaluacion",

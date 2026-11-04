@@ -8,11 +8,11 @@ import { benchmarkYaml, DOMAINS, LANGUAGES, slugify, uniqueSlug, type ExamKind }
 import { tourAnchorRef } from "./tour";
 
 // /app/nuevo — a new benchmark, name-first: the form is the whole wizard.
-// Creating it lands in 01 · Fuentes, where the bibliography is chosen (the
-// papers and publications the questions are written from); Autoría comes
-// after, with the agent writing the questions over those sources. Started
-// from a paper in the library (/app/nuevo?paper=<id>), that paper goes in as
-// the first source when the benchmark is created. The agent waits in B;
+// Creating it lands in 01 · Criterios, where the researcher decides what the
+// benchmark sets out to evaluate. Fuentes comes after (the papers the questions
+// are written from) and Preguntas last (the agent writes over those sources).
+// Started from a paper in the library (/app/nuevo?paper=<id>), that paper goes
+// in as the first source when the benchmark is created. The agent waits in B;
 // nothing here talks to it.
 
 export function NewBench() {
@@ -64,10 +64,10 @@ export function NewBench() {
       await Promise.all([api.write(`${folder}/exam.jsonl`, "", 0), api.write(`${folder}/questions.json`, serializeMeta([]), 0)]);
       void api.logActivity(folder, "create", "creó el benchmark");
       // The paper this was started from becomes the first source; if it
-      // cannot be added now, it can be added from 01 · Fuentes.
+      // cannot be added now, it can be added from 02 · Fuentes.
       if (paperId) await sources.add(folder, paperId).catch(() => null);
       await refresh();
-      navigate(`/app/b/${encodeURIComponent(folder)}/fuentes`);
+      navigate(`/app/b/${encodeURIComponent(folder)}/criterios`);
     } catch (err) {
       setError(errorText(err));
       setState("idle");
@@ -78,8 +78,8 @@ export function NewBench() {
     <section className="bp-page bp-newbench">
       <h1 className="bp-h1">Nuevo benchmark</h1>
       <p className="body">
-        Le ponés un nombre y se crea: las fuentes las elegís en la pestaña Fuentes, apenas se crea. Después, en Autoría, el agente escribe
-        las preguntas sobre esas fuentes.
+        Le ponés un nombre y se crea: lo primero es 01 · Criterios, donde definís con el agente qué querés averiguar y cómo se va a medir cada
+        respuesta. Después elegís las fuentes en 02 · Fuentes y el agente escribe las preguntas en 03 · Preguntas.
         {kind === "open"
           ? " El examen arranca con tres criterios de evaluación que podés cambiar."
           : " Cada pregunta de opción múltiple tiene cuatro opciones y una respuesta correcta: se corrige por coincidencia exacta, sin criterios de evaluación."}
