@@ -252,7 +252,6 @@ export default function Workspace({ slug, stage: stageParam }: { slug: string; s
   // pending paper waits for the org's checklist in the Papers drawer and stays
   // out of generation (the batch prompt names only the validated ids).
   const validPapers = papers.filter((s) => sourceState(validations[s.id]) === "validated");
-  const pendingPapers = papers.length - validPapers.length;
   // The exam is "concretado" when the grader has reviewed every question as it
   // stands, the researcher approved each one, and it compiles.
   const ready = openExam && qs.length > 0 && qs.every((x) => x.status === "done" && x.review) && !!bench.validation?.ok;
@@ -311,26 +310,6 @@ export default function Workspace({ slug, stage: stageParam }: { slug: string; s
             </nav>
             <div className="ws-toolbar-right">
               <span className="ws-saved">{savedLabel(exam.save, exam.savedAt)}</span>
-              {editable && (
-                <button className="ws-btn-line" onClick={() => setPapersOpen(true)} title={pendingPapers ? `${pendingPapers} pendiente(s) de validación` : undefined}>
-                  <span className="mono amber">{papers.length}</span>Papers
-                  {pendingPapers > 0 && <span className="ws-pend">{pendingPapers} pend.</span>}
-                </button>
-              )}
-              {openExam && (
-                <button className="ws-btn-line" onClick={() => go("criterios")}>
-                  <span className="mono amber">{exam.criteria!.length}</span>Criterios
-                </button>
-              )}
-              <button
-                className="ws-btn-dark"
-                ref={tourAnchorRef("tour-ws-ejecutar")}
-                disabled={!bench.validation?.ok || running || reviewing || (editable && qs.length === 0)}
-                onClick={requestRun}
-              >
-                {ev?.state === "reporting" ? "Redactando informe…" : running ? "Evaluando…" : "Ejecutar evaluación"}
-                <span className="amber">→</span>
-              </button>
             </div>
           </div>
 

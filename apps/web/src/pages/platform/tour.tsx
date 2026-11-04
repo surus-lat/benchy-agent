@@ -80,7 +80,7 @@ export const TOUR_STEPS: TourStep[] = [
   },
   {
     id: "ws-evaluacion",
-    anchor: "tour-ws-ejecutar",
+    anchor: "tour-ws-tab-evaluacion",
     page: "workspace",
     route: "/app/b/{slug}/evaluacion",
     requireBench: true,

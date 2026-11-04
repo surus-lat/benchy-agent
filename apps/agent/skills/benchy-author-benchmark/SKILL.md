@@ -126,7 +126,10 @@ ai-system:
 ```
 
 - **Criteria** are named `c1`, `c2`, … in order, each with `levels {0: No lo
-  cumple, 1: Lo cumple}` and a `weight` from 1 to 5: how important it is. Write
+  cumple, 1: Lo cumple}` and a `weight` from 1 to 5 that only matters as a
+  proportion — the app shows each criterion's share of the final score, and all
+  criteria at 5 is the same exam as all at 1, so spread them instead of maxing
+  them. Write
   each `description` as one checkable sentence, derived from `design.json`. The
   researcher decides how many (one to ten: the app allows up to ten, and adds and
   removes them too); the same rubric applies to every question. A new criterion

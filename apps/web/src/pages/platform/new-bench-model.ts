@@ -76,7 +76,7 @@ export function uniqueSlug(base: string, taken: Set<string>): string {
 }
 
 /** The criteria a new benchmark starts with; the researcher edits them in Criterios. */
-const CRITERIA: [number, string][] = [
+export const STARTER_CRITERIA: [number, string][] = [
   [5, "Identifica las ideas centrales de la respuesta experta."],
   [3, "No afirma nada que contradiga la respuesta experta ni inventa datos, autores o fuentes."],
   [2, "Sitúa la respuesta en su contexto (autores, período, lugar) como lo hace la respuesta experta."],
@@ -117,7 +117,7 @@ ai-system:
   parameters: { temperature: 0, max_tokens: 4096 }
 `;
   }
-  const criteria = CRITERIA.map(
+  const criteria = STARTER_CRITERIA.map(
     ([weight, description], i) =>
       `          c${i + 1}:\n            weight: ${weight}\n            description: ${JSON.stringify(description)}\n            levels: { 0: No lo cumple, 1: Lo cumple }`,
   ).join("\n");

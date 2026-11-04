@@ -2,27 +2,28 @@ import { createContext, useContext, useEffect, useRef, useState } from "react";
 import { api, spellcheckFor, type LibraryCriterion } from "./data";
 import {
   addCriterion,
+  hasDesign,
   MAX_CRITERIA,
   removeCriterion,
   setCriterion,
-  shareOf,
   type Criterion,
   type Design,
 } from "./exam-model";
+import { STARTER_CRITERIA } from "./new-bench-model";
 import type { ExamState } from "./use-exam";
-import { StageNext } from "./stage-next";
 
 // 01 · Criterios — el paso que decide todo lo demás. Antes de buscar papers o
-// escribir preguntas, el investigador dice con el agente qué quiere averiguar:
-// qué debería poder hacer un modelo que domina el tema y qué errores tiene que
-// exponer el examen. De ese diseño salen los criterios con los que el juez
-// medirá cada respuesta; las fuentes y las preguntas se eligen para ponerlos a
-// prueba. El diseño vive en design.json, legible y escribible por la app y el
-// agente; los criterios, en benchmark.yaml (la rúbrica del motor).
+// escribir preguntas, el investigador dice con el agente qué conocimiento,
+// capacidad o sesgo quiere poner a prueba. De ese diseño salen los criterios
+// con los que el juez medirá cada respuesta; las fuentes y las preguntas se
+// eligen para ponerlos a prueba. El diseño vive en design.json, legible y
+// escribible por la app y el agente; los criterios, en benchmark.yaml (la
+// rúbrica del motor).
 //
-// La pantalla va de lo general a lo particular: primero la pregunta, después la
-// capacidad que se quiere medir, y recién entonces los criterios. Lo que afina
-// el diseño (errores, límites) y las reglas del puntaje quedan plegados.
+// Dos pantallas, una decisión cada una: primero la pregunta y la capacidad,
+// después los criterios. Al pasar a la segunda, el agente escribe un primer
+// juego de criterios a partir del diseño; el investigador los edita o suma los
+// suyos. Nada se muestra de golpe y ninguna pantalla necesita scroll de página.
 
 const Lang = createContext("es");
 
@@ -52,7 +53,7 @@ const CONSTRUCT: DesignFieldSpec = {
 
 const FAILURE_MODES: DesignFieldSpec = {
   key: "failureModes",
-  title: "Qué errores querés exponer",
+  title: "Qué errores o sesgos querés exponer",
   question: "¿Qué respuestas flojas o engañosas querés detectar?",
   placeholder: "Ej.: confundir la tesis del autor con la del comentarista, citar sin la página, mezclar tradiciones.",
   help: "Cada pregunta se diseña para que un modelo que solo improvisa caiga en alguno de estos errores.",
@@ -64,6 +65,44 @@ const NOTES: DesignFieldSpec = {
   question: "¿Qué no mide este examen?",
   placeholder: "Ej.: no mide estilo, originalidad ni la calidad de la escritura; solo la comprensión del material.",
   help: "Decirlo ahora evita leer el resultado como si midiera más de lo que mide.",
+};
+
+/** Whether the rubric is still the generic one every new benchmark starts with. */
+function isStarterRubric(criteria: Criterion[]): boolean {
+  return (
+    criteria.length === STARTER_CRITERIA.length &&
+    criteria.every((c, i) => c.weight === STARTER_CRITERIA[i][0] && c.description === STARTER_CRITERIA[i][1])
+  );
+}
+
+/** Criteria the agent wrote need the researcher's expert eye: the model does not
+ *  know their field. Both facts are remembered per benchmark in this browser, so
+ *  the caution survives a reload and disappears once it has been acknowledged. */
+const GENERATED_KEY = "benchy-criteria-generated:";
+const READ_KEY = "benchy-criteria-read:";
+
+const localSeen = (key: string) => {
+  try {
+    return localStorage.getItem(key) === "1";
+  } catch {
+    return false;
+  }
+};
+
+const localMark = (key: string) => {
+  try {
+    localStorage.setItem(key, "1");
+  } catch {
+    // Private mode: the caution simply comes back next time.
+  }
+};
+
+const localForget = (key: string) => {
+  try {
+    localStorage.removeItem(key);
+  } catch {
+    // Same: nothing to undo.
+  }
 };
 
 export function CriteriaStage({
@@ -88,7 +127,7 @@ export function CriteriaStage({
 }) {
   const criteria = exam.criteria ?? [];
   const [library, setLibrary] = useState<LibraryCriterion[]>([]);
-  const [libraryOpen, setLibraryOpen] = useState(true);
+  const [libraryOpen, setLibraryOpen] = useState(false);
 
   useEffect(() => {
     void api
@@ -98,6 +137,17 @@ export function CriteriaStage({
         // The library is optional: the stage works without it.
       });
   }, []);
+
+  /** Design first; a benchmark that already has one opens straight in the rubric. */
+  const [startedWithDesign] = useState(() => hasDesign(exam.design));
+  const [step, setStep] = useState<"design" | "criteria">(() => (hasDesign(exam.design) ? "criteria" : "design"));
+  const [generating, setGenerating] = useState(false);
+  const generatingRef = useRef(false);
+  /** The agent was already asked for this benchmark's first rubric. */
+  const [autoTried, setAutoTried] = useState(false);
+  /** Whether the agent wrote this rubric, and whether the researcher read the caution. */
+  const [agentWritten, setAgentWritten] = useState(() => localSeen(GENERATED_KEY + bench));
+  const [cautionRead, setCautionRead] = useState(() => localSeen(READ_KEY + bench));
 
   const saved = useRef<Design>(exam.design);
   const [design, setDesign] = useState<Design>(exam.design);
@@ -123,14 +173,14 @@ export function CriteriaStage({
     }, 700);
   };
 
-  const flush = () => {
+  /** Write any pending design now; the agent reads design.json when asked. */
+  const flush = (): Promise<void> => {
     if (timer.current) clearTimeout(timer.current);
     const value = pending.current;
     pending.current = null;
-    if (value) {
-      saved.current = value;
-      void exam.saveDesign(value);
-    }
+    if (!value) return Promise.resolve();
+    saved.current = value;
+    return exam.saveDesign(value);
   };
 
   useEffect(
@@ -142,8 +192,45 @@ export function CriteriaStage({
   );
 
   const next = () => {
-    flush();
+    void flush();
     onNext();
+  };
+
+  const purpose = design.purpose.trim();
+  const construct = design.construct.trim();
+  const canLeaveDesign = !!purpose && !!construct;
+
+  /** First rubric: written from the design, replacing the generic starter one. */
+  const generationPrompt = `En el benchmark ${bench}, leé el diseño en design.json (la pregunta que queremos responder y lo que debería poder hacer un modelo que domina el tema) y escribí de cero entre 3 y 5 criterios de evaluación verificables que se desprendan de ese diseño. Reemplazá los criterios actuales de benchmark.yaml, que eran solo un punto de partida. Cada criterio tiene que poder comprobarse leyendo la respuesta experta de una pregunta; usá levels 0/1 y repartí los weight de 1 a 5 según lo que importa más (nunca todos en 5: lo que pesa es la proporción). Explicame en una frase por qué cada uno mide lo que buscamos.`;
+
+  const generate = async () => {
+    if (generatingRef.current) return;
+    generatingRef.current = true;
+    setGenerating(true);
+    // Whatever arrives is the agent's work, not the researcher's: say so, again.
+    localMark(GENERATED_KEY + bench);
+    localForget(READ_KEY + bench);
+    setAgentWritten(true);
+    setCautionRead(false);
+    try {
+      await ask(generationPrompt);
+    } finally {
+      generatingRef.current = false;
+      setGenerating(false);
+    }
+  };
+
+  const goCriteria = async () => {
+    if (!canLeaveDesign) return;
+    await flush();
+    setStep("criteria");
+    // Only the first design of a benchmark with no questions asks the agent for
+    // the rubric: a researcher's own criteria are never replaced.
+    const starter = criteria.length === 0 || isStarterRubric(criteria);
+    if (openExam && questionCount === 0 && !startedWithDesign && !autoTried && starter) {
+      setAutoTried(true);
+      void generate();
+    }
   };
 
   // What still needs deciding: only the question, then the capability. Once
@@ -151,8 +238,6 @@ export function CriteriaStage({
   // would have nothing to work from. The label is what the researcher reads;
   // the message carries the benchmark and the files so the agent knows exactly
   // where to work, even without sources or questions yet.
-  const purpose = design.purpose.trim();
-  const construct = design.construct.trim();
   const designPrompt = !purpose
     ? {
         label: "Ayudame a formular la pregunta",
@@ -164,139 +249,162 @@ export function CriteriaStage({
           message: `En el benchmark ${bench}, a partir de lo que ya escribí en design.json, proponeme dos o tres cosas que debería poder hacer un modelo que domina el tema y completá construct en design.json.`,
         }
       : null;
-  const criteriaPrompt =
-    openExam && purpose
-      ? {
-          label: "Revisemos los criterios",
-          message: `En el benchmark ${bench}, leé design.json y los criterios de benchmark.yaml. Revisá que cada criterio se pueda comprobar leyendo la respuesta experta y proponeme los que falten para cubrir el diseño.`,
-        }
-      : null;
 
-  // The optional fields stay folded until there is something in them. The agent
-  // may fill them later, so opening on content keeps its work visible.
+  // The optional fields stay folded, even when the agent filled them: this step
+  // is one decision at a time. What they say is one click away, and the toggle
+  // says whether something is already written there.
   const extrasFilled = !!(design.failureModes.trim() || design.notes.trim());
-  const [extrasOpen, setExtrasOpen] = useState(extrasFilled);
-  useEffect(() => {
-    if (extrasFilled) setExtrasOpen(true);
-  }, [extrasFilled]);
+  const [extrasOpen, setExtrasOpen] = useState(false);
+
+  const generationFailed = autoTried && !generating && (criteria.length === 0 || isStarterRubric(criteria));
+  // A rubric the agent wrote is the agent's until the researcher owns it: the
+  // caution about its expertise stays up until they acknowledge it.
+  const needsReview = openExam && agentWritten && !cautionRead;
 
   return (
     <Lang.Provider value={exam.doc?.language ?? "es"}>
-      <div className="ws-scroll ws-pad-lg">
+      <div className="ws-crit-page ws-pad-lg">
         <div className="ws-criteria">
           <header className="ws-crit-hero">
-            <p className="ws-eyebrow">01 · Criterios de evaluación</p>
-            <h2>¿Qué queremos averiguar?</h2>
-            <p className="ws-note">
-              Primero decidí qué querés descubrir sobre los modelos en tu campo. Con eso escribimos los criterios con los que se mide cada
-              respuesta; las fuentes y las preguntas vienen después.
-            </p>
-          </header>
-
-          <section className="ws-crit-block" aria-labelledby="crit-design">
-            <header className="ws-crit-step">
-              <span className="ws-crit-num" aria-hidden="true">1</span>
-              <div>
-                <p className="ws-eyebrow" id="crit-design">El diseño</p>
-                <h3>La pregunta y lo que querés medir</h3>
-                <p className="ws-note">Una pregunta y una capacidad: qué te interesa saber y qué debería poder hacer un modelo que domina el tema.</p>
-              </div>
-            </header>
-
-            <div className="ws-crit-design">
-              <DesignField spec={PURPOSE} value={design.purpose} onChange={(v) => write({ ...design, purpose: v })} big />
-              <DesignField spec={CONSTRUCT} value={design.construct} onChange={(v) => write({ ...design, construct: v })} />
-            </div>
-
-            {designPrompt && <AgentAsk prompt={designPrompt} ask={ask} showAgent={showAgent} />}
-
-            <button className="ws-crit-more" aria-expanded={extrasOpen} onClick={() => setExtrasOpen((o) => !o)}>
-              <span className="chev">{extrasOpen ? "▾" : "▸"}</span>
-              <span>{extrasOpen ? "Ocultar" : "Afinar el diseño"}</span>
-              <span className="hint">Qué errores buscar y qué no mide · opcional</span>
-            </button>
-            {extrasOpen && (
-              <div className="ws-crit-design extras">
-                <DesignField spec={FAILURE_MODES} value={design.failureModes} onChange={(v) => write({ ...design, failureModes: v })} />
-                <DesignField spec={NOTES} value={design.notes} onChange={(v) => write({ ...design, notes: v })} />
-              </div>
-            )}
-
-            <p className="ws-design-save">Se guarda solo. El agente puede leerlo y completarlo.</p>
-          </section>
-
-          <section className="ws-crit-block" aria-labelledby="crit-rubric">
-            <header className="ws-crit-step">
-              <span className="ws-crit-num" aria-hidden="true">2</span>
-              <div>
-                <p className="ws-eyebrow" id="crit-rubric">Los criterios</p>
-                <h3>Cómo se mide cada respuesta</h3>
-                <p className="ws-note">
-                  {openExam
-                    ? `El juez los aplica a ${questionCount === 0 ? "cada pregunta" : questionCount === 1 ? "la pregunta del examen" : `las ${questionCount} preguntas del examen`}. Escribí cada criterio como algo que se pueda comprobar leyendo la respuesta experta.`
-                    : "Este examen no usa rúbrica: cada respuesta se corrige por coincidencia exacta."}
-                </p>
-              </div>
-              {openExam && (
+            <p className="ws-eyebrow">01 · Criterios de evaluación · Paso {step === "design" ? "1" : "2"} de 2</p>
+            <div className="ws-crit-title">
+              <h2>{step === "design" ? "¿Qué queremos averiguar?" : "¿Cómo se mide cada respuesta?"}</h2>
+              {step === "criteria" && openExam && (
                 <span className="ws-crit-count mono" title={`Máximo ${MAX_CRITERIA} criterios`}>
                   {criteria.length} de {MAX_CRITERIA}
                 </span>
               )}
-            </header>
+            </div>
+            <p className="ws-note">
+              {step === "design"
+                ? "Definí qué conocimiento, capacidad o sesgo querés poner a prueba. De esa decisión salen los criterios con los que el juez mide cada respuesta."
+                : openExam
+                  ? "Con estos criterios el juez mide cada respuesta. Reescribilos, cambiá cuánto pesan o sumá los tuyos."
+                  : "Este examen no usa rúbrica: cada respuesta se corrige por coincidencia exacta."}
+            </p>
+          </header>
 
-            {openExam ? (
+          <div className="ws-crit-body">
+            {step === "design" ? (
               <>
-                <CriteriaEditor
-                  exam={exam}
-                  criteria={criteria}
-                  library={library}
-                  libraryOpen={libraryOpen}
-                  onLibraryOpen={setLibraryOpen}
-                  onSaved={(item) => setLibrary((list) => [...list, item])}
-                />
-                {criteriaPrompt && <AgentAsk prompt={criteriaPrompt} ask={ask} showAgent={showAgent} />}
-                <p className="ws-note">
-                  Cuando el juez verifica una clave, comprueba que la respuesta experta cumpla estos criterios. Aprobar la pregunta es tu decisión y
-                  pasa en 03 · Preguntas.
-                </p>
-                <details className="ws-crit-details">
-                  <summary>Cómo se calcula el puntaje</summary>
-                  <p>
-                    El juez lee la respuesta del modelo, la compara con la respuesta experta y decide, criterio por criterio, si la cumple. La
-                    importancia (de 1 a 5) dice cuánto mueve el puntaje final: un criterio con 5 pesa cinco veces más que uno con 1.
-                  </p>
-                  <p>
-                    Si una clave no cumple un criterio, el problema suele estar en la redacción del criterio o en la respuesta experta, no en los
-                    modelos.
-                  </p>
-                </details>
+                <div className="ws-crit-design">
+                  <DesignField spec={PURPOSE} value={design.purpose} onChange={(v) => write({ ...design, purpose: v })} big />
+                  <DesignField spec={CONSTRUCT} value={design.construct} onChange={(v) => write({ ...design, construct: v })} />
+                </div>
+
+                {designPrompt && <AgentAsk prompt={designPrompt} ask={ask} showAgent={showAgent} />}
+
+                <button className="ws-crit-more" aria-expanded={extrasOpen} onClick={() => setExtrasOpen((o) => !o)}>
+                  <span className="chev">{extrasOpen ? "▾" : "▸"}</span>
+                  <span>{extrasOpen ? "Ocultar" : "Afinar el diseño"}</span>
+                  <span className="hint">
+                    {extrasFilled
+                      ? "los errores o sesgos a exponer y lo que no mide · ya hay algo escrito"
+                      : "los errores o sesgos a exponer y lo que no mide · opcional"}
+                  </span>
+                </button>
+                {extrasOpen && (
+                  <div className="ws-crit-design extras">
+                    <DesignField spec={FAILURE_MODES} value={design.failureModes} onChange={(v) => write({ ...design, failureModes: v })} />
+                    <DesignField spec={NOTES} value={design.notes} onChange={(v) => write({ ...design, notes: v })} />
+                  </div>
+                )}
+
+                <p className="ws-design-save">Se guarda solo. El agente puede leerlo y completarlo.</p>
               </>
             ) : (
-              <div className="ws-card ws-pad ws-crit-closed">
-                <p className="ws-note">
-                  {mcExam
-                    ? "Las preguntas son de opción múltiple: la respuesta del modelo tiene que ser el texto exacto de la opción correcta. No hay rúbrica ni juez, así que no hay criterios que definir."
-                    : "Cada campo se corrige por coincidencia exacta, sin criterios de evaluación."}
-                </p>
-                <p className="ws-note">
-                  El diseño de arriba sigue siendo el norte: las preguntas y sus opciones se escriben para ponerlo a prueba.
-                </p>
-              </div>
-            )}
-          </section>
-
-          <StageNext
-            eyebrow="02 · Fuentes"
-            title="Ahora elegí el material con el que vas a examinar"
-            text={
               <>
-                Los criterios dicen <em>qué</em> mirar; las fuentes dan <em>con qué</em>. Elegí los papers de tu campo y el agente escribirá las
-                preguntas a partir de ellos, citando paper y página.
+                {openExam && needsReview && (
+                  <div className="ws-crit-warn" role="note">
+                    <p>
+                      <strong>Revisalos contra tu diseño:</strong> los escribió un modelo que no conoce tu tema y pueden
+                      ser obvios o difíciles de verificar con la respuesta experta.
+                    </p>
+                    <button
+                      className="ws-link"
+                      onClick={() => {
+                        localMark(READ_KEY + bench);
+                        setCautionRead(true);
+                      }}
+                    >
+                      Entendido
+                    </button>
+                  </div>
+                )}
+
+                {generating ? (
+                  <div className="ws-crit-gen" role="status" aria-live="polite">
+                    <span className="ws-crit-gen-dots" aria-hidden="true">
+                      <span />
+                      <span />
+                      <span />
+                    </span>
+                    <p className="t">Generando criterios a partir de tu diseño…</p>
+                    <p className="d">El agente está leyendo qué querés evaluar. Cuando termine, vas a poder editarlos o sumar los tuyos.</p>
+                  </div>
+                ) : openExam ? (
+                  <>
+                    <CriteriaEditor
+                      exam={exam}
+                      criteria={criteria}
+                      library={library}
+                      libraryOpen={libraryOpen}
+                      onLibraryOpen={setLibraryOpen}
+                      onSaved={(item) => setLibrary((list) => [...list, item])}
+                    />
+                    {generationFailed && (
+                      <p className="ws-note fail">
+                        No llegaron criterios nuevos. Quedan los de partida: probá de nuevo con el agente o escribí uno a mano.{" "}
+                        <button className="ws-link" onClick={() => void generate()} disabled={generating}>
+                          Reintentar
+                        </button>
+                      </p>
+                    )}
+                  </>
+                ) : (
+                  <div className="ws-card ws-pad ws-crit-closed">
+                    <p className="ws-note">
+                      {mcExam
+                        ? "Las preguntas son de opción múltiple: la respuesta del modelo tiene que ser el texto exacto de la opción correcta. No hay rúbrica ni juez, así que no hay criterios que definir."
+                        : "Cada campo se corrige por coincidencia exacta, sin criterios de evaluación."}
+                    </p>
+                    <p className="ws-note">
+                      El diseño de arriba sigue siendo el norte: las preguntas y sus opciones se escriben para ponerlo a prueba.
+                    </p>
+                  </div>
+                )}
               </>
-            }
-            action="Ir a Fuentes"
-            onClick={next}
-          />
+            )}
+          </div>
+
+          <footer className="ws-crit-foot">
+            <div className="txt">
+              <p className="ws-eyebrow">{step === "design" ? "Paso 1 de 2" : "Paso 2 de 2"}</p>
+              <p>
+                {step === "design"
+                  ? canLeaveDesign
+                    ? "Al seguir, el agente escribe los criterios a partir de lo que definiste."
+                    : "Completá la pregunta y la capacidad para seguir."
+                  : "El juez verifica las claves con estos criterios; aprobar cada pregunta pasa en 03 · Preguntas."}
+              </p>
+            </div>
+            <div className="btns">
+              {step === "criteria" && (
+                <button className="ws-btn-line" onClick={() => setStep("design")}>
+                  Volver al diseño
+                </button>
+              )}
+              {step === "design" ? (
+                <button className="ws-btn-dark" onClick={() => void goCriteria()} disabled={!canLeaveDesign}>
+                  Siguiente: criterios <span className="amber">→</span>
+                </button>
+              ) : (
+                <button className="ws-btn-dark" onClick={next}>
+                  Ir a Fuentes <span className="amber">→</span>
+                </button>
+              )}
+            </div>
+          </footer>
         </div>
       </div>
     </Lang.Provider>
@@ -421,24 +529,96 @@ function CriteriaEditor({
     }
   };
 
+  /** Weights only matter as a proportion: 5/5 is the same exam as 1/1. So the
+   *  editor shows how the score is split, and lets them split it evenly. */
+  const weights = criteria.map((c) => c.weight);
+  const maxW = Math.max(...weights);
+  const minW = Math.min(...weights);
+  const even = criteria.length > 1 && maxW === minW;
+  const pct = (weight: number, list: { weight: number }[]) => Math.round((weight / (list.reduce((a, x) => a + x.weight, 0) || 1)) * 100);
+
+  const equalize = () => {
+    let text = exam.yamlText;
+    for (const c of criteria) text = setCriterion(text, c.key, { weight: 3 });
+    void exam.saveYaml(text);
+    setError(null);
+  };
+
   return (
     <div className="ws-crit-rubric">
+      {criteria.length > 0 && (
+        <div className="ws-crit-alloc">
+          <div className="alloc-bar">
+            {criteria.map((c, i) => (
+              <span
+                key={c.key}
+                className={`seg${maxW !== minW && c.weight === maxW ? " top" : ""}`}
+                style={{ flexGrow: c.weight }}
+                title={`Criterio ${i + 1}: ${pct(c.weight, criteria)}% del puntaje`}
+              >
+                <span className="n mono">{String(i + 1).padStart(2, "0")}</span>
+                <span className="p mono">{pct(c.weight, criteria)}%</span>
+              </span>
+            ))}
+          </div>
+          <div className="alloc-foot">
+            <details className="ws-crit-details">
+              <summary>
+                Se reparten 100% del puntaje: lo que le sumás a un criterio se lo sacás a los demás.
+                {even ? " Ahora pesan todos igual." : ""}
+              </summary>
+              <p>
+                El juez lee la respuesta del modelo, la compara con la respuesta experta y decide, criterio por
+                criterio, si la cumple. Lo que importa es la proporción: un criterio que vale 50% del puntaje mueve el
+                doble que uno que vale 25%.
+              </p>
+              <p>
+                Si una clave no cumple un criterio, el problema suele estar en la redacción del criterio o en la
+                respuesta experta, no en los modelos.
+              </p>
+            </details>
+            {criteria.length > 1 && !even && (
+              <button className="ws-link" disabled={locked} onClick={equalize}>
+                Repartir en partes iguales
+              </button>
+            )}
+          </div>
+        </div>
+      )}
+
       <div className="ws-crit-list">
         {criteria.map((c, i) => (
           <div key={c.key} className="ws-crit-card">
-            <div className="row">
-              <span className="mono muted">{String(i + 1).padStart(2, "0")}</span>
-              <span className="lbl">Importancia</span>
-              <WeightScale value={c.weight} label={`Importancia del criterio ${i + 1}`} disabled={locked} onPick={(n) => change(c, { weight: n }, "importancia")} />
-              <span className="share">{shareOf(c, criteria)} del puntaje</span>
+            <div className="crit-line">
+              <span className="mono idx">{String(i + 1).padStart(2, "0")}</span>
+              <AutoText
+                className="crit"
+                value={drafts[c.key] ?? c.description}
+                label={`Criterio ${i + 1}`}
+                disabled={locked}
+                onChange={(v) => setDrafts((d) => ({ ...d, [c.key]: v }))}
+              />
             </div>
-            <AutoText
-              className="crit"
-              value={drafts[c.key] ?? c.description}
-              label={`Criterio ${i + 1}`}
-              disabled={locked}
-              onChange={(v) => setDrafts((d) => ({ ...d, [c.key]: v }))}
-            />
+            <div className="row">
+              <WeightSlider
+                value={c.weight}
+                share={pct(c.weight, criteria)}
+                label={`Peso del criterio ${i + 1} en el puntaje`}
+                disabled={locked}
+                onPick={(n) => change(c, { weight: n }, "importancia")}
+              />
+              <span className="spacer" />
+              {addedKeys.has(c.key) && !savedKeys.has(c.key) && (
+                <button className="ws-link" disabled={locked} onClick={() => void saveToLibrary(c)}>
+                  Guardar en la biblioteca
+                </button>
+              )}
+              {criteria.length > 1 && (
+                <button className="ws-link ws-crit-remove" disabled={locked} onClick={() => setRemoving(c.key)} aria-label={`Quitar el criterio ${i + 1}`}>
+                  Quitar
+                </button>
+              )}
+            </div>
             {drafts[c.key] !== undefined && drafts[c.key] !== c.description ? (
               <div className="ws-crit-save">
                 <button
@@ -485,20 +665,7 @@ function CriteriaEditor({
                   Cancelar
                 </button>
               </div>
-            ) : (
-              <div className="ws-crit-actions">
-                {criteria.length > 1 && (
-                  <button className="ws-link ws-crit-remove" disabled={locked} onClick={() => setRemoving(c.key)} aria-label={`Quitar el criterio ${i + 1}`}>
-                    Quitar
-                  </button>
-                )}
-                {addedKeys.has(c.key) && !savedKeys.has(c.key) && (
-                  <button className="ws-link" disabled={locked} onClick={() => void saveToLibrary(c)}>
-                    Guardar en la biblioteca
-                  </button>
-                )}
-              </div>
-            )}
+            ) : null}
           </div>
         ))}
       </div>
@@ -533,19 +700,26 @@ function CriteriaEditor({
 
       {adding ? (
         <div className="ws-crit-card new">
-          <div className="row">
-            <span className="mono muted">{String(criteria.length + 1).padStart(2, "0")}</span>
-            <span className="lbl">Importancia</span>
-            <WeightScale value={newWeight} label="Importancia del nuevo criterio" disabled={locked} onPick={setNewWeight} />
+          <div className="crit-line">
+            <span className="mono idx">{String(criteria.length + 1).padStart(2, "0")}</span>
+            <AutoText
+              className="crit"
+              value={newText}
+              label="Nuevo criterio"
+              disabled={locked}
+              onChange={setNewText}
+              placeholder="Una oración que el juez pueda verificar: «Menciona…», «Distingue…»"
+            />
           </div>
-          <AutoText
-            className="crit"
-            value={newText}
-            label="Nuevo criterio"
-            disabled={locked}
-            onChange={setNewText}
-            placeholder="Una oración que el juez pueda verificar: «Menciona…», «Distingue…»"
-          />
+          <div className="row">
+            <WeightSlider
+              value={newWeight}
+              share={pct(newWeight, [...criteria, { weight: newWeight }])}
+              label="Peso del nuevo criterio en el puntaje"
+              disabled={locked}
+              onPick={setNewWeight}
+            />
+          </div>
           <div className="ws-crit-save">
             <button
               className="ws-btn-dark sm"
@@ -622,24 +796,45 @@ function AutoText({
   );
 }
 
-/** Importance from 1 to 5. */
-function WeightScale({ value, label, disabled, onPick }: { value: number; label: string; disabled: boolean; onPick: (n: number) => void }) {
+/** How much a criterion counts, told as what it actually changes: the slice of
+ *  the final score it takes. The absolute weight in benchmark.yaml is an
+ *  implementation detail — every criterion at 5 measures the same exam as every
+ *  criterion at 1 — so the control never shows that number. Moving the slider
+ *  grows this slice and shrinks the others, which is the whole point. */
+function WeightSlider({
+  value,
+  share,
+  label,
+  disabled,
+  onPick,
+}: {
+  value: number;
+  share: number;
+  label: string;
+  disabled: boolean;
+  onPick: (n: number) => void;
+}) {
+  const level = Math.min(5, Math.max(1, Math.round(value) || 1));
+  const fill = ((level - 1) / 4) * 100;
   return (
-    <div role="radiogroup" aria-label={label} className="ws-scale">
-      {[1, 2, 3, 4, 5].map((n) => (
-        <button
-          key={n}
-          role="radio"
-          aria-checked={n === value}
-          aria-label={`Importancia ${n}`}
-          className={n === value ? "on" : n < value ? "under" : ""}
-          disabled={disabled}
-          onClick={() => n !== value && onPick(n)}
-        >
-          {n}
-        </button>
-      ))}
-    </div>
+    <span className="ws-weight">
+      <input
+        type="range"
+        min={1}
+        max={5}
+        step={1}
+        value={level}
+        aria-label={label}
+        aria-valuetext={`${share}% del puntaje`}
+        title="Más peso le saca porcentaje al resto de los criterios"
+        disabled={disabled}
+        style={{ backgroundImage: `linear-gradient(to right, var(--ink) ${fill}%, var(--line-soft) ${fill}%)` }}
+        onChange={(e) => onPick(Number(e.target.value))}
+      />
+      <span className="share mono">
+        Vale <strong>{share}%</strong> del puntaje
+      </span>
+    </span>
   );
 }
 

@@ -11,9 +11,14 @@ questions. A question written before the criteria is a question nobody can score
 The app shows this as **01 · Criterios**. Two files carry the result:
 
 ```
-/opt/data/workspace/<slug>/design.json      what we want to find out (both edit it)
-/opt/data/workspace/<slug>/benchmark.yaml   the rubric the judge applies
+<workspace>/<slug>/design.json      what we want to find out (both edit it)
+<workspace>/<slug>/benchmark.yaml   the rubric the judge applies
 ```
+
+The workspace root varies per deployment (e.g. `/opt/data/workspace/` in the
+hosted app, `<hermes-home>/workspace/` locally). Don't hardcode it: if a
+workspace path fails to read, locate the slug with a file search for
+`benchmark.yaml` under the user home before concluding the benchmark is missing.
 
 ## 1. The design (`design.json`)
 
@@ -73,8 +78,11 @@ criteria:
 - One checkable sentence per criterion. It must be possible to decide *yes* or
   *no* by reading the expert answer. Bad: "Buen nivel de análisis". Good:
   "Menciona al menos dos posiciones y dice en qué se diferencian."
-- `weight` is 1–5 and only says how much the criterion moves the score. All
-  criteria are applied to every question; a low weight is not "optional".
+- `weight` is 1–5 and only matters as a *proportion*: the app shows each
+  criterion as a share of the final score (weight 3 of 5/3/2 → 30%). All five
+  criteria at 5 is the same exam as all at 1, so never leave them all at the
+  top — spread them to say what actually matters more. Every criterion is
+  applied to every question; a low weight is not "optional".
 - Names are `c1`, `c2`, … A new criterion takes the number after the highest
   (`c4` after `c1`–`c3`, even if `c2` was removed). Keep the names stable: the
   app and `review.json` refer to them.
@@ -82,11 +90,39 @@ criteria:
   ones. If two criteria would always be met together, merge them.
 - Derive each criterion from the design: purpose → what must be shown;
   construct → what the answer must do; failureModes → what the answer must not
-  do. If a criterion cannot be traced to the design, question it.
+  do. If a criterion cannot be traced to the design, question it. The reverse
+  coverage also must hold: every declared failureMode needs at least one
+  criterion that catches it. A bias failureMode (substituting another
+  language/region/tradition for the one asked) needs a *negative* criterion —
+  "no atribuye X a otra lengua/región" — because positive criteria never expose
+  substitution.
+
+### Auditing existing criteria against the design
+
+When the researcher asks you to check whether the criteria are checkable and
+what is missing:
+
+- Take each description in turn and ask: could the judge decide sí/no by
+  reading the model answer against the expert answer, without inventing what
+  counts? If not, rewrite the description to name the concrete claim, term or
+  attribution to compare — keep the criterion name and tune the weight, don't
+  renumber.
+- If the researcher rewrote `design.json` to a new topic, look for template
+  leftovers from the old one: criterion wording that references the previous
+  domain's notions ("autores, período" in a linguistics design) and a stale
+  `domain:` in the `benchmark:` header. Propose fixing the header metadata
+  together with the criteria.
+- Split criteria that mix distinct failure modes into separate ones (e.g.
+  contradicting the key vs inventing sources/etymologies) — they catch
+  different errors and the model that commits only one should fail only one.
+- If the exam file is still empty, say plainly that the audit can only judge
+  wording, not the keys; `benchy_review` verification happens once questions
+  with expert answers exist.
 
 ## 3. Verify the key, then let the researcher approve
 
-After writing or changing criteria, call `benchy_review("<slug>/benchmark.yaml")`.
+After writing or changing criteria, call `benchy_review("<slug>/benchmark.yaml")`
+(pass the slug-relative path; the tool resolves the workspace root itself).
 The grader applies the rubric to every **expert answer** (the key), not to the
 models. An answer that misses a criterion means one of two things:
 
