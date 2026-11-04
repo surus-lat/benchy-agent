@@ -492,6 +492,7 @@ function PublishView({ bench, exam, openExam, mcExam, go }: { bench: BenchSummar
   const n = scope === "approved" ? approved : qs.length;
   const title = exam.doc?.title ?? bench.slug;
   const org = me?.org?.name ?? "";
+  const rubricCount = exam.criteria?.length ?? 0;
   const checks = [
     {
       ok: hasDesign(exam.design),
@@ -499,6 +500,17 @@ function PublishView({ bench, exam, openExam, mcExam, go }: { bench: BenchSummar
       go: "criterios" as PubStage,
       goLabel: "Criterios",
     },
+    // An open exam with an empty rubric has nothing to grade with: it says so.
+    ...(openExam
+      ? [
+          {
+            ok: rubricCount > 0,
+            label: rubricCount > 0 ? `${rubricCount} ${rubricCount === 1 ? "criterio" : "criterios"} de evaluación` : "Sin criterios: el juez no tiene con qué medir",
+            go: "criterios" as PubStage,
+            goLabel: "Criterios",
+          },
+        ]
+      : []),
     { ok: approved > 0, label: `${approved} de ${qs.length} preguntas aprobadas`, go: "autoria" as PubStage, goLabel: "Preguntas" },
     { ok: board.length > 0, label: board.length ? "Hay una evaluación para adjuntar" : "Falta ejecutar la evaluación", go: "evaluacion" as PubStage, goLabel: "Evaluación" },
     { ok: !!bench.validation?.ok, label: bench.validation?.ok ? "El benchmark compila (benchy_validate)" : "El benchmark no compila todavía", go: "autoria" as PubStage, goLabel: "Preguntas" },
@@ -531,7 +543,9 @@ function PublishView({ bench, exam, openExam, mcExam, go }: { bench: BenchSummar
               <p className="about">
                 {n} preguntas
                 {openExam
-                  ? ` de respuesta abierta, cada una juzgada contra una respuesta experta con ${exam.criteria!.length} criterios de evaluación.`
+                  ? rubricCount === 0
+                    ? " de respuesta abierta, todavía sin criterios de evaluación."
+                    : ` de respuesta abierta, cada una juzgada contra una respuesta experta con ${rubricCount} criterios de evaluación.`
                   : mcExam
                     ? " de opción múltiple, corregidas por coincidencia exacta con la respuesta correcta."
                     : "."}

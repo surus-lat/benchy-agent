@@ -6,7 +6,7 @@
   --paper: #fbf9f7; --paper-2: #fdfcfb; --surface: #f6f2ee; --surface-2: #f4f1ee; --chip: #f0ebe5;
   --line: #e5dfd8; --line-soft: #ede7e0; --line-strong: #d9d2ca;
   --amber: #f5a623; --amber-ink: #c97a10; --amber-deep: #8a5208; --amber-wash: #fbefd9; --amber-soft: #fff8ec; --amber-line: #f1e3cb; --amber-paper: #fffcf6;
-  --ok: #1f6e4a; --ok-dot: #1f8a5b; --ok-bg: #eef7f2; --ok-line: #cfe6d9; --fail: #b4342a; --fail-bg: #fbedeb;
+  --ok: #1f6e4a; --ok-dot: #1f8a5b; --ok-bg: #eef7f2; --ok-line: #cfe6d9; --fail: #b4342a; --fail-bg: #fbedeb; --fail-line: #f0cfcb;
   --sans: "Hanken Grotesk", system-ui, sans-serif; --mono: "JetBrains Mono", ui-monospace, monospace;
   --eo: cubic-bezier(0.23, 1, 0.32, 1); --drawer: cubic-bezier(0.32, 0.72, 0, 1);
   --sh-front: 0 1px 2px rgba(42, 46, 58, 0.06), 0 34px 70px -28px rgba(42, 46, 58, 0.42);
@@ -634,6 +634,8 @@
 .ws-ready { display: flex; align-items: center; gap: 10px; margin: 0 0 12px; padding: 10px 12px; border: 1px solid var(--ok-line); border-radius: 12px; background: var(--ok-bg); font-size: 13.5px; line-height: 1.5; color: var(--ink-soft); animation: ws-fade 200ms ease both; }
 .ws-ready > span:nth-child(2) { flex: 1; min-width: 0; }
 .ws-eval-warn { margin: 0; padding: 10px 14px; border-top: 1px solid var(--amber-line); background: var(--amber-soft); font-size: 12.5px; line-height: 1.5; color: var(--amber-deep); }
+/* A hard stop, not a soft warning: without criteria there is nothing to grade. */
+.ws-eval-warn.stop { border-top-color: var(--fail-line); background: var(--fail-bg); color: var(--fail); }
 .ws-eval-next { grid-column: 1 / -1; }
 
 @media (max-width: 900px) {
@@ -748,6 +750,16 @@
 .ws-crit-details summary:hover { color: var(--ink); }
 .ws-crit-details p { margin-top: 8px; max-width: 70ch; font-size: 13px; line-height: 1.6; color: var(--body); }
 .ws-crit-closed { display: flex; flex-direction: column; gap: 8px; }
+
+/* An empty rubric: the researcher can get here by removing every criterion. */
+.ws-crit-none { border: 1px dashed var(--fail-line); border-radius: 10px; background: var(--fail-bg); padding: 12px 14px; }
+.ws-crit-none .t { font-size: 13.5px; font-weight: 600; color: var(--fail); }
+.ws-crit-none .d { margin-top: 3px; font-size: 12.5px; line-height: 1.55; color: var(--body); }
+
+/* Writing one by hand, or asking the agent for them: side by side. */
+.ws-crit-addrow { display: flex; gap: 8px; }
+.ws-crit-addrow .ws-crit-add { flex: 1; }
+.ws-crit-gen-btn { flex: none; }
 
 /* The end of every stage says what comes next. */
 .ws-next { display: flex; flex-wrap: wrap; align-items: center; gap: 14px; border: 1px solid var(--amber-line); border-radius: 12px; background: var(--amber-paper); padding: 14px 16px; }

@@ -200,10 +200,29 @@ export function CriteriaStage({
   const construct = design.construct.trim();
   const canLeaveDesign = !!purpose && !!construct;
 
-  /** First rubric: written from the design, replacing the generic starter one. */
-  const generationPrompt = `En el benchmark ${bench}, leé el diseño en design.json (la pregunta que queremos responder y lo que debería poder hacer un modelo que domina el tema) y escribí de cero entre 3 y 5 criterios de evaluación verificables que se desprendan de ese diseño. Reemplazá los criterios actuales de benchmark.yaml, que eran solo un punto de partida. Cada criterio tiene que poder comprobarse leyendo la respuesta experta de una pregunta; usá levels 0/1 y repartí los weight de 1 a 5 según lo que importa más (nunca todos en 5: lo que pesa es la proporción). Explicame en una frase por qué cada uno mide lo que buscamos.`;
+  const failureModes = design.failureModes.trim();
+  const limits = design.notes.trim();
+  /** The rubric spelled out in the message, so the agent works on what is there
+   *  instead of inventing a parallel one. It also reads benchmark.yaml itself. */
+  const criteriaList = criteria.map((c) => `${c.key}: «${c.description}» (peso ${c.weight})`).join("; ");
+  /** Whether the rubric is still the generic set every new benchmark starts with. */
+  const starter = criteria.length === 0 || isStarterRubric(criteria);
 
-  const generate = async () => {
+  /** Ask the agent for criteria with the design and the current rubric in hand. */
+  const rubricPrompt = (replace: boolean) =>
+    [
+      `En el benchmark ${bench}, trabajá sobre su rúbrica (los criteria de benchmark.yaml).`,
+      `Diseño (design.json): qué queremos averiguar → ${purpose || "sin definir"} · qué debería poder hacer un modelo que domina el tema → ${construct || "sin definir"} · errores o sesgos que queremos exponer → ${failureModes || "sin declarar"} · qué no mide el puntaje → ${limits || "sin declarar"}.`,
+      `Criterios actuales: ${criteriaList || "ninguno"}.`,
+      replace
+        ? "Son un punto de partida genérico: escribí de cero entre 3 y 5 criterios verificables que se desprendan del diseño y reemplazalos."
+        : criteria.length === 0
+          ? "No hay criterios: escribí de cero entre 3 y 5 criterios verificables que se desprendan del diseño."
+          : "Sumá los que faltan para cubrir el diseño —cada error o sesgo declarado necesita al menos un criterio que lo capture— y reescribí los que no se puedan comprobar leyendo la respuesta experta de una pregunta. No repitas una idea que otro criterio ya cubre.",
+      "Cada criterio: una oración que el juez pueda verificar, weight de 1 a 5 repartido según lo que importa más (lo que pesa es la proporción: nunca todos en 5) y levels 0/1. Explicame en una frase qué agrega cada uno.",
+    ].join("\n");
+
+  const generate = async (replace: boolean) => {
     if (generatingRef.current) return;
     generatingRef.current = true;
     setGenerating(true);
@@ -213,7 +232,7 @@ export function CriteriaStage({
     setAgentWritten(true);
     setCautionRead(false);
     try {
-      await ask(generationPrompt);
+      await ask(rubricPrompt(replace));
     } finally {
       generatingRef.current = false;
       setGenerating(false);
@@ -226,10 +245,9 @@ export function CriteriaStage({
     setStep("criteria");
     // Only the first design of a benchmark with no questions asks the agent for
     // the rubric: a researcher's own criteria are never replaced.
-    const starter = criteria.length === 0 || isStarterRubric(criteria);
     if (openExam && questionCount === 0 && !startedWithDesign && !autoTried && starter) {
       setAutoTried(true);
-      void generate();
+      void generate(true);
     }
   };
 
@@ -351,11 +369,14 @@ export function CriteriaStage({
                       libraryOpen={libraryOpen}
                       onLibraryOpen={setLibraryOpen}
                       onSaved={(item) => setLibrary((list) => [...list, item])}
+                      onGenerate={() => void generate(starter)}
+                      generating={generating}
+                      generateHint={rubricPrompt(starter)}
                     />
                     {generationFailed && (
                       <p className="ws-note fail">
-                        No llegaron criterios nuevos. Quedan los de partida: probá de nuevo con el agente o escribí uno a mano.{" "}
-                        <button className="ws-link" onClick={() => void generate()} disabled={generating}>
+                        No llegaron criterios nuevos. Probá de nuevo con el agente o escribí uno a mano.{" "}
+                        <button className="ws-link" onClick={() => void generate(starter)} disabled={generating}>
                           Reintentar
                         </button>
                       </p>
@@ -385,7 +406,9 @@ export function CriteriaStage({
                   ? canLeaveDesign
                     ? "Al seguir, el agente escribe los criterios a partir de lo que definiste."
                     : "Completá la pregunta y la capacidad para seguir."
-                  : "El juez verifica las claves con estos criterios; aprobar cada pregunta pasa en 03 · Preguntas."}
+                  : criteria.length === 0
+                    ? "Sin criterios el juez no tiene con qué medir: el examen no se puede evaluar ni publicar. Escribí o generá al menos uno para seguir."
+                    : "El juez verifica las claves con estos criterios; aprobar cada pregunta pasa en 03 · Preguntas."}
               </p>
             </div>
             <div className="btns">
@@ -399,7 +422,9 @@ export function CriteriaStage({
                   Siguiente: criterios <span className="amber">→</span>
                 </button>
               ) : (
-                <button className="ws-btn-dark" onClick={next}>
+                // Empty rubric is a dead end on purpose: without criteria the judge
+                // has nothing to measure with, so the path forward stays shut.
+                <button className="ws-btn-dark" onClick={next} disabled={openExam && criteria.length === 0}>
                   Ir a Fuentes <span className="amber">→</span>
                 </button>
               )}
@@ -478,6 +503,9 @@ function CriteriaEditor({
   libraryOpen,
   onLibraryOpen,
   onSaved,
+  onGenerate,
+  generating,
+  generateHint,
 }: {
   exam: ExamState;
   criteria: Criterion[];
@@ -485,6 +513,11 @@ function CriteriaEditor({
   libraryOpen: boolean;
   onLibraryOpen: (open: boolean) => void;
   onSaved: (item: LibraryCriterion) => void;
+  /** Ask the agent for criteria, with the design and this rubric in hand. */
+  onGenerate: () => void;
+  generating: boolean;
+  /** The message the button sends, shown as a tooltip. */
+  generateHint: string;
 }) {
   const [drafts, setDrafts] = useState<Record<string, string>>({});
   const [removing, setRemoving] = useState<string | null>(null);
@@ -586,6 +619,16 @@ function CriteriaEditor({
         </div>
       )}
 
+      {criteria.length === 0 && !adding && (
+        <div className="ws-crit-none">
+          <p className="t">Sin criterios no hay con qué corregir</p>
+          <p className="d">
+            El juez mide cada respuesta con estos criterios: sin ninguno el examen no compila, y no se puede evaluar ni
+            publicar. Bajalos de tu diseño con el agente, o escribí el primero.
+          </p>
+        </div>
+      )}
+
       <div className="ws-crit-list">
         {criteria.map((c, i) => (
           <div key={c.key} className="ws-crit-card">
@@ -613,11 +656,9 @@ function CriteriaEditor({
                   Guardar en la biblioteca
                 </button>
               )}
-              {criteria.length > 1 && (
-                <button className="ws-link ws-crit-remove" disabled={locked} onClick={() => setRemoving(c.key)} aria-label={`Quitar el criterio ${i + 1}`}>
-                  Quitar
-                </button>
-              )}
+              <button className="ws-link ws-crit-remove" disabled={locked} onClick={() => setRemoving(c.key)} aria-label={`Quitar el criterio ${i + 1}`}>
+                Quitar
+              </button>
             </div>
             {drafts[c.key] !== undefined && drafts[c.key] !== c.description ? (
               <div className="ws-crit-save">
@@ -650,7 +691,11 @@ function CriteriaEditor({
               </div>
             ) : removing === c.key ? (
               <div className="ws-crit-save">
-                <span className="ws-note">¿Quitar este criterio? El juez dejará de medirlo.</span>
+                <span className="ws-note">
+                  {criteria.length === 1
+                    ? "¿Quitar el último criterio? Sin criterios el examen no se puede evaluar."
+                    : "¿Quitar este criterio? El juez dejará de medirlo."}
+                </span>
                 <button
                   className="ws-btn-danger sm"
                   disabled={locked}
@@ -747,9 +792,14 @@ function CriteriaEditor({
           </div>
         </div>
       ) : (
-        <button className="ws-crit-add" disabled={locked || full} onClick={() => setAdding(true)}>
-          {full ? `Máximo ${MAX_CRITERIA} criterios` : "+ Agregar criterio"}
-        </button>
+        <div className="ws-crit-addrow">
+          <button className="ws-crit-add" disabled={locked || full} onClick={() => setAdding(true)}>
+            {full ? `Máximo ${MAX_CRITERIA} criterios` : "+ Agregar criterio"}
+          </button>
+          <button className="ws-btn-line ws-crit-gen-btn" disabled={locked || generating} title={generateHint} onClick={onGenerate}>
+            {generating ? "Generando…" : criteria.length === 0 ? "Generar criterios con el agente" : "Generar o mejorar con el agente"}
+          </button>
+        </div>
       )}
 
       {error && <p className="ws-note fail">{error}</p>}

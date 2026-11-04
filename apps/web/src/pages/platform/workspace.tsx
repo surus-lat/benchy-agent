@@ -254,7 +254,9 @@ export default function Workspace({ slug, stage: stageParam }: { slug: string; s
   const validPapers = papers.filter((s) => sourceState(validations[s.id]) === "validated");
   // The exam is "concretado" when the grader has reviewed every question as it
   // stands, the researcher approved each one, and it compiles.
-  const ready = openExam && qs.length > 0 && qs.every((x) => x.status === "done" && x.review) && !!bench.validation?.ok;
+  // An open exam with no criteria has nothing to grade with: it blocks evaluating.
+  const noCriteria = openExam && (exam.criteria?.length ?? 0) === 0;
+  const ready = openExam && !noCriteria && qs.length > 0 && qs.every((x) => x.status === "done" && x.review) && !!bench.validation?.ok;
   const ev = evaluation.evaluation;
   const running = evaluation.active;
   const busy = chat.pending || reviewing || scoring;
@@ -268,7 +270,9 @@ export default function Workspace({ slug, stage: stageParam }: { slug: string; s
         ? "Evaluación terminada · el agente está redactando el informe…"
       : chat.pending
         ? "El agente está trabajando…"
-        : openExam
+        : noCriteria
+          ? "Sin criterios de evaluación: el juez no tiene con qué medir"
+          : openExam
           ? `${approved} de ${qs.length} preguntas aprobadas`
           : mcExam
             ? `${qs.length} preguntas de opción múltiple`
@@ -354,6 +358,7 @@ export default function Workspace({ slug, stage: stageParam }: { slug: string; s
                 author={me?.user.name?.trim() || me?.user.email || "vos"}
                 openExam={openExam}
                 mcExam={mcExam}
+                criteriaCount={exam.criteria?.length ?? 0}
                 q={q}
                 qIndex={qIndex}
                 setQIndex={setQIndex}
@@ -424,7 +429,9 @@ export default function Workspace({ slug, stage: stageParam }: { slug: string; s
                 evaluation={evaluation}
                 runRequest={runRequest}
                 unapproved={openExam ? qs.length - approved : 0}
+                noCriteria={noCriteria}
                 onReview={() => go("autoria")}
+                onCriteria={() => go("criterios")}
                 onNext={() => go("publicacion")}
               />
             ) : (
@@ -478,7 +485,9 @@ export default function Workspace({ slug, stage: stageParam }: { slug: string; s
           ask={ask}
           openExam={openExam}
           mcExam={mcExam}
+          noCriteria={noCriteria}
           onRun={requestRun}
+          onCriteria={() => go("criterios")}
           generatePrompt={validPapers.length > 0 ? batchPrompt(5, slug, validPapers.map((s) => s.id), mcExam) : null}
         />
       </main>
@@ -540,6 +549,7 @@ function Authoring({
   author,
   openExam,
   mcExam,
+  criteriaCount,
   q,
   qIndex,
   setQIndex,
@@ -568,6 +578,8 @@ function Authoring({
   openExam: boolean;
   /** Multiple choice: question + options + exact answer, no rubric. */
   mcExam: boolean;
+  /** Criteria in the rubric: with none, the judge has nothing to grade with. */
+  criteriaCount: number;
   q: Question | undefined;
   qIndex: number;
   setQIndex: (i: number) => void;
@@ -888,15 +900,33 @@ function Authoring({
           <div className={`ws-keybar${ready ? " ready" : ""}`} role="status">
             <span className="mono amber">{reviewing ? "[···]" : ready ? "[✓]" : "[·]"}</span>
             <span className="txt">
-              <strong>
-                {approved} de {qs.length} preguntas aprobadas.
-              </strong>{" "}
-              {verified === qs.length
-                ? "El juez ya verificó todas las respuestas expertas."
-                : `${verified} de ${qs.length} respuestas expertas verificadas por el juez.`}{" "}
-              Verificar la clave es comprobar que la respuesta experta cumple los criterios; aprobar la pregunta sigue siendo tu decisión.
+              {criteriaCount === 0 ? (
+                <>
+                  <strong>Sin criterios de evaluación.</strong> El juez no tiene con qué medir estas respuestas: escribilos
+                  o pedile al agente que los genere antes de verificar las claves.{" "}
+                  <button className="ws-link" onClick={onCriteria}>
+                    Ir a Criterios ↗
+                  </button>
+                </>
+              ) : (
+                <>
+                  <strong>
+                    {approved} de {qs.length} preguntas aprobadas.
+                  </strong>{" "}
+                  {verified === qs.length
+                    ? "El juez ya verificó todas las respuestas expertas."
+                    : `${verified} de ${qs.length} respuestas expertas verificadas por el juez.`}{" "}
+                  Verificar la clave es comprobar que la respuesta experta cumple los criterios; aprobar la pregunta sigue
+                  siendo tu decisión.
+                </>
+              )}
             </span>
-            <button className="ws-btn-line sm" onClick={onReview} disabled={locked || reviewing}>
+            <button
+              className="ws-btn-line sm"
+              onClick={onReview}
+              disabled={locked || reviewing || criteriaCount === 0}
+              title={criteriaCount === 0 ? "Sin criterios no hay con qué verificar" : undefined}
+            >
               {reviewing ? "Verificando…" : verified ? "Volver a verificar" : "Verificar claves"}
             </button>
           </div>
@@ -1221,10 +1251,15 @@ function QuestionEditor({
         <div className="ws-col-head">
           <span className="ws-eyebrow">Criterios</span>
           <button className="ws-link push" onClick={onCriteria}>
-            {criteria.length} {criteria.length === 1 ? "criterio" : "criterios"} · editar en 01 Criterios ↗
+            {criteria.length === 0
+              ? "sin criterios · escribir en 01 Criterios ↗"
+              : `${criteria.length} ${criteria.length === 1 ? "criterio" : "criterios"} · editar en 01 Criterios ↗`}
           </button>
         </div>
         <div className="ws-card ws-pad ws-rubric-mini">
+          {criteria.length === 0 && (
+            <p className="ws-note fail">Sin criterios el juez no tiene con qué medir: escribilos en 01 · Criterios.</p>
+          )}
           {criteria.map((c) => {
             const met = q.review ? criterionMet(q.review, c) : null;
             return (
@@ -1239,7 +1274,8 @@ function QuestionEditor({
             );
           })}
           <p className="ws-engine-line">
-            → en el motor: un campo answer juzgado con {criteria.length} criterios · pesos {criteria.map((c) => c.weight).join(" / ")} · {total} filas en exam.jsonl
+            → en el motor: un campo answer juzgado con {criteria.length} criterios
+            {criteria.length > 0 ? ` · pesos ${criteria.map((c) => c.weight).join(" / ")}` : ""} · {total} filas en exam.jsonl
           </p>
         </div>
 
@@ -1841,7 +1877,9 @@ function EvaluationStage({
   evaluation,
   runRequest,
   unapproved,
+  noCriteria,
   onReview,
+  onCriteria,
   onNext,
 }: {
   bench: BenchSummary;
@@ -1849,7 +1887,10 @@ function EvaluationStage({
   runRequest: number;
   /** Questions not yet approved: the exam is not "concretado" until they are. */
   unapproved: number;
+  /** No criteria in the rubric: the judge has nothing to grade with. */
+  noCriteria: boolean;
   onReview: () => void;
+  onCriteria: () => void;
   onNext: () => void;
 }) {
   const running = evaluation.active;
@@ -1903,9 +1944,9 @@ function EvaluationStage({
   const board = newestPerModel(results, bench.doc?.model);
   const start = useCallback(async () => {
     const chosen = models.filter((m) => selected.has(m));
-    if (chosen.length === 0 || running) return;
+    if (chosen.length === 0 || running || noCriteria) return;
     await evaluation.start(chosen);
-  }, [models, selected, running, evaluation]);
+  }, [models, selected, running, evaluation, noCriteria]);
 
   // The toolbar's "Ejecutar evaluación" and B's chip land here, once the models are known.
   const handled = useRef(runRequest);
@@ -1999,6 +2040,15 @@ function EvaluationStage({
             </p>
           </div>
         )}
+        {noCriteria && (
+          <p className="ws-eval-warn stop">
+            Sin criterios de evaluación el juez no tiene con qué medir: esta evaluación no se puede correr. Escribilos o
+            pedile al agente que los genere.{" "}
+            <button className="ws-link" onClick={onCriteria}>
+              Ir a Criterios ↗
+            </button>
+          </p>
+        )}
         {unapproved > 0 && (
           <p className="ws-eval-warn">
             {unapproved === 1 ? "Falta aprobar 1 pregunta" : `Faltan aprobar ${unapproved} preguntas`}: el examen todavía no está listo. Podés evaluar igual
@@ -2012,7 +2062,11 @@ function EvaluationStage({
           <span>
             {models.filter((m) => selected.has(m)).length} de {models.length} modelos en la próxima evaluación
           </span>
-          <button className="ws-btn-dark sm" disabled={!bench.validation?.ok || running || !models.some((m) => selected.has(m))} onClick={() => void start()}>
+          <button
+            className="ws-btn-dark sm"
+            disabled={!bench.validation?.ok || running || noCriteria || !models.some((m) => selected.has(m))}
+            onClick={() => void start()}
+          >
             {running ? "Evaluando…" : "Ejecutar evaluación"}
           </button>
         </div>
@@ -2146,7 +2200,9 @@ function AgentWindow({
   ask,
   openExam,
   mcExam,
+  noCriteria,
   onRun,
+  onCriteria,
   generatePrompt,
 }: {
   front: "A" | "B";
@@ -2159,7 +2215,10 @@ function AgentWindow({
   openExam: boolean;
   /** Multiple choice: generation works, the judge review does not. */
   mcExam: boolean;
+  /** Empty rubric: running the exam is off, writing criteria is the next thing. */
+  noCriteria: boolean;
   onRun: () => void;
+  onCriteria: () => void;
   /** Null when the benchmark has no validated papers: generation stays off. */
   generatePrompt: string | null;
 }) {
@@ -2280,14 +2339,21 @@ function AgentWindow({
                 Generá 5 preguntas nuevas
               </button>
             )}
-            {openExam && (
+            {openExam && !noCriteria && (
               <button disabled={chat.pending} onClick={() => void ask("Verificá las respuestas expertas con benchy_review y contame cuáles no cumplen los criterios de evaluación y por qué.")}>
                 Verificá las claves
               </button>
             )}
-            <button onClick={onRun}>
-              Corré la evaluación
-            </button>
+            {noCriteria ? (
+              // Nothing to grade with: the useful thing to ask for is the rubric.
+              <button disabled={chat.pending} onClick={onCriteria}>
+                Escribí los criterios de evaluación
+              </button>
+            ) : (
+              <button onClick={onRun}>
+                Corré la evaluación
+              </button>
+            )}
           </div>
           <form
             className="ws-composer"

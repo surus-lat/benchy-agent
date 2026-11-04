@@ -88,6 +88,10 @@ criteria:
   app and `review.json` refer to them.
 - The app allows one to ten criteria. Fewer, sharper criteria beat ten vague
   ones. If two criteria would always be met together, merge them.
+- The researcher can delete every criterion and leave `criteria` empty. The
+  engine still validates that file, so it is the app that blocks evaluating and
+  publishing until there is at least one — never "fix" an empty rubric by
+  leaving it empty, and never write it empty yourself.
 - Derive each criterion from the design: purpose → what must be shown;
   construct → what the answer must do; failureModes → what the answer must not
   do. If a criterion cannot be traced to the design, question it. The reverse

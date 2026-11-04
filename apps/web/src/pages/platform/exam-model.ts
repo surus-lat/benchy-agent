@@ -351,10 +351,11 @@ export function addCriterion(
   return String(doc);
 }
 
-/** benchmark.yaml without one criterion; a rubric keeps at least one. */
+/** benchmark.yaml without one criterion. Down to none is allowed on purpose: an
+ *  open exam with an empty rubric cannot be evaluated, and the app says so and
+ *  blocks it until the researcher writes new criteria. */
 export function removeCriterion(yamlText: string, key: string): string {
   const doc = parseDocument(yamlText);
-  if ((readCriteria(doc)?.length ?? 0) <= 1) return yamlText;
   doc.deleteIn([...CRITERIA_PATH, key]);
   return String(doc);
 }

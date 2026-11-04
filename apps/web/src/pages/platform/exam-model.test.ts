@@ -221,10 +221,13 @@ describe("rubric in benchmark.yaml", () => {
     expect(out).toContain("1: Lo cumple a medias");
   });
 
-  it("removes a criterion but never the last one", () => {
+  it("removes criteria down to none, and a new one starts the numbering again", () => {
     const one = removeCriterion(YAML, "c1");
     expect(readCriteria(parseBenchDoc(one))!.map((c) => c.key)).toEqual(["c2"]);
-    expect(removeCriterion(one, "c2")).toBe(one);
+    const empty = removeCriterion(one, "c2");
+    expect(readCriteria(parseBenchDoc(empty))).toEqual([]);
+    // An empty rubric is still a rubric: the first criterion written lands in c1.
+    expect(readCriteria(parseBenchDoc(addCriterion(empty, "Vuelve con una.", 3)))!.map((c) => c.key)).toEqual(["c1"]);
   });
 
   it("counts a review only for the rubric it was made with", () => {
