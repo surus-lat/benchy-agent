@@ -346,6 +346,7 @@ export default function Workspace({ slug, stage: stageParam }: { slug: string; s
               <p className="ws-note ws-pad">Cargando el examen…</p>
             ) : stage === "criterios" ? (
               <CriteriaStage
+                bench={slug}
                 exam={exam}
                 openExam={openExam}
                 mcExam={mcExam}

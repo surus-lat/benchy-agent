@@ -19,53 +19,55 @@ import { StageNext } from "./stage-next";
 // medirá cada respuesta; las fuentes y las preguntas se eligen para ponerlos a
 // prueba. El diseño vive en design.json, legible y escribible por la app y el
 // agente; los criterios, en benchmark.yaml (la rúbrica del motor).
+//
+// La pantalla va de lo general a lo particular: primero la pregunta, después la
+// capacidad que se quiere medir, y recién entonces los criterios. Lo que afina
+// el diseño (errores, límites) y las reglas del puntaje quedan plegados.
 
 const Lang = createContext("es");
 
-const DESIGN_FIELDS: {
+type DesignFieldSpec = {
   key: keyof Design;
   title: string;
   question: string;
   placeholder: string;
   help: string;
-}[] = [
-  {
-    key: "purpose",
-    title: "Qué queremos averiguar",
-    question: "¿Qué pregunta responde este benchmark?",
-    placeholder: "Ej.: si los modelos distinguen la reciprocidad ritual de la doméstica en los Andes.",
-    help: "La pregunta que te trajo hasta acá. Todo lo demás —criterios, fuentes, preguntas— se deriva de esto.",
-  },
-  {
-    key: "construct",
-    title: "Qué debería poder hacer un modelo que domina el tema",
-    question: "¿Qué habilidad o comprensión querés medir?",
-    placeholder: "Ej.: reconstruir el argumento de un paper, situarlo en su contexto y distinguir posiciones.",
-    help: "No lo que sabe de memoria, sino lo que puede hacer con el material de tu campo.",
-  },
-  {
-    key: "failureModes",
-    title: "Qué errores queremos exponer",
-    question: "¿Qué respuestas flojas o engañosas querés detectar?",
-    placeholder: "Ej.: confundir la tesis del autor con la del comentarista, citar sin la página, mezclar tradiciones.",
-    help: "Cada pregunta se diseña para que un modelo que solo improvisa caiga en alguno de estos errores.",
-  },
-  {
-    key: "notes",
-    title: "Qué deja afuera el puntaje",
-    question: "¿Qué no mide este examen?",
-    placeholder: "Ej.: no mide estilo, originalidad ni la calidad de la escritura; solo la comprensión del material.",
-    help: "Decirlo ahora evita leer el resultado como si midiera más de lo que mide.",
-  },
-];
+};
 
-const DESIGN_PROMPTS = [
-  "Ayudame a definir qué queremos evaluar y completá design.json con mi respuesta.",
-  "Proponé criterios de evaluación verificables a partir de ese diseño.",
-  "Revisá que cada criterio se pueda comprobar con la respuesta experta de cada pregunta.",
-];
+const PURPOSE: DesignFieldSpec = {
+  key: "purpose",
+  title: "Qué querés averiguar",
+  question: "La pregunta que responde este benchmark.",
+  placeholder: "Ej.: si los modelos distinguen la reciprocidad ritual de la doméstica en los Andes.",
+  help: "Escribila como se la harías a un colega. Todo lo demás —criterios, fuentes, preguntas— sale de acá.",
+};
+
+const CONSTRUCT: DesignFieldSpec = {
+  key: "construct",
+  title: "Qué debería poder hacer un modelo que domina el tema",
+  question: "¿Qué habilidad o comprensión querés medir?",
+  placeholder: "Ej.: reconstruir el argumento de un paper, situarlo en su contexto y distinguir posiciones.",
+  help: "No lo que sabe de memoria, sino lo que puede hacer con el material de tu campo.",
+};
+
+const FAILURE_MODES: DesignFieldSpec = {
+  key: "failureModes",
+  title: "Qué errores querés exponer",
+  question: "¿Qué respuestas flojas o engañosas querés detectar?",
+  placeholder: "Ej.: confundir la tesis del autor con la del comentarista, citar sin la página, mezclar tradiciones.",
+  help: "Cada pregunta se diseña para que un modelo que solo improvisa caiga en alguno de estos errores.",
+};
+
+const NOTES: DesignFieldSpec = {
+  key: "notes",
+  title: "Qué deja afuera el puntaje",
+  question: "¿Qué no mide este examen?",
+  placeholder: "Ej.: no mide estilo, originalidad ni la calidad de la escritura; solo la comprensión del material.",
+  help: "Decirlo ahora evita leer el resultado como si midiera más de lo que mide.",
+};
 
 export function CriteriaStage({
+  bench,
   exam,
   openExam,
   mcExam,
@@ -74,6 +76,8 @@ export function CriteriaStage({
   ask,
   showAgent,
 }: {
+  /** The benchmark folder: the agent needs it to find design.json and the rubric. */
+  bench: string;
   exam: ExamState;
   openExam: boolean;
   mcExam: boolean;
@@ -142,6 +146,40 @@ export function CriteriaStage({
     onNext();
   };
 
+  // What still needs deciding: only the question, then the capability. Once
+  // both are there, asking the agent for criteria makes sense; before that it
+  // would have nothing to work from. The label is what the researcher reads;
+  // the message carries the benchmark and the files so the agent knows exactly
+  // where to work, even without sources or questions yet.
+  const purpose = design.purpose.trim();
+  const construct = design.construct.trim();
+  const designPrompt = !purpose
+    ? {
+        label: "Ayudame a formular la pregunta",
+        message: `En el benchmark ${bench}, ayudame a formular qué queremos averiguar sobre los modelos en mi campo. Hacéme preguntas hasta que la pregunta quede clara y escribila en design.json.`,
+      }
+    : !construct
+      ? {
+          label: "¿Qué debería poder hacer un modelo que domina el tema?",
+          message: `En el benchmark ${bench}, a partir de lo que ya escribí en design.json, proponeme dos o tres cosas que debería poder hacer un modelo que domina el tema y completá construct en design.json.`,
+        }
+      : null;
+  const criteriaPrompt =
+    openExam && purpose
+      ? {
+          label: "Revisemos los criterios",
+          message: `En el benchmark ${bench}, leé design.json y los criterios de benchmark.yaml. Revisá que cada criterio se pueda comprobar leyendo la respuesta experta y proponeme los que falten para cubrir el diseño.`,
+        }
+      : null;
+
+  // The optional fields stay folded until there is something in them. The agent
+  // may fill them later, so opening on content keeps its work visible.
+  const extrasFilled = !!(design.failureModes.trim() || design.notes.trim());
+  const [extrasOpen, setExtrasOpen] = useState(extrasFilled);
+  useEffect(() => {
+    if (extrasFilled) setExtrasOpen(true);
+  }, [extrasFilled]);
+
   return (
     <Lang.Provider value={exam.doc?.language ?? "es"}>
       <div className="ws-scroll ws-pad-lg">
@@ -150,90 +188,100 @@ export function CriteriaStage({
             <p className="ws-eyebrow">01 · Criterios de evaluación</p>
             <h2>¿Qué queremos averiguar?</h2>
             <p className="ws-note">
-              Empezá por acá, no por las preguntas. Decidí qué querés descubrir sobre los modelos en tu campo y qué debería saber hacer uno
-              que lo domina. De ese diseño salen los criterios con los que el juez medirá cada respuesta; las fuentes y las preguntas se eligen
-              después para ponerlos a prueba.
+              Primero decidí qué querés descubrir sobre los modelos en tu campo. Con eso escribimos los criterios con los que se mide cada
+              respuesta; las fuentes y las preguntas vienen después.
             </p>
-            <div className="ws-crit-ask">
-              <span className="ws-eyebrow">Pensalo con el agente</span>
-              <div className="ws-chips">
-                {DESIGN_PROMPTS.filter((p) => openExam || (!p.startsWith("Proponé") && !p.startsWith("Revisá"))).map((p) => (
-                  <button
-                    key={p}
-                    onClick={() => {
-                      showAgent();
-                      void ask(p);
-                    }}
-                  >
-                    {p}
-                  </button>
-                ))}
-              </div>
-            </div>
           </header>
 
-          <section className="ws-crit-design" aria-label="Diseño del benchmark">
-            {DESIGN_FIELDS.map((f) => (
-              <DesignField
-                key={f.key}
-                title={f.title}
-                question={f.question}
-                help={f.help}
-                placeholder={f.placeholder}
-                value={design[f.key]}
-                onChange={(v) => write({ ...design, [f.key]: v })}
-              />
-            ))}
-            <p className="ws-design-save">
-              <span className="mono muted">{exam.designPath ?? "design.json"}</span> · se guarda solo, y el agente lo lee y lo puede completar.
-            </p>
+          <section className="ws-crit-block" aria-labelledby="crit-design">
+            <header className="ws-crit-step">
+              <span className="ws-crit-num" aria-hidden="true">1</span>
+              <div>
+                <p className="ws-eyebrow" id="crit-design">El diseño</p>
+                <h3>La pregunta y lo que querés medir</h3>
+                <p className="ws-note">Una pregunta y una capacidad: qué te interesa saber y qué debería poder hacer un modelo que domina el tema.</p>
+              </div>
+            </header>
+
+            <div className="ws-crit-design">
+              <DesignField spec={PURPOSE} value={design.purpose} onChange={(v) => write({ ...design, purpose: v })} big />
+              <DesignField spec={CONSTRUCT} value={design.construct} onChange={(v) => write({ ...design, construct: v })} />
+            </div>
+
+            {designPrompt && <AgentAsk prompt={designPrompt} ask={ask} showAgent={showAgent} />}
+
+            <button className="ws-crit-more" aria-expanded={extrasOpen} onClick={() => setExtrasOpen((o) => !o)}>
+              <span className="chev">{extrasOpen ? "▾" : "▸"}</span>
+              <span>{extrasOpen ? "Ocultar" : "Afinar el diseño"}</span>
+              <span className="hint">Qué errores buscar y qué no mide · opcional</span>
+            </button>
+            {extrasOpen && (
+              <div className="ws-crit-design extras">
+                <DesignField spec={FAILURE_MODES} value={design.failureModes} onChange={(v) => write({ ...design, failureModes: v })} />
+                <DesignField spec={NOTES} value={design.notes} onChange={(v) => write({ ...design, notes: v })} />
+              </div>
+            )}
+
+            <p className="ws-design-save">Se guarda solo. El agente puede leerlo y completarlo.</p>
           </section>
 
-          {openExam ? (
-            <CriteriaEditor
-              exam={exam}
-              criteria={criteria}
-              questionCount={questionCount}
-              library={library}
-              libraryOpen={libraryOpen}
-              onLibraryOpen={setLibraryOpen}
-              onSaved={(item) => setLibrary((list) => [...list, item])}
-            />
-          ) : (
-            <section className="ws-crit-closed" aria-label="Corrección del examen">
-              <div className="ws-card ws-pad">
-                <p className="ws-eyebrow">Cómo se corrige este examen</p>
+          <section className="ws-crit-block" aria-labelledby="crit-rubric">
+            <header className="ws-crit-step">
+              <span className="ws-crit-num" aria-hidden="true">2</span>
+              <div>
+                <p className="ws-eyebrow" id="crit-rubric">Los criterios</p>
+                <h3>Cómo se mide cada respuesta</h3>
                 <p className="ws-note">
-                  {mcExam
-                    ? "Las preguntas son de opción múltiple: cada respuesta se compara por coincidencia exacta con el texto de la opción correcta. No hay rúbrica ni juez, así que no hay criterios que definir. El diseño de arriba sigue siendo el norte: cada pregunta y sus opciones se escriben para ponerlo a prueba."
-                    : "Este benchmark es de respuesta cerrada: cada campo se corrige por coincidencia exacta, sin criterios de evaluación. El diseño de arriba sigue guiando qué preguntas tienen sentido."}
+                  {openExam
+                    ? `El juez los aplica a ${questionCount === 0 ? "cada pregunta" : questionCount === 1 ? "la pregunta del examen" : `las ${questionCount} preguntas del examen`}. Escribí cada criterio como algo que se pueda comprobar leyendo la respuesta experta.`
+                    : "Este examen no usa rúbrica: cada respuesta se corrige por coincidencia exacta."}
                 </p>
-                <p className="ws-engine-line">→ en el motor: scoring.field_metrics.answer · {mcExam ? "casefold_strip" : "coincidencia exacta"}</p>
               </div>
-            </section>
-          )}
+              {openExam && (
+                <span className="ws-crit-count mono" title={`Máximo ${MAX_CRITERIA} criterios`}>
+                  {criteria.length} de {MAX_CRITERIA}
+                </span>
+              )}
+            </header>
 
-          <section className="ws-crit-how" aria-label="Cómo se calcula el puntaje">
-            <p className="ws-eyebrow">Cómo se calcula el puntaje</p>
             {openExam ? (
               <>
-                <p>
-                  <strong>Cada criterio pesa distinto.</strong> El juez lee la respuesta del modelo, la compara con la respuesta experta y decide,
-                  criterio por criterio, si la cumple. La importancia (de 1 a 5) dice cuánto mueve ese criterio el puntaje final: uno con peso 5
-                  pesa cinco veces más que uno con peso 1.
+                <CriteriaEditor
+                  exam={exam}
+                  criteria={criteria}
+                  library={library}
+                  libraryOpen={libraryOpen}
+                  onLibraryOpen={setLibraryOpen}
+                  onSaved={(item) => setLibrary((list) => [...list, item])}
+                />
+                {criteriaPrompt && <AgentAsk prompt={criteriaPrompt} ask={ask} showAgent={showAgent} />}
+                <p className="ws-note">
+                  Cuando el juez verifica una clave, comprueba que la respuesta experta cumpla estos criterios. Aprobar la pregunta es tu decisión y
+                  pasa en 03 · Preguntas.
                 </p>
-                <p>
-                  <strong>Verificar la clave no es aprobar la pregunta.</strong> Primero el juez comprueba que la respuesta experta —la clave
-                  contra la que se compara todo— cumpla los criterios. Eso es la verificación. Después vos decidís si la pregunta queda: eso es la
-                  aprobación, y pasa en 03 · Preguntas. Si la clave no cumple un criterio, el problema suele estar en la redacción del criterio o en
-                  la respuesta experta, no en los modelos.
-                </p>
+                <details className="ws-crit-details">
+                  <summary>Cómo se calcula el puntaje</summary>
+                  <p>
+                    El juez lee la respuesta del modelo, la compara con la respuesta experta y decide, criterio por criterio, si la cumple. La
+                    importancia (de 1 a 5) dice cuánto mueve el puntaje final: un criterio con 5 pesa cinco veces más que uno con 1.
+                  </p>
+                  <p>
+                    Si una clave no cumple un criterio, el problema suele estar en la redacción del criterio o en la respuesta experta, no en los
+                    modelos.
+                  </p>
+                </details>
               </>
             ) : (
-              <p>
-                La respuesta del modelo se compara con la respuesta correcta: coincide o no coincide. No hay puntaje parcial ni juez. Por eso este
-                examen no necesita criterios; el diseño de arriba dice qué preguntas vale la pena hacer.
-              </p>
+              <div className="ws-card ws-pad ws-crit-closed">
+                <p className="ws-note">
+                  {mcExam
+                    ? "Las preguntas son de opción múltiple: la respuesta del modelo tiene que ser el texto exacto de la opción correcta. No hay rúbrica ni juez, así que no hay criterios que definir."
+                    : "Cada campo se corrige por coincidencia exacta, sin criterios de evaluación."}
+                </p>
+                <p className="ws-note">
+                  El diseño de arriba sigue siendo el norte: las preguntas y sus opciones se escriben para ponerlo a prueba.
+                </p>
+              </div>
             )}
           </section>
 
@@ -255,20 +303,36 @@ export function CriteriaStage({
   );
 }
 
+/** A prompt for the agent, next to the decision it helps with. */
+function AgentAsk({ prompt, ask, showAgent }: { prompt: { label: string; message: string }; ask: (t: string) => Promise<void>; showAgent: () => void }) {
+  return (
+    <div className="ws-crit-ask">
+      <span className="ws-eyebrow">Pensalo con el agente</span>
+      <div className="ws-chips">
+        <button
+          title={prompt.message}
+          onClick={() => {
+            showAgent();
+            void ask(prompt.message);
+          }}
+        >
+          {prompt.label}
+        </button>
+      </div>
+    </div>
+  );
+}
+
 function DesignField({
-  title,
-  question,
-  help,
-  placeholder,
+  spec,
   value,
   onChange,
+  big = false,
 }: {
-  title: string;
-  question: string;
-  help: string;
-  placeholder: string;
+  spec: DesignFieldSpec;
   value: string;
   onChange: (v: string) => void;
+  big?: boolean;
 }) {
   const ref = useRef<HTMLTextAreaElement>(null);
   const lang = useContext(Lang);
@@ -279,9 +343,9 @@ function DesignField({
     el.style.height = el.scrollHeight + "px";
   }, [value]);
   return (
-    <label className="ws-design">
-      <span className="t">{title}</span>
-      <span className="q">{question}</span>
+    <label className={`ws-design${big ? " main" : ""}`}>
+      <span className="t">{spec.title}</span>
+      <span className="q">{spec.question}</span>
       <textarea
         ref={ref}
         className="ws-edit design"
@@ -289,11 +353,11 @@ function DesignField({
         spellCheck={spellcheckFor(lang)}
         rows={2}
         value={value}
-        placeholder={placeholder}
-        aria-label={title}
+        placeholder={spec.placeholder}
+        aria-label={spec.title}
         onChange={(e) => onChange(e.target.value)}
       />
-      <span className="h">{help}</span>
+      <span className="h">{spec.help}</span>
     </label>
   );
 }
@@ -302,7 +366,6 @@ function DesignField({
 function CriteriaEditor({
   exam,
   criteria,
-  questionCount,
   library,
   libraryOpen,
   onLibraryOpen,
@@ -310,7 +373,6 @@ function CriteriaEditor({
 }: {
   exam: ExamState;
   criteria: Criterion[];
-  questionCount: number;
   library: LibraryCriterion[];
   libraryOpen: boolean;
   onLibraryOpen: (open: boolean) => void;
@@ -360,20 +422,7 @@ function CriteriaEditor({
   };
 
   return (
-    <section className="ws-crit-rubric" aria-label="Criterios de evaluación">
-      <div className="ws-crit-rubric-head">
-        <div>
-          <p className="ws-eyebrow">Los criterios con los que el juez mide cada respuesta</p>
-          <p className="ws-note">
-            Se aplican a las {questionCount === 1 ? "pregunta" : `${questionCount} preguntas`} del examen. Escribí cada uno como una oración que
-            el juez pueda comprobar contra la respuesta experta: «Distingue…», «Sitúa…», «Menciona…».
-          </p>
-        </div>
-        <span className="ws-crit-count mono">
-          {criteria.length} de {MAX_CRITERIA}
-        </span>
-      </div>
-
+    <div className="ws-crit-rubric">
       <div className="ws-crit-list">
         {criteria.map((c, i) => (
           <div key={c.key} className="ws-crit-card">
@@ -530,11 +579,7 @@ function CriteriaEditor({
       )}
 
       {error && <p className="ws-note fail">{error}</p>}
-      <p className="ws-note">
-        Si cambiás los criterios, el juez tiene que volver a verificar las respuestas expertas: la verificación y la aprobación de cada pregunta
-        viven en 03 · Preguntas.
-      </p>
-    </section>
+    </div>
   );
 }
 
