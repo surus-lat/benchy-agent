@@ -200,11 +200,19 @@ write every question from them:
   identification** (what word, what language, what date): mix forms — a
   situated case or a testimony, explain why, compare, apply. A batch where every
   item asks the same thing measures one thing five times.
-- Each question tests something a specialist would know **from that paper** —
-  a finding, an argument, a method and why it was chosen — not trivia (a date,
-  a sample size alone) and not something answerable from the title. It must also
-  put at least one rubric criterion to the test and aim at a failure mode named
-  in `design.json`; if it does neither, it is not part of this benchmark.
+- Each question tests something a specialist would know **in the discipline** —
+  a finding, an argument, a case — that this paper documents: not trivia (a
+  date, a sample size alone) and not something answerable from the title. It
+  must also put at least one rubric criterion to the test and aim at a failure
+  mode named in `design.json`; if it does neither, it is not part of this
+  benchmark.
+- **The question belongs to the discipline, not to the sources.** It never
+  points at the corpus — no "according to the paper", no "can this be sustained
+  with the corpus", no "what does the source document": that frame makes the
+  item reading comprehension and the exam a test of these papers rather than of
+  the field. Present a case, a claim or a phenomenon of the field and ask for
+  the disciplinary judgment (correct it, explain it, situate it, compare it);
+  the papers stay in `sources`, backing an expert answer that cites them.
 - The expert answer is what the paper supports, in your own words, complete
   enough that the grader can check every rubric criterion against it.
 - In `questions.json`, `sources` cites the paper by id and page:

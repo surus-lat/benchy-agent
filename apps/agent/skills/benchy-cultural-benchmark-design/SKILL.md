@@ -85,7 +85,10 @@ Decide what a question looks like. Situated and applied questions — a
 scenario, a judgment call, explaining a practice in its context — measure
 cultural capability. Pure recall (a date, a name, a definition) measures
 trivia. Trivia questions are allowed; an exam where they are the whole
-measurement trips AP-2.
+measurement trips AP-2. And an item framed as "what the source says"
+(«según el artículo», «¿qué documenta el corpus?») measures reading
+comprehension of the corpus rather than the culture: the papers back the
+key, they are not the item's object.
 
 ### 4. Data and language
 
