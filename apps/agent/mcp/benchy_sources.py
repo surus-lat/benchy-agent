@@ -37,8 +37,8 @@ from pathlib import Path
 from aiohttp import ClientError, ClientSession, ClientTimeout
 
 import benchy_publication
+from benchy_shared import workspace
 
-WORKSPACE = Path(os.environ.get("BENCHY_WORKSPACE", "/opt/data/workspace")).resolve()
 # The Worker: the library's own PDFs (R2), fetched with this container's key.
 API_URL = os.environ.get("BENCHY_API_URL", "https://getbenchy.lat").rstrip("/")
 API_KEY = os.environ.get("API_SERVER_KEY", "")
@@ -79,10 +79,11 @@ class SourceError(Exception):
 
 def bench_dir(bench: str) -> Path:
     """The benchmark's folder: a top-level workspace folder with a benchmark.yaml."""
-    target = (WORKSPACE / bench).resolve() if isinstance(bench, str) and bench else None
+    root = workspace()
+    target = (root / bench).resolve() if isinstance(bench, str) and bench else None
     if (
         target is None
-        or target.parent != WORKSPACE
+        or target.parent != root
         or target.name.startswith(".")
         or target.is_symlink()
         or not (target / "benchmark.yaml").is_file()

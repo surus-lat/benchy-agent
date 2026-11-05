@@ -35,7 +35,7 @@ import tempfile
 import time
 from pathlib import Path
 
-WORKSPACE = Path(os.environ.get("BENCHY_WORKSPACE", "/opt/data/workspace")).resolve()
+from benchy_shared import workspace
 
 PUBLISH_FILE = "publish.json"
 SNAPSHOT_DIR = "published"
@@ -57,8 +57,9 @@ class PublicationError(Exception):
 
 def bench_dir(bench: str) -> Path:
     """The benchmark's folder: a single top-level workspace folder."""
-    target = (WORKSPACE / bench).resolve() if isinstance(bench, str) and bench else None
-    if target is None or target == WORKSPACE or WORKSPACE not in target.parents or target.parent != WORKSPACE:
+    root = workspace()
+    target = (root / bench).resolve() if isinstance(bench, str) and bench else None
+    if target is None or target == root or root not in target.parents or target.parent != root:
         raise PublicationError("bad_bench", "the benchmark must be one workspace folder")
     if not (target / "benchmark.yaml").is_file():
         raise PublicationError("bench_not_found", f"there is no benchmark in {target.name}")

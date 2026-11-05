@@ -46,13 +46,13 @@ hf_hub_download('surus-ai/embeddinggemma-2-onnx', 'model_q8.onnx', local_dir=d);
 hf_hub_download('surus-ai/embeddinggemma-2-onnx', 'tokenizer.json', local_dir=d); \
 print('Downloaded embed model to', d, os.listdir(d))"
 
-COPY --chown=root:root config.yaml SOUL.md /opt/benchy/
+COPY --chown=root:root config.yaml SOUL.md orgs.yaml /opt/benchy/
 COPY --chown=root:root mcp/ /opt/benchy/mcp/
 COPY --chown=root:root proxy/ /opt/benchy/proxy/
 COPY --chown=root:root skills/ /opt/benchy/skills/
 COPY --chown=root:root rootfs/ /
 RUN chmod -R a-w,a+rX /opt/benchy \
- && chmod 0755 /etc/cont-init.d/03-benchy-setup /etc/s6-overlay/s6-rc.d/benchy-proxy/run \
+ && chmod 0755 /etc/cont-init.d/03-benchy-setup /etc/cont-init.d/04-benchy-multiplex /etc/s6-overlay/s6-rc.d/benchy-proxy/run \
  && /opt/hermes/.venv/bin/python -c "import benchy, llm_client, mcp.server.mcpserver, pypdfium2; print('engine', benchy.__file__)"
 
 # The engine's Bedrock provider builds its endpoint from AWS_REGION.

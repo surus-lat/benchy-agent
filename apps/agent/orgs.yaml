@@ -1,0 +1,71 @@
+# Benchy Agent — declarative org roster (multiplex mode).
+#
+# Copied to /opt/benchy/orgs.yaml by the image build. Read at boot by
+# /etc/cont-init.d/04-benchy-multiplex and at runtime by the proxy
+# (proxy/benchy_proxy.py), which maps Host header -> org -> Hermes profile.
+#
+# Mode selection (boot and proxy agree):
+#   file missing, or <= 1 org with tier: shared  -> legacy single-org mode
+#   >= 2 orgs with tier: shared                  -> multiplex mode
+#
+# Schema (consumed by Fase 2 tooling too — keep these keys stable):
+#   id            org slug; also the name of its secrets file (<id>.env)
+#   profile       Hermes profile name (^[a-z0-9][a-z0-9_-]{0,63}$); state lives
+#                 in $HERMES_HOME/profiles/<profile>/
+#   hostnames     every Host value that routes to this org (both the prod
+#                 agent-<org>.agents.getbenchy.lat names fronted by the ALB and
+#                 the <org>.benchy.surus.lat names are listed)
+#   secrets_arn   Secrets Manager secret holding this org's .env (API_SERVER_KEY,
+#                 AWS_BEARER_TOKEN_BEDROCK). The task definition mounts it as
+#                 /opt/benchy/orgs/<id>.env; the boot script installs it as the
+#                 profile's .env (0600, hermes-owned). Fase 2 wires the ARN to
+#                 the ECS secret mount; Fase 1 consumes the mounted file.
+#   mcps          MCP servers enabled in this org's profile config
+#                 (subset of the pinned template's mcp_servers)
+#   model         profile model override; "default" keeps the template's
+#   tier          shared: served by this multiplex container
+#                 dedicated: kept for Fase 2 (its own task); ignored here
+#   limits        max_sessions -> gateway.max_concurrent_sessions in the
+#                 profile's rendered config (see docs/multiplex.md for the
+#                 enforcement caveat); max_cron_workers has no Hermes knob
+#                 yet (documented gap)
+
+orgs:
+  - id: surus
+    profile: surus
+    hostnames:
+      - agent-surus.agents.getbenchy.lat
+      - surus.benchy.surus.lat
+    secrets_arn: arn:aws:secretsmanager:us-east-1:354918377724:secret:benchy/org-surus
+    mcps: [benchy]
+    model: default
+    tier: shared        # shared | dedicated
+    limits:
+      max_sessions: 10
+      max_cron_workers: 2
+
+  - id: conicet
+    profile: conicet
+    hostnames:
+      - agent-conicet.agents.getbenchy.lat
+      - conicet.benchy.surus.lat
+    secrets_arn: arn:aws:secretsmanager:us-east-1:354918377724:secret:benchy/org-conicet
+    mcps: [benchy]
+    model: default
+    tier: shared
+    limits:
+      max_sessions: 10
+      max_cron_workers: 2
+
+  - id: untref
+    profile: untref
+    hostnames:
+      - agent-untref.agents.getbenchy.lat
+      - untref.benchy.surus.lat
+    secrets_arn: arn:aws:secretsmanager:us-east-1:354918377724:secret:benchy/org-untref
+    mcps: [benchy]
+    model: default
+    tier: shared
+    limits:
+      max_sessions: 10
+      max_cron_workers: 2

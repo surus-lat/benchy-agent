@@ -24,7 +24,7 @@ except ImportError:  # mcp 1.x
 import sys
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from benchy_shared import MODELS, WORKSPACE, catalog, inside  # noqa: E402
+from benchy_shared import MODELS, catalog, inside, workspace  # noqa: E402
 from benchy_review import review  # noqa: E402
 from benchy_quality import quality  # noqa: E402
 import benchy_sources  # noqa: E402
@@ -45,7 +45,7 @@ def _inside(path: str) -> Path:
     """Resolve `path` against the workspace, refusing anything that escapes it."""
     candidate = inside(path)
     if candidate is None:
-        raise BenchyError("compile", "data_not_found", f"{path!r} is outside the workspace {WORKSPACE}")
+        raise BenchyError("compile", "data_not_found", f"{path!r} is outside the workspace {workspace()}")
     return candidate
 
 
@@ -122,7 +122,7 @@ async def benchy_run(path: str, model: str | None = None) -> dict:
         "summary": result.get("summary"),
         "model": system.get("model"),
         "seconds": done["seconds"],
-        "saved_to": str(done["file"].relative_to(WORKSPACE)),
+        "saved_to": str(done["file"].relative_to(workspace())),
         "failures_shown": failures,
     }
 
@@ -150,7 +150,7 @@ async def benchy_review(path: str) -> dict:
         for r in report["rows"] if r.get("error") or r.get("missed")
     ]
     return {"ok": True, "rows": len(report["rows"]), "weak": weak[:20],
-            "saved_to": str((source.parent / "review.json").relative_to(WORKSPACE))}
+            "saved_to": str((source.parent / "review.json").relative_to(workspace()))}
 
 
 @mcp.tool()
@@ -176,7 +176,7 @@ async def benchy_quality(path: str) -> dict:
         for r in report["rows"] if r.get("error") or r.get("missed")
     ]
     return {"ok": True, "rows": len(report["rows"]), "weak": weak[:20],
-            "saved_to": str((source.parent / "quality.json").relative_to(WORKSPACE))}
+            "saved_to": str((source.parent / "quality.json").relative_to(workspace()))}
 
 @mcp.tool()
 def benchy_analysis(path: str) -> dict:

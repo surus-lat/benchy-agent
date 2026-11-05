@@ -1,0 +1,173 @@
+#!/command/with-contenv sh
+# Benchy multiplex boot, run as root by s6 after 03-benchy-setup (which pins
+# the default profile) and before the gateway starts.
+#
+# When /opt/benchy/orgs.yaml declares two or more shared-tier orgs, this
+# container serves all of them from ONE Hermes gateway: each org gets a Hermes
+# profile under $HERMES_HOME/profiles/<profile>/ with its own pinned
+# config.yaml, its own .env (from the org's mounted secrets file), its own
+# workspace, and the same persona and core-skill protections as the default
+# profile. The gateway multiplexes every profile on the root listener and
+# routes by URL prefix /p/<profile>/... with profile-scoped API keys; the
+# proxy maps the request's Host header to that prefix.
+#
+# With a missing orgs.yaml or a single shared org this script is a no-op and
+# the container keeps its legacy single-tenant behavior exactly.
+set -eu
+
+HERMES_HOME="${HERMES_HOME:-/opt/data}"
+ORGS_YAML="${BENCHY_ORGS_YAML:-/opt/benchy/orgs.yaml}"
+ORGS_SECRETS_DIR="${BENCHY_ORGS_SECRETS_DIR:-/opt/benchy/orgs}"
+PY=/opt/hermes/.venv/bin/python
+CORE=/opt/benchy/skills
+
+say() { echo "[benchy-multiplex] $*"; }
+die() { echo "[benchy-multiplex] FATAL: $*" >&2; exit 1; }
+
+[ -f "$ORGS_YAML" ] || { say "no orgs.yaml — legacy single-org mode"; exit 0; }
+
+# One "id|profile|model|max_sessions|mcps" line per shared-tier org.
+ORGS=$("$PY" - "$ORGS_YAML" <<'PYEOF'
+import sys
+
+import yaml
+
+doc = yaml.safe_load(open(sys.argv[1], encoding="utf-8")) or {}
+for org in doc.get("orgs") or []:
+    if str(org.get("tier", "shared")) != "shared":
+        continue
+    limits = org.get("limits") or {}
+    print("|".join([
+        str(org.get("id", "")),
+        str(org.get("profile") or org.get("id", "")),
+        str(org.get("model", "default")),
+        str(limits.get("max_sessions", "")),
+        ",".join(str(m) for m in (org.get("mcps") or [])),
+    ]))
+PYEOF
+) || die "could not parse $ORGS_YAML"
+
+COUNT=$(printf '%s\n' "$ORGS" | grep -c . || true)
+[ "$COUNT" -ge 2 ] || { say "one or zero shared orgs — legacy single-org mode"; exit 0; }
+say "multiplex mode: $COUNT shared orgs"
+
+# The Hermes CLI entry point (profile creation).
+if [ -x /opt/hermes/.venv/bin/hermes ]; then
+  HERMES_CLI=/opt/hermes/.venv/bin/hermes
+else
+  HERMES_CLI="$PY -m hermes_cli"
+fi
+
+while IFS='|' read -r id profile model max_sessions mcps; do
+  [ -n "$id" ] || continue
+  [ -n "$profile" ] || die "org '$id' declares no profile"
+  echo "$profile" | grep -qE '^[a-z0-9][a-z0-9_-]{0,63}$' \
+    || die "org '$id': profile name '$profile' is not a valid Hermes profile id"
+  PDIR="$HERMES_HOME/profiles/$profile"
+
+  # 1. Create the profile when missing: the Hermes CLI is the sanctioned path;
+  #    fall back to the bare directory (identity markers are installed below).
+  if [ ! -d "$PDIR" ]; then
+    if env HOME="$HERMES_HOME" s6-setuidgid hermes $HERMES_CLI profile create "$profile" \
+         --no-skills --no-alias </dev/null >/dev/null 2>&1 && [ -d "$PDIR" ]; then
+      say "created profile '$profile' via hermes profile create"
+    else
+      say "hermes profile create failed for '$profile'; creating $PDIR directly"
+      install -d -o hermes -g hermes "$PDIR"
+    fi
+  fi
+
+  # 2. Per-org secrets -> the profile's .env. Multiplex fails closed: an org
+  #    without its secrets file is a broken deployment, not a degraded one.
+  SRC_ENV="$ORGS_SECRETS_DIR/$id.env"
+  [ -f "$SRC_ENV" ] || die "org '$id': missing secrets file $SRC_ENV"
+  install -o hermes -g hermes -m 0600 "$SRC_ENV" "$PDIR/.env"
+
+  # 3. This profile's workspace. The MCP child resolves ${BENCHY_WORKSPACE}
+  #    from the profile's own .env scope when multiplexing, so pin it there.
+  WS="$PDIR/workspace"
+  install -d -o hermes -g hermes "$WS"
+  if ! grep -q '^BENCHY_WORKSPACE=' "$PDIR/.env"; then
+    echo "BENCHY_WORKSPACE=$WS" >> "$PDIR/.env"
+  fi
+
+  # 4. Pinned config, rendered per org from the image's template: model
+  #    override, session limit, and the org's MCP allowlist. Same source of
+  #    truth as the default profile — only the listed keys vary.
+  "$PY" - /opt/benchy/config.yaml "$PDIR/.config.rendered" "$model" "$max_sessions" "$mcps" <<'PYEOF'
+import sys
+
+import yaml
+
+src, dst, model, max_sessions, mcps = sys.argv[1:6]
+cfg = yaml.safe_load(open(src, encoding="utf-8")) or {}
+if model and model != "default":
+    cfg.setdefault("model", {})["default"] = model
+if max_sessions:
+    cfg.setdefault("gateway", {})["max_concurrent_sessions"] = int(max_sessions)
+allowed = {m.strip() for m in mcps.split(",") if m.strip()}
+if allowed:
+    cfg["mcp_servers"] = {k: v for k, v in (cfg.get("mcp_servers") or {}).items() if k in allowed}
+else:
+    cfg.pop("mcp_servers", None)
+with open(dst, "w", encoding="utf-8") as fh:
+    yaml.safe_dump(cfg, fh, sort_keys=False, allow_unicode=True)
+PYEOF
+  install -o hermes -g hermes -m 0644 "$PDIR/.config.rendered" "$PDIR/config.yaml"
+  rm -f "$PDIR/.config.rendered"
+
+  # 5. Persona: pinned, same as the default profile.
+  install -o hermes -g hermes -m 0644 /opt/benchy/SOUL.md "$PDIR/SOUL.md"
+
+  # 6. Reserve core skill names in the profile's skills tier, mirroring
+  #    03-benchy-setup step 4, so nothing per-profile can shadow them.
+  mkdir -p "$PDIR/skills"
+  for d in "$CORE"/*/; do
+    name="$(basename "$d")"
+    target="$PDIR/skills/$name"
+    if [ -e "$target" ] && [ "$(stat -c %U "$target")" != root ]; then
+      say "removing profile '$profile' shadow of core skill: $target"
+      rm -rf "$target"
+    fi
+    if [ ! -e "$target" ]; then
+      mkdir "$target"
+      chown root:root "$target"
+      chmod 0555 "$target"
+    fi
+    find "$PDIR/skills" -name "$name.md" -print -delete | sed 's/^/[benchy-multiplex] removed shadow: /'
+  done
+
+  # 7. Stale gateway runtime artifacts in the profile dir (02-reconcile-profiles
+  #    already clears gateway.pid/processes.json for every profile; this sweeps
+  #    the rest of the lock-bug family). A fresh ECS task means a fresh process
+  #    tree, so any of these on the shared volume is stale by definition.
+  find "$PDIR" -maxdepth 3 \( -name gateway.pid -o -name gateway.lock \
+       -o -name gateway.sock -o -name 'gateway.loop-tick.*.sock' \
+       -o -name gateway.heartbeat \) -type f 2>/dev/null \
+    | while read -r stale; do
+        say "removing stale gateway artifact: $stale (new container, always stale)"
+        rm -f "$stale"
+      done
+
+  say "org '$id' -> profile '$profile' ready (workspace $WS)"
+done <<EOF
+$ORGS
+EOF
+
+# The multiplex gateway reloads the primary config scoped to the DEFAULT
+# profile's .env, and a scope miss must not fall through to the container env
+# (gateway/run.py load_gateway_config_for_runner). The api_server adapter only
+# enables when API_SERVER_KEY is in THAT file, so sync the container-env keys
+# the root profile needs. Idempotent: never overwrite an existing line.
+ROOTENV="$HERMES_HOME/.env"
+[ -f "$ROOTENV" ] || install -o hermes -g hermes -m 0600 /dev/null "$ROOTENV"
+for key in API_SERVER_KEY AWS_BEARER_TOKEN_BEDROCK; do
+  eval "val=\${$key:-}"
+  [ -n "$val" ] || continue
+  if ! grep -q "^${key}=" "$ROOTENV"; then
+    printf '%s=%s\n' "$key" "$val" >>"$ROOTENV"
+    say "synced $key into the root .env (multiplex scoped config reads)"
+  fi
+done
+
+say "ok — $COUNT org profiles pinned under $HERMES_HOME/profiles"

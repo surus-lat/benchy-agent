@@ -26,18 +26,29 @@ Hermes's API server listens on 127.0.0.1 only; this process fronts it:
   POST /benchy/revert?bench=...                    unlock the working copy again (body: {by?})
   everything else                reverse-proxied to Hermes, streamed, unmodified
 
-The /benchy routes check the same bearer key Hermes does (API_SERVER_KEY), so
-the Worker — the only caller — uses one credential for both. Paths are
-confined to the workspace. Writes are limited to benchmark text files, never
-run results, and refuse to overwrite a file that changed since the caller read
-it (the agent may have written it meanwhile). A published benchmark's own
-files and its <bench>/published/ snapshots are frozen: only the report and the
-grader's files may still be written there until the publication is reverted.
+Multiplex mode: when /opt/benchy/orgs.yaml declares two or more shared-tier
+orgs, one container serves all of them. Every request's Host header picks the
+org; /benchy routes then work on that org's workspace
+($HERMES_HOME/profiles/<profile>/workspace) and everything else is forwarded
+to that org's Hermes profile through the gateway's multiplex prefix
+(/p/<profile>/...), which enforces the profile's own API key upstream. An
+unknown Host is a 404. With a missing orgs.yaml or a single shared org this
+process is exactly the legacy single-org proxy below.
+
+The /benchy routes check the same bearer key Hermes does (per org, the
+profile's API_SERVER_KEY), so the Worker — the only caller — uses one
+credential for both. Paths are confined to the workspace. Writes are limited
+to benchmark text files, never run results, and refuse to overwrite a file
+that changed since the caller read it (the agent may have written it
+meanwhile). A published benchmark's own files and its <bench>/published/
+snapshots are frozen: only the report and the grader's files may still be
+written there until the publication is reverted.
 """
 
 from __future__ import annotations
 
 import asyncio
+import functools
 import hmac
 import io
 import json
@@ -48,6 +59,7 @@ import tarfile
 import tempfile
 from pathlib import Path
 
+import yaml
 from aiohttp import ClientSession, ClientTimeout, web
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "mcp"))  # /opt/benchy/mcp in the image
@@ -58,13 +70,13 @@ from benchy_analysis import analyze  # noqa: E402
 from benchy_review import review as review_answers  # noqa: E402
 from benchy_quality import quality as score_questions  # noqa: E402
 import benchy_publication  # noqa: E402
-from benchy_shared import MODELS, catalog  # noqa: E402
+from benchy_shared import MODELS, catalog, inside as _ws_inside  # noqa: E402
+from benchy_shared import workspace as _workspace, workspace_override  # noqa: E402
 
 from benchy import types  # noqa: E402
 from benchy.compiler import compile_benchmark  # noqa: E402
 from benchy.errors import BenchyError  # noqa: E402
 
-WORKSPACE = Path(os.environ.get("BENCHY_WORKSPACE", "/opt/data/workspace")).resolve()
 UPSTREAM = f"http://127.0.0.1:{os.environ.get('API_SERVER_PORT', '8642')}"
 KEY = os.environ["API_SERVER_KEY"]
 MAX_FILE_BYTES = 1_000_000
@@ -78,27 +90,104 @@ HOP_BY_HOP = {
 }
 
 
+def _env_value(path: Path, name: str) -> str:
+    """One VAR=value from a dotenv file ('' when absent), quotes stripped."""
+    try:
+        for line in path.read_text(encoding="utf-8").splitlines():
+            line = line.strip()
+            if line.startswith(f"{name}="):
+                return line.split("=", 1)[1].strip().strip('"').strip("'")
+    except OSError:
+        pass
+    return ""
+
+
+def _load_orgs() -> list[dict]:
+    """The shared-tier orgs of /opt/benchy/orgs.yaml; [] means legacy mode.
+
+    Boot (/etc/cont-init.d/04-benchy-multiplex) and this loader agree on the
+    mode rule: multiplex only when the file exists and names two or more
+    shared-tier orgs. A malformed file or an org without secrets/hostnames is
+    a deployment error and stops the proxy — multiplex fails closed.
+    """
+    path = Path(os.environ.get("BENCHY_ORGS_YAML", "/opt/benchy/orgs.yaml"))
+    if not path.is_file():
+        return []
+    hermes_home = Path(os.environ.get("HERMES_HOME", "/opt/data"))
+    doc = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+    orgs = []
+    for raw in doc.get("orgs") or []:
+        if str(raw.get("tier", "shared")) != "shared":
+            continue
+        oid, profile = str(raw.get("id", "")), str(raw.get("profile") or raw.get("id", ""))
+        if not oid or not profile:
+            raise SystemExit(f"[benchy-proxy] orgs.yaml: org with no id/profile: {raw!r}")
+        hostnames = {h.strip().lower().rstrip(".") for h in raw.get("hostnames") or [] if isinstance(h, str)}
+        if not hostnames:
+            raise SystemExit(f"[benchy-proxy] orgs.yaml: org {oid!r} declares no hostnames")
+        # The profile's .env, installed by the boot script from the org's
+        # mounted secrets file: this process runs as hermes and the mounted
+        # files are not readable by it, the installed ones are (0600 hermes).
+        env_file = hermes_home / "profiles" / profile / ".env"
+        key = _env_value(env_file, "API_SERVER_KEY")
+        if not key:
+            raise SystemExit(f"[benchy-proxy] orgs.yaml: no API_SERVER_KEY for org {oid!r} in {env_file}")
+        orgs.append({
+            "id": oid,
+            "profile": profile,
+            "hostnames": hostnames,
+            "key": key,
+            "workspace": (hermes_home / "profiles" / profile / "workspace").resolve(),
+        })
+    return orgs if len(orgs) >= 2 else []
+
+
+ORGS = _load_orgs()
+MULTIPLEX = bool(ORGS)
+BY_HOST: dict[str, dict] = {}
+for _org in ORGS:
+    for _host in _org["hostnames"]:
+        if _host in BY_HOST:
+            raise SystemExit(f"[benchy-proxy] orgs.yaml: hostname {_host!r} claimed by two orgs")
+        BY_HOST[_host] = _org
+
+
+@web.middleware
+async def tenancy(request: web.Request, handler):
+    """Multiplex: the Host header picks the org, and every workspace access in
+    the request resolves against that org's workspace. Legacy: pass through."""
+    if not MULTIPLEX:
+        return await handler(request)
+    host = (request.headers.get("Host") or "").split(":")[0].strip().lower().rstrip(".")
+    org = BY_HOST.get(host)
+    if org is None:
+        return web.json_response({"error": "unknown_host"}, status=404)
+    request["org"] = org
+    with workspace_override(org["workspace"]):
+        return await handler(request)
+
+
 def _authorized(request: web.Request) -> bool:
     supplied = request.headers.get("Authorization", "")
-    return hmac.compare_digest(supplied.encode(), f"Bearer {KEY}".encode())
+    org = request.get("org") if MULTIPLEX else None
+    key = org["key"] if org else KEY
+    return hmac.compare_digest(supplied.encode(), f"Bearer {key}".encode())
 
 
 def _inside(rel: str) -> Path | None:
-    candidate = (WORKSPACE / rel).resolve()
-    if candidate == WORKSPACE or WORKSPACE in candidate.parents:
-        return candidate
-    return None
+    return _ws_inside(rel)
 
 
 async def list_files(request: web.Request) -> web.Response:
     if not _authorized(request):
         return web.json_response({"error": "unauthorized"}, status=401)
+    root = _workspace()
     entries = []
-    if WORKSPACE.is_dir():
-        for path in sorted(WORKSPACE.rglob("*")):
+    if root.is_dir():
+        for path in sorted(root.rglob("*")):
             if len(entries) >= MAX_ENTRIES:
                 break
-            rel = path.relative_to(WORKSPACE)
+            rel = path.relative_to(root)
             if path.is_symlink() or not path.is_file() or any(p.startswith(".") for p in rel.parts):
                 continue
             # Published snapshots are not part of the working workspace: the app
@@ -107,7 +196,7 @@ async def list_files(request: web.Request) -> web.Response:
                 continue
             stat = path.stat()
             entries.append({
-                "path": str(path.relative_to(WORKSPACE)),
+                "path": str(path.relative_to(root)),
                 "size": stat.st_size,
                 "modified": int(stat.st_mtime),
             })
@@ -124,7 +213,7 @@ async def read_file(request: web.Request) -> web.Response:
     with target.open("rb") as fh:
         raw = fh.read(MAX_FILE_BYTES)
     return web.json_response({
-        "path": str(target.relative_to(WORKSPACE)),
+        "path": str(target.relative_to(_workspace())),
         "size": size,
         "truncated": size > MAX_FILE_BYTES,
         "content": raw.decode("utf-8", errors="replace"),
@@ -167,7 +256,7 @@ async def exam(request: web.Request) -> web.Response:
     except BenchyError as exc:
         return web.json_response({"ok": False, "error": exc.to_dict()})
     dataset = (source.parent / ir["data"]["path"]).resolve()
-    if WORKSPACE not in dataset.parents or not dataset.is_file():
+    if _workspace() not in dataset.parents or not dataset.is_file():
         return web.json_response({"ok": False, "error": {"code": "data_not_found", "message": "exam file not found"}})
     rows, total = [], 0
     with dataset.open(encoding="utf-8") as fh:
@@ -217,7 +306,8 @@ async def write_file(request: web.Request) -> web.Response:
     except (ValueError, KeyError, TypeError):
         return web.json_response({"error": "bad_request"}, status=400)
     target = _inside(rel)
-    parts = target.relative_to(WORKSPACE).parts if target is not None and target != WORKSPACE else ()
+    root = _workspace()
+    parts = target.relative_to(root).parts if target is not None and target != root else ()
     if (
         not parts
         or len(parts) < 2  # files live in a benchmark folder
@@ -242,7 +332,7 @@ async def write_file(request: web.Request) -> web.Response:
     with os.fdopen(fd, "wb") as fh:
         fh.write(raw)
     os.replace(tmp, target)
-    return web.json_response({"path": str(target.relative_to(WORKSPACE)), "modified": int(target.stat().st_mtime)})
+    return web.json_response({"path": str(target.relative_to(root)), "modified": int(target.stat().st_mtime)})
 
 
 async def review(request: web.Request) -> web.Response:
@@ -290,10 +380,15 @@ REPORT_SPEAKER = (
 REPORT_TIMEOUT_S = 15 * 60
 
 
-async def _write_report(bench: str) -> None:
-    headers = {"authorization": f"Bearer {KEY}", "content-type": "application/json", "x-hermes-session-key": "benchy:report"}
+async def _write_report(bench: str, org: dict | None = None) -> None:
+    """Ask the agent for the findings report. In multiplex the report session
+    belongs to the org's profile: the gateway scopes /p/<profile>/ calls to it
+    and enforces that profile's own key."""
+    key = org["key"] if org else KEY
+    base = f"{UPSTREAM}/p/{org['profile']}" if org else UPSTREAM
+    headers = {"authorization": f"Bearer {key}", "content-type": "application/json", "x-hermes-session-key": "benchy:report"}
     async with ClientSession(timeout=ClientTimeout(total=REPORT_TIMEOUT_S, sock_connect=10)) as http:
-        async with http.post(f"{UPSTREAM}/api/sessions", json={}, headers=headers) as res:
+        async with http.post(f"{base}/api/sessions", json={}, headers=headers) as res:
             if res.status >= 400:
                 raise RuntimeError(f"el agente no abrió una sesión ({res.status})")
             data = await res.json()
@@ -301,7 +396,7 @@ async def _write_report(bench: str) -> None:
         if not isinstance(session, str):
             raise RuntimeError("el agente no devolvió una sesión")
         body = {"message": REPORT_PROMPT.format(bench=bench), "system_message": REPORT_SPEAKER}
-        async with http.post(f"{UPSTREAM}/api/sessions/{session}/chat", json=body, headers=headers) as res:
+        async with http.post(f"{base}/api/sessions/{session}/chat", json=body, headers=headers) as res:
             if res.status >= 400:
                 raise RuntimeError(f"el agente respondió {res.status}")
             await res.read()
@@ -333,7 +428,8 @@ async def evaluation(request: web.Request) -> web.Response:
         return web.json_response({"error": "bad_request"}, status=400)
     try:
         source, ir = _compile(path)
-        state = benchy_evaluation.start(source, ir, list(dict.fromkeys(models)), _write_report, grader_model=grader_model)
+        write_report = functools.partial(_write_report, org=request.get("org") if MULTIPLEX else None)
+        state = benchy_evaluation.start(source, ir, list(dict.fromkeys(models)), write_report, grader_model=grader_model)
     except benchy_evaluation.Busy as busy:
         return web.json_response({"error": "busy", "evaluation": busy.status}, status=409)
     except BenchyError as exc:
@@ -346,7 +442,8 @@ async def report(request: web.Request) -> web.Response:
         return web.json_response({"error": "unauthorized"}, status=401)
     try:
         source, _ = _compile(request.query.get("path", ""))
-        state = benchy_evaluation.start_report(source, _write_report)
+        write_report = functools.partial(_write_report, org=request.get("org") if MULTIPLEX else None)
+        state = benchy_evaluation.start_report(source, write_report)
     except benchy_evaluation.Busy as busy:
         return web.json_response({"error": "busy", "evaluation": busy.status}, status=409)
     except BenchyError as exc:
@@ -355,12 +452,13 @@ async def report(request: web.Request) -> web.Response:
 
 
 def _archive() -> bytes:
+    root = _workspace()
     buf = io.BytesIO()
     with tarfile.open(fileobj=buf, mode="w:gz", compresslevel=9) as tar:
-        if WORKSPACE.is_dir():
-            for path in sorted(WORKSPACE.rglob("*")):
+        if root.is_dir():
+            for path in sorted(root.rglob("*")):
                 if path.is_file() and not path.is_symlink() and not path.name.startswith(".write-"):
-                    tar.add(path, arcname=str(path.relative_to(WORKSPACE)), recursive=False)
+                    tar.add(path, arcname=str(path.relative_to(root)), recursive=False)
     return buf.getvalue()
 
 
@@ -531,9 +629,13 @@ async def embed(request: web.Request) -> web.Response:
 async def proxy(request: web.Request) -> web.StreamResponse:
     session: ClientSession = request.app["client"]
     headers = {k: v for k, v in request.headers.items() if k.lower() not in HOP_BY_HOP}
+    # Multiplex: the gateway serves the org's profile under /p/<profile>/ and
+    # enforces that profile's API key on it; legacy: the single listener as-is.
+    org = request.get("org") if MULTIPLEX else None
+    target = f"{UPSTREAM}/p/{org['profile']}{request.rel_url.path_qs}" if org else UPSTREAM + request.rel_url.path_qs
     async with session.request(
         request.method,
-        UPSTREAM + request.rel_url.path_qs,
+        target,
         headers=headers,
         data=await request.read() if request.can_read_body else None,
         allow_redirects=False,
@@ -557,7 +659,7 @@ async def _client(app: web.Application):
 
 
 def main() -> None:
-    app = web.Application(client_max_size=25 * 1024 * 1024)
+    app = web.Application(client_max_size=25 * 1024 * 1024, middlewares=[tenancy])
     app.cleanup_ctx.append(_client)
     app.router.add_get("/benchy/files", list_files)
     app.router.add_get("/benchy/file", read_file)
@@ -583,7 +685,11 @@ def main() -> None:
     app.router.add_post("/benchy/revert", revert)
     app.router.add_route("*", "/{tail:.*}", proxy)
     port = int(os.environ.get("PORT", "8080"))
-    print(f"[benchy-proxy] :{port} -> {UPSTREAM}, workspace {WORKSPACE}", flush=True)
+    if MULTIPLEX:
+        routes = ", ".join(f"{host}->{org['profile']}" for org in ORGS for host in sorted(org["hostnames"]))
+        print(f"[benchy-proxy] :{port} -> {UPSTREAM}, multiplex ({len(ORGS)} orgs): {routes}", flush=True)
+    else:
+        print(f"[benchy-proxy] :{port} -> {UPSTREAM}, workspace {_workspace()}", flush=True)
     web.run_app(app, host="0.0.0.0", port=port, access_log=None, print=None)
 
 
