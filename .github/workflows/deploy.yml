@@ -10,10 +10,10 @@ name: Deploy
 # The per-org agents run on AWS ECS Fargate (cluster benchy): the agent job
 # builds the image, pushes it to ECR and forces a new deployment of
 # agent-surus, agent-conicet and agent-untref. AWS access is OIDC
-# (vars.AWS_DEPLOY_ROLE_ARN), no stored keys.
+# (role benchy-agent-github-deploy), no stored keys.
 #
 # Secrets: CLOUDFLARE_API_TOKEN, LLM_CLIENT_DEPLOY_KEY.
-# Variables: CLOUDFLARE_ACCOUNT_ID, AWS_DEPLOY_ROLE_ARN. Secrets never reach
+# Variables: CLOUDFLARE_ACCOUNT_ID. Secrets never reach
 # pull requests from forks: this runs only on pushes to main and by hand.
 
 on:
@@ -151,7 +151,7 @@ jobs:
       - name: AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:
-          role-to-assume: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
+          role-to-assume: arn:aws:iam::354918377724:role/benchy-agent-github-deploy # OIDC role, trust limited to this repo on main
           aws-region: us-east-1
       - name: Build the image and push it to ECR
         run: |
