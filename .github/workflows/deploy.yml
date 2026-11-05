@@ -3,18 +3,16 @@ name: Deploy
 # Every push to main deploys what it changed, so main is always what runs:
 #   api    D1 migrations, then the Worker benchy-api (apps/api, packages/db)
 #   web    the site on Cloudflare Pages, getbenchy.lat (apps/web)
-#   agent  the agent image on each org's Railway service (apps/agent)
-# Tests run first; a failure deploys nothing. The web and the agent wait for
-# the Worker when both changed, since they call it.
+# Tests run first; a failure deploys nothing. The web waits for the Worker
+# when both changed, since it calls it.
 #
-# Restarting an agent cuts short what it is doing (a chat turn, an
-# evaluation), so the agent deploys only when apps/agent changed.
+# The per-org agents run on AWS ECS Fargate (cluster benchy), not Railway:
+# their image is built and pushed by hand (benchy-migration/push-image.sh),
+# never by CI, so changes under apps/agent trigger no deploy here.
 #
-# Secrets: CLOUDFLARE_API_TOKEN, RAILWAY_TOKEN (a project token for
-# benchy-agent / production), LLM_CLIENT_DEPLOY_KEY (read-only deploy key of
-# surus-lat/llm-client, private: its wheel is built here and never committed).
-# Variable: CLOUDFLARE_ACCOUNT_ID. Secrets never reach pull requests from forks:
-# this runs only on pushes to main and by hand.
+# Secrets: CLOUDFLARE_API_TOKEN. Variable: CLOUDFLARE_ACCOUNT_ID. Secrets
+# never reach pull requests from forks: this runs only on pushes to main
+# and by hand.
 
 on:
   push:
@@ -24,7 +22,7 @@ on:
       target:
         description: What to deploy
         type: choice
-        options: [all, api, web, agent]
+        options: [all, api, web]
         default: all
 
 concurrency:
@@ -40,7 +38,6 @@ jobs:
     outputs:
       api: ${{ steps.pick.outputs.api }}
       web: ${{ steps.pick.outputs.web }}
-      agent: ${{ steps.pick.outputs.agent }}
     steps:
       - uses: actions/checkout@v4
       - uses: dorny/paths-filter@v3
@@ -56,16 +53,12 @@ jobs:
               - 'apps/web/**'
               - 'pnpm-lock.yaml'
               - '.github/workflows/deploy.yml'
-            agent:
-              - 'apps/agent/**'
-              - '.github/workflows/deploy.yml'
       - id: pick
         env:
           EVENT: ${{ github.event_name }}
           TARGET: ${{ inputs.target }}
           API: ${{ steps.filter.outputs.api }}
           WEB: ${{ steps.filter.outputs.web }}
-          AGENT: ${{ steps.filter.outputs.agent }}
         # By hand: what was chosen. On a push: what the push changed.
         run: |
           pick() {
@@ -75,7 +68,7 @@ jobs:
               echo "$2"
             fi
           }
-          { echo "api=$(pick api "$API")"; echo "web=$(pick web "$WEB")"; echo "agent=$(pick agent "$AGENT")"; } | tee -a "$GITHUB_OUTPUT"
+          { echo "api=$(pick api "$API")"; echo "web=$(pick web "$WEB")"; } | tee -a "$GITHUB_OUTPUT"
 
   api:
     needs: changes
@@ -119,37 +112,3 @@ jobs:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
         run: pnpm deploy:web
-
-  agent:
-    needs: [changes, api]
-    if: ${{ !cancelled() && needs.changes.outputs.agent == 'true' && needs.api.result != 'failure' }}
-    runs-on: ubuntu-latest
-    strategy:
-      # One org at a time, SURUS first: a broken image stops there.
-      max-parallel: 1
-      fail-fast: true
-      matrix:
-        # Every org's agent service (a new org adds its own here).
-        service: [agent-surus, agent-conicet]
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/checkout@v4
-        with:
-          repository: surus-lat/llm-client
-          ssh-key: ${{ secrets.LLM_CLIENT_DEPLOY_KEY }}
-          fetch-depth: 0
-          path: llm-client
-          persist-credentials: false
-      - uses: astral-sh/setup-uv@v6
-      - name: Vendor llm-client
-        # vendor/ stays out of git as on a laptop (.git/info/exclude), which
-        # `railway up` does not read, so the wheel reaches the build.
-        run: |
-          echo "apps/agent/vendor/" >> .git/info/exclude
-          LLM_CLIENT_SRC="$GITHUB_WORKSPACE/llm-client" apps/agent/prepare-vendor.sh
-      - run: npm install -g @railway/cli@5.66.0
-      - name: Deploy ${{ matrix.service }}
-        working-directory: apps/agent
-        env:
-          RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
-        run: railway up . --path-as-root --service ${{ matrix.service }} --ci
