@@ -181,9 +181,19 @@ jobs:
           docker push "$ECR_IMAGE:latest"
           docker push "$ECR_IMAGE:img-$ID"
       - name: Redeploy the three agents
+        # Task definitions pin the image by digest (Fase 0), so a plain
+        # force-new-deployment would redeploy the OLD digest. Resolve the
+        # digest just pushed, register a fresh task-def revision per service
+        # pointing at it, and update each service to its new revision.
         run: |
+          DIGEST=$(aws ecr describe-images --repository-name benchy-agent --image-ids imageTag=latest --query 'imageDetails[0].imageDigest' --output text)
+          IMAGE="$ECR_IMAGE@$DIGEST"
+          echo "deploying $IMAGE"
           for SVC in agent-surus agent-conicet agent-untref; do
-            aws ecs update-service --cluster benchy --service "$SVC" --force-new-deployment --no-cli-pager --query 'service.serviceName' --output text
+            aws ecs describe-task-definition --task-definition "$SVC" --query taskDefinition --no-cli-pager \
+              | jq --arg IMG "$IMAGE" 'del(.taskDefinitionArn,.revision,.status,.requiresAttributes,.compatibilities,.registeredAt,.registeredBy) | .containerDefinitions[0].image = $IMG' > /tmp/td-$SVC.json
+            REV=$(aws ecs register-task-definition --cli-input-json file:///tmp/td-$SVC.json --query 'taskDefinition.revision' --output text --no-cli-pager)
+            aws ecs update-service --cluster benchy --service "$SVC" --task-definition "$SVC:$REV" --no-cli-pager --query 'service.serviceName' --output text
           done
       - name: Assert the three agents come back healthy
         # The services run minimumHealthyPercent=0, maximumPercent=100, so a
