@@ -24,6 +24,12 @@ CORE=/opt/benchy/skills
 say() { echo "[benchy-multiplex] $*"; }
 die() { echo "[benchy-multiplex] FATAL: $*" >&2; exit 1; }
 
+# Multiplex is strictly opt-in per service: the image ships orgs.yaml as the
+# canonical roster (three shared orgs), so without this gate every dedicated
+# per-org service would convert itself into a multiplex instance on its next
+# deploy. The multiplex service sets BENCHY_MULTIPLEX=1 in its task def.
+[ "${BENCHY_MULTIPLEX:-0}" = "1" ] || { say "BENCHY_MULTIPLEX not set - legacy single-org mode"; exit 0; }
+
 [ -f "$ORGS_YAML" ] || { say "no orgs.yaml — legacy single-org mode"; exit 0; }
 
 # One "id|profile|model|max_sessions|mcps" line per shared-tier org.

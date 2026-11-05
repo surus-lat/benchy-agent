@@ -198,6 +198,13 @@ Comandos y outputs clave: ver el cuerpo del PR.
 
 ## 9. Rollout a staging
 
+> **Activation is opt-in:** multiplex mode only boots when the service task def sets
+> `BENCHY_MULTIPLEX=1`. The image ships `orgs.yaml` as the canonical roster; without
+> the env gate every dedicated per-org service would convert itself into a multiplex
+> instance on its next deploy. The multiplex staging/prod services must set the
+> variable; the dedicated per-org services must never set it.
+
+
 Pre-requisitos: imagen `benchy-agent:<tag>` construida desde esta rama (push a
 ECR), secrets `benchy/org-<id>` creados en Secrets Manager para las orgs de
 prueba (o archivos `.env` vía el mecanismo actual del task def).
