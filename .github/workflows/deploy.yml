@@ -153,10 +153,28 @@ jobs:
         with:
           role-to-assume: arn:aws:iam::354918377724:role/benchy-agent-github-deploy # OIDC role, trust limited to this repo on main
           aws-region: us-east-1
-      - name: Build the image and push it to ECR
+      - name: Build the image
+        run: |
+          docker build -t benchy-agent apps/agent
+      - name: Smoke test the image
+        # Compile-check every agent-side Python file and import the two
+        # heaviest MCP modules with the image's own interpreter, so a broken
+        # module fails the job BEFORE anything is pushed or deployed.
+        # /opt/benchy is read-only by design inside the image, so the
+        # py_compile bytecode cache is redirected to /tmp. BENCHY_WORKSPACE is
+        # resolved at module import time, so it must point at a writable dir.
+        run: |
+          docker run --rm --entrypoint '' benchy-agent sh -c '
+            set -e
+            PY=/opt/hermes/.venv/bin/python
+            PYTHONPYCACHEPREFIX=/tmp/pycache $PY -m py_compile /opt/benchy/mcp/*.py /opt/benchy/proxy/*.py
+            mkdir -p /tmp/smoke-ws
+            cd /opt/benchy/mcp
+            BENCHY_WORKSPACE=/tmp/smoke-ws $PY -c "import benchy_publication, benchy_sources; print(\"mcp import smoke ok\")"
+          '
+      - name: Push the image to ECR
         run: |
           aws ecr get-login-password | docker login --username AWS --password-stdin ${ECR_IMAGE%/*}
-          docker build -t benchy-agent apps/agent
           ID=$(docker images -q benchy-agent | head -1)
           docker tag benchy-agent "$ECR_IMAGE:latest"
           docker tag benchy-agent "$ECR_IMAGE:img-$ID"
@@ -167,3 +185,28 @@ jobs:
           for SVC in agent-surus agent-conicet agent-untref; do
             aws ecs update-service --cluster benchy --service "$SVC" --force-new-deployment --no-cli-pager --query 'service.serviceName' --output text
           done
+      - name: Assert the three agents come back healthy
+        # The services run minimumHealthyPercent=0, maximumPercent=100, so a
+        # deploy stops the old task before the new one passes the ALB health
+        # check (~5-9 min: task provisioning + gateway cold start). Poll each
+        # target group for up to ~10 minutes; fail the job if any agent never
+        # comes back instead of leaving prod down unnoticed.
+        run: |
+          PENDING="benchy-agent-surus benchy-agent-conicet benchy-agent-untref"
+          DEADLINE=$((SECONDS + 600))
+          while [ -n "$PENDING" ] && [ "$SECONDS" -lt "$DEADLINE" ]; do
+            STILL=""
+            for TG in $PENDING; do
+              ARN=$(aws elbv2 describe-target-groups --names "$TG" --query 'TargetGroups[0].TargetGroupArn' --output text)
+              STATES=$(aws elbv2 describe-target-health --target-group-arn "$ARN" --query 'TargetHealthDescriptions[].TargetHealth.State' --output text | tr '\t' ' ')
+              echo "[$TG] ${STATES:-no targets}"
+              echo "$STATES" | tr ' ' '\n' | grep -qx healthy || STILL="$STILL $TG"
+            done
+            PENDING=$(echo "$STILL" | xargs)
+            [ -n "$PENDING" ] && sleep 15
+          done
+          if [ -n "$PENDING" ]; then
+            echo "::error title=Deploy gate::no healthy target after ~10 min: $PENDING"
+            exit 1
+          fi
+          echo "all three target groups healthy"
