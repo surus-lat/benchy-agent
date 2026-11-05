@@ -123,8 +123,11 @@ export class HermesError extends Error {
   }
 }
 
-/** A turn may run a whole benchmark (one model call per exam row). */
-const TURN_TIMEOUT_MS = 14 * 60 * 1000;
+/** A turn may read the skills and the papers, write a batch of questions (and
+ *  the cultural design), or run a whole benchmark (one model call per exam
+ *  row): on a slow model that is well past ten minutes. The lock that guards
+ *  the conversation (STALE_TURN_MS) has to outlive it. */
+const TURN_TIMEOUT_MS = 25 * 60 * 1000;
 const SESSION_TIMEOUT_MS = 90 * 1000;
 /** Fetching a PDF and extracting its text. */
 const SOURCE_TIMEOUT_MS = 2 * 60 * 1000;

@@ -29,8 +29,10 @@ export type ConversationsDeps = {
 /** The container accepts up to 25 MB per request. */
 const MAX_PDF_BYTES = 24 * 1024 * 1024;
 
-/** A turn older than this is presumed dead (Worker evicted mid-turn) and its lock is reclaimable. */
-const STALE_TURN_MS = 15 * 60 * 1000;
+/** A turn older than this is presumed dead (Worker evicted mid-turn) and its lock
+ *  is reclaimable. Always past TURN_TIMEOUT_MS: reclaiming while the turn's HTTP
+ *  call is still open would let a second turn race the first on one conversation. */
+const STALE_TURN_MS = 26 * 60 * 1000;
 
 /** A benchmark is a top-level workspace folder; the container checks it has a benchmark.yaml. */
 const BENCH = /^[^./\\][^/\\]{0,99}$/;

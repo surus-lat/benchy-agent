@@ -32,8 +32,8 @@ export type ProcessesDeps = {
   agentFor: (orgId: string) => Promise<HermesClient | null>;
 };
 
-/** Same rule as the turn route: a lock older than this is presumed dead. */
-const STALE_TURN_MS = 15 * 60 * 1000;
+/** Same rule as the turn route (STALE_TURN_MS there): a lock older than this is presumed dead. */
+const STALE_TURN_MS = 26 * 60 * 1000;
 /** A start event older than this with no live state is no longer news. */
 const LIVE_WINDOW_MS = 15 * 60 * 1000;
 /** Evaluation/report events considered at all; finished ones stay visible this long. */

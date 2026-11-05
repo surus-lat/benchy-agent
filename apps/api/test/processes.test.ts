@@ -191,7 +191,9 @@ it("shows the caller's own turn in flight — and no one else's", async () => {
 });
 
 it("reads a stale turn lock as failed", async () => {
-  await seedTurn({ id: "conv_ana", userId: ana.id, orgId: ana.orgId!, bench: "capitales", turnStartedAt: ago(20 * MIN) });
+  // Past STALE_TURN_MS in conversations.ts/processes.ts (26 min): an HTTP turn
+  // outlives it only if the Worker died mid-turn.
+  await seedTurn({ id: "conv_ana", userId: ana.id, orgId: ana.orgId!, bench: "capitales", turnStartedAt: ago(30 * MIN) });
   const list = await processes(makeApp(null), ana);
   expect(list).toHaveLength(1);
   expect(list[0]).toMatchObject({ type: "agent", status: "failed" });

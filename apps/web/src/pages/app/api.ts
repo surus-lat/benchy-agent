@@ -65,7 +65,7 @@ export function errorText(err: unknown): string {
     case "AGENT_NOT_PROVISIONED":
       return "El agente de tu organización todavía no está activo. Te avisamos apenas esté listo.";
     case "AGENT_TIMEOUT":
-      return "El agente tardó demasiado en responder. Si estaba corriendo un benchmark grande, puede haber terminado igual: revisá la carpeta runs/ en Archivos.";
+      return "El agente tardó demasiado en responder. Si estaba corriendo un benchmark o escribiendo un lote de preguntas, puede haber terminado igual: revisá runs/ en Archivos y si el lote llegó a Preguntas.";
     case "AGENT_UNAVAILABLE":
       return "No pudimos comunicarnos con el agente. Probá de nuevo en un momento.";
     case "TURN_IN_PROGRESS":
