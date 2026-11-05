@@ -55,13 +55,31 @@ s6-setuidgid hermes test -r /run/s6/container_environment/API_SERVER_KEY && die 
 # 6. The org's benchmark workspace.
 install -d -o hermes -g hermes "$HERMES_HOME/workspace"
 
-# 7. Clean stale gateway PID/lock files left by a previous container on the
-# shared EFS volume. In ECS, a new task always means a fresh process tree,
-# so any PID file on the persistent volume is stale by definition.
-# Search broadly — Hermes may store the PID in different locations.
-find "$HERMES_HOME" -maxdepth 3 -name "gateway.pid" -type f 2>/dev/null | while read pidfile; do
-  say "removing stale PID file: $pidfile (new container, always stale)"
-  rm -f "$pidfile"
+# 7. Clean ALL gateway state records left on the shared EFS volume by previous
+# containers. A container boot is a fresh PID namespace, so every PID, lock,
+# heartbeat, state or socket record under $HERMES_HOME is cross-container
+# stale by definition: the gateway's kill -0 check on a recorded PID matches
+# an unrelated s6 process in THIS container and the gateway refuse-loops
+# ("Refusing to start a second gateway on this host: PID NNN") forever.
+# Removing only gateway.pid is NOT enough — the refusal is also driven by
+# gateway_state.json and state/gateway.lifecycle.json (observed 2026-11-05:
+# gateway.pid absent while refusals continued every ~20s citing the old PID).
+# If a previous gateway is still alive (old task draining), it republishes
+# its own records and wins the lock back; the control for that is the ECS
+# service config minimumHealthyPercent=0, maximumPercent=100 (the old task
+# fully stops before the new one starts), so at this point no live gateway
+# can own these records and deleting them is always safe.
+find "$HERMES_HOME" -maxdepth 3 \( \
+    -name "gateway.pid" -o \
+    -name "gateway.lock" -o \
+    -name "gateway_state.json" -o \
+    -name "gateway.heartbeat" -o \
+    -name "gateway.sock" -o \
+    -name "gateway.loop-tick.*.sock" -o \
+    -name "gateway.lifecycle.json" \
+  \) 2>/dev/null | while read f; do
+  say "removing stale gateway state: $f (container boot = new PID namespace, always stale)"
+  rm -f "$f"
 done
 
 say "ok — core skills protected, config pinned, workspace ready"
