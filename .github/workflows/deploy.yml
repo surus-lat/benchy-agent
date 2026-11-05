@@ -3,16 +3,18 @@ name: Deploy
 # Every push to main deploys what it changed, so main is always what runs:
 #   api    D1 migrations, then the Worker benchy-api (apps/api, packages/db)
 #   web    the site on Cloudflare Pages, getbenchy.lat (apps/web)
+#   agent  the Docker image of the per-org agents (apps/agent)
 # Tests run first; a failure deploys nothing. The web waits for the Worker
 # when both changed, since it calls it.
 #
-# The per-org agents run on AWS ECS Fargate (cluster benchy), not Railway:
-# their image is built and pushed by hand (benchy-migration/push-image.sh),
-# never by CI, so changes under apps/agent trigger no deploy here.
+# The per-org agents run on AWS ECS Fargate (cluster benchy): the agent job
+# builds the image, pushes it to ECR and forces a new deployment of
+# agent-surus, agent-conicet and agent-untref. AWS access is OIDC
+# (role benchy-agent-github-deploy), no stored keys.
 #
-# Secrets: CLOUDFLARE_API_TOKEN. Variable: CLOUDFLARE_ACCOUNT_ID. Secrets
-# never reach pull requests from forks: this runs only on pushes to main
-# and by hand.
+# Secrets: CLOUDFLARE_API_TOKEN, LLM_CLIENT_DEPLOY_KEY.
+# Variables: CLOUDFLARE_ACCOUNT_ID. Secrets never reach
+# pull requests from forks: this runs only on pushes to main and by hand.
 
 on:
   push:
@@ -22,7 +24,7 @@ on:
       target:
         description: What to deploy
         type: choice
-        options: [all, api, web]
+        options: [all, api, web, agent]
         default: all
 
 concurrency:
@@ -38,6 +40,7 @@ jobs:
     outputs:
       api: ${{ steps.pick.outputs.api }}
       web: ${{ steps.pick.outputs.web }}
+      agent: ${{ steps.pick.outputs.agent }}
     steps:
       - uses: actions/checkout@v4
       - uses: dorny/paths-filter@v3
@@ -53,12 +56,15 @@ jobs:
               - 'apps/web/**'
               - 'pnpm-lock.yaml'
               - '.github/workflows/deploy.yml'
+            agent:
+              - 'apps/agent/**'
       - id: pick
         env:
           EVENT: ${{ github.event_name }}
           TARGET: ${{ inputs.target }}
           API: ${{ steps.filter.outputs.api }}
           WEB: ${{ steps.filter.outputs.web }}
+          AGENT: ${{ steps.filter.outputs.agent }}
         # By hand: what was chosen. On a push: what the push changed.
         run: |
           pick() {
@@ -68,7 +74,11 @@ jobs:
               echo "$2"
             fi
           }
-          { echo "api=$(pick api "$API")"; echo "web=$(pick web "$WEB")"; } | tee -a "$GITHUB_OUTPUT"
+          {
+            echo "api=$(pick api "$API")"
+            echo "web=$(pick web "$WEB")"
+            echo "agent=$(pick agent "$AGENT")"
+          } | tee -a "$GITHUB_OUTPUT"
 
   api:
     needs: changes
@@ -112,3 +122,48 @@ jobs:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
         run: pnpm deploy:web
+
+  agent:
+    needs: changes
+    if: needs.changes.outputs.agent == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    permissions:
+      id-token: write
+      contents: read
+    env:
+      ECR_IMAGE: 354918377724.dkr.ecr.us-east-1.amazonaws.com/benchy-agent
+    steps:
+      - uses: actions/checkout@v4
+      - name: Vendor the llm-client wheel
+        env:
+          LLM_CLIENT_DEPLOY_KEY: ${{ secrets.LLM_CLIENT_DEPLOY_KEY }}
+        run: |
+          mkdir -p ~/.ssh
+          echo "$LLM_CLIENT_DEPLOY_KEY" > ~/.ssh/llm_client_deploy_key
+          chmod 600 ~/.ssh/llm_client_deploy_key
+          export GIT_SSH_COMMAND="ssh -i ~/.ssh/llm_client_deploy_key -o StrictHostKeyChecking=accept-new"
+          git clone --quiet git@github.com:surus-lat/llm-client.git ~/llm-client
+          echo 'apps/agent/vendor/' >> .git/info/exclude
+          curl -LsSf https://astral.sh/uv/install.sh | sh
+          export PATH="$HOME/.local/bin:$PATH"
+          LLM_CLIENT_SRC="$HOME/llm-client" sh apps/agent/prepare-vendor.sh
+      - name: AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::354918377724:role/benchy-agent-github-deploy # OIDC role, trust limited to this repo on main
+          aws-region: us-east-1
+      - name: Build the image and push it to ECR
+        run: |
+          aws ecr get-login-password | docker login --username AWS --password-stdin ${ECR_IMAGE%/*}
+          docker build -t benchy-agent apps/agent
+          ID=$(docker images -q benchy-agent | head -1)
+          docker tag benchy-agent "$ECR_IMAGE:latest"
+          docker tag benchy-agent "$ECR_IMAGE:img-$ID"
+          docker push "$ECR_IMAGE:latest"
+          docker push "$ECR_IMAGE:img-$ID"
+      - name: Redeploy the three agents
+        run: |
+          for SVC in agent-surus agent-conicet agent-untref; do
+            aws ecs update-service --cluster benchy --service "$SVC" --force-new-deployment --no-cli-pager --query 'service.serviceName' --output text
+          done
