@@ -9,6 +9,7 @@ import {
   questionsFrom,
   questionsQuality,
   readCriteria,
+  readInputFields,
   readMetric,
   reviewMatchesRubric,
   serializeDesign,
@@ -94,6 +95,14 @@ export function useExam(bench: BenchSummary | undefined) {
       const y = await api.file(bench.yamlPath);
       const benchDoc = readBenchYaml(y.content, bench.slug);
       const ePath = benchDoc.examPath ?? `${bench.slug}/exam.jsonl`;
+      // What the program declares is what a row may carry: the agent writes its
+      // own keys beside the question, and those are not part of a row.
+      let inputFields: string[] | null = null;
+      try {
+        inputFields = readInputFields(parseBenchDoc(y.content));
+      } catch {
+        inputFields = null;
+      }
       // A fresh listing: the agent may have written files since the platform's last refresh.
       const known = await api
         .files()
@@ -110,7 +119,25 @@ export function useExam(bench: BenchSummary | undefined) {
       setSources(parseSources(src?.content));
       side.current = { review: r?.modified, quality: q?.modified, sources: src?.modified, design: designFile?.modified };
       setYaml({ value: y.content, modified: y.modified });
-      setRows({ value: e ? parseExam(e.content) : [], modified: e?.modified });
+      // The agent writes exam rows flat as often as it writes them in the
+      // program's shape, and only the latter is a row the engine accepts: both
+      // read as the same row, and the file is put back in that shape before
+      // anything runs against it.
+      let exam = e;
+      const parsed = e ? parseExam(e.content, inputFields) : [];
+      if (e) {
+        const canonical = serializeExam(parsed);
+        if (canonical.trimEnd() !== e.content.trimEnd()) {
+          try {
+            const w = await api.write(ePath, canonical, e.modified);
+            exam = { content: canonical, modified: w.modified };
+          } catch {
+            // Published (its definition is frozen) or the agent wrote while we
+            // read: the file stays as it is and the next reload reads it again.
+          }
+        }
+      }
+      setRows({ value: parsed, modified: exam?.modified });
       setMeta({ value: parseMeta(m?.content), modified: m?.modified });
       setDesign({ value: parseDesign(designFile?.content), modified: designFile?.modified });
       try {

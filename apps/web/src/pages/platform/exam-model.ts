@@ -8,6 +8,10 @@
 //
 // and review.json, written by the grader review (apps/agent/mcp/benchy_review.py);
 // and quality.json, written by the question quality scorer (apps/agent/mcp/benchy_quality.py).
+//
+// The agent writes an exam row flat as often as it nests it (`{"question": …,
+// "answer": …}`); both read as the same row here, and the file is put back in the
+// nested shape, which is the only one the engine accepts.
 
 import { parseDocument, YAMLMap, type Document } from "yaml";
 
@@ -143,15 +147,36 @@ export type Question = {
 
 // ---- exam.jsonl -----------------------------------------------------------------
 
+const isObject = (v: unknown): v is Record<string, unknown> => !!v && typeof v === "object" && !Array.isArray(v);
+
+/**
+ * One exam row as the program reads it: exactly `input` and `expected`. The agent
+ * answers the program out loud as often as it nests it — `{"question": …,
+ * "answer": …}`, with `options` beside the question for a multiple-choice exam —
+ * and the engine rejects that flat row, so both read as the same row here.
+ * `inputFields` are the fields the program declares: what is not one of them is
+ * the agent's own note (a `group`, an `id`), not part of a row.
+ */
+function examRowOf(row: unknown, inputFields: string[] | null): ExamRow | null {
+  if (!isObject(row)) return null;
+  if (isObject(row.input) && isObject(row.expected)) return { input: row.input, expected: row.expected };
+  if (!("answer" in row)) return null;
+  const { answer, input, ...rest } = row;
+  const fields = isObject(input) ? { ...input, ...rest } : rest;
+  const kept = inputFields ? Object.fromEntries(Object.entries(fields).filter(([k]) => inputFields.includes(k))) : fields;
+  if (!Object.keys(kept).length) return null;
+  return { input: kept, expected: { answer } };
+}
+
 /** Parse the exam. Unparseable lines are kept as raw text so a save never drops them. */
-export function parseExam(text: string): (ExamRow | { raw: string })[] {
+export function parseExam(text: string, inputFields: string[] | null = null): (ExamRow | { raw: string })[] {
   return text
     .split("\n")
     .filter((l) => l.trim())
     .map((line) => {
       try {
-        const row = JSON.parse(line) as ExamRow;
-        if (row && typeof row === "object" && row.input && row.expected) return row;
+        const row = examRowOf(JSON.parse(line), inputFields);
+        if (row) return row;
       } catch {
         // fall through
       }
@@ -169,7 +194,16 @@ export function parseMeta(text: string | null | undefined): QuestionMeta[] {
   if (!text) return [];
   try {
     const rows = (JSON.parse(text) as { rows?: unknown }).rows;
-    return Array.isArray(rows) ? rows.map((r) => (r && typeof r === "object" ? (r as QuestionMeta) : {})) : [];
+    return Array.isArray(rows)
+      ? rows.map((r) => {
+          if (!r || typeof r !== "object") return {};
+          // The agent calls what a question tests `importance` (or `reason`);
+          // the app's column is `why`, and either reads as it.
+          const { why, ...rest } = r as QuestionMeta & { importance?: string; reason?: string };
+          const alias = rest.importance ?? rest.reason;
+          return why === undefined && alias === undefined ? rest : { ...rest, why: why ?? alias };
+        })
+      : [];
   } catch {
     return [];
   }
@@ -313,6 +347,12 @@ export function readCriteria(doc: Document): Criterion[] | null {
 
 export function parseBenchDoc(yamlText: string): Document {
   return parseDocument(yamlText);
+}
+
+/** The input fields the program declares (`program.input`), when the yaml says them. */
+export function readInputFields(doc: Document): string[] | null {
+  const input = (doc.toJS() as Record<string, any>)?.program?.input;
+  return input && typeof input === "object" && !Array.isArray(input) ? Object.keys(input) : null;
 }
 
 /** benchmark.yaml with one criterion's weight or description changed; comments and order kept. */

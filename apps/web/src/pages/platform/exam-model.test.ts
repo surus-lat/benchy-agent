@@ -11,6 +11,7 @@ import {
   questionsFrom,
   questionsQuality,
   readCriteria,
+  readInputFields,
   readMetric,
   readOptions,
   addCriterion,
@@ -66,6 +67,41 @@ describe("exam rows", () => {
     expect(serializeExam([])).toBe("");
   });
 
+  it("reads the rows the agent writes flat as the program's own shape", () => {
+    // What the model answers with when it says the program out loud: the fields
+    // at the top level, the answer under `answer`, nothing nested.
+    const text = [
+      JSON.stringify({ question: "¿Ayni?", answer: "Reciprocidad." }),
+      JSON.stringify({ question: "¿Minka?", answer: "Trabajo colectivo.", group: "obra" }),
+      row("¿Yaku?", "Agua."),
+    ].join("\n");
+    const rows = parseExam(text, ["question"]);
+    expect(rows).toEqual([
+      { input: { question: "¿Ayni?" }, expected: { answer: "Reciprocidad." } },
+      { input: { question: "¿Minka?" }, expected: { answer: "Trabajo colectivo." } },
+      { input: { question: "¿Yaku?" }, expected: { answer: "Agua." } },
+    ]);
+    // A save puts the file in the shape the engine reads.
+    expect(serializeExam(rows)).toBe([row("¿Ayni?", "Reciprocidad."), row("¿Minka?", "Trabajo colectivo."), row("¿Yaku?", "Agua.")].join("\n") + "\n");
+    const qs = questionsFrom(rows, [{}, {}, {}], null);
+    expect(qs.map((q) => [q.text, q.answer])).toEqual([
+      ["¿Ayni?", "Reciprocidad."],
+      ["¿Minka?", "Trabajo colectivo."],
+      ["¿Yaku?", "Agua."],
+    ]);
+    // Without the program at hand nothing is dropped: the engine is what says
+    // a key does not belong there.
+    expect(parseExam(JSON.stringify({ question: "¿Ayni?", group: "obra", answer: "Reciprocidad." }))).toEqual([
+      { input: { question: "¿Ayni?", group: "obra" }, expected: { answer: "Reciprocidad." } },
+    ]);
+  });
+
+  it("keeps a line that is neither shape as raw text", () => {
+    const flat = JSON.stringify({ question: "¿Ayni?" });
+    const answerOnly = JSON.stringify({ answer: "Reciprocidad." });
+    expect(parseExam([flat, answerOnly].join("\n"))).toEqual([{ raw: flat }, { raw: answerOnly }]);
+  });
+
   it("derives each question's status from its text, answer, notes and review", () => {
     const rows = parseExam([row("a?", "A"), row("b?", ""), row("", ""), row("d?", "D"), row("e?", "E"), row("f?", "F")].join("\n"));
     const meta = parseMeta(serializeMeta([{ status: "approved" }, {}, {}, { by: "agente" }, { status: "approved" }, { status: "approved" }]));
@@ -95,6 +131,20 @@ describe("exam rows", () => {
     expect(parseMeta("nope")).toEqual([]);
     expect(parseMeta(undefined)).toEqual([]);
   });
+
+  it("reads the input fields the program declares", () => {
+    expect(readInputFields(parseBenchDoc(YAML))).toEqual(["question"]);
+    expect(readInputFields(parseBenchDoc('version: "1.0"\n'))).toBeNull();
+  });
+
+  it("reads what the agent calls importance as the why of the question", () => {
+    const [m] = parseMeta(JSON.stringify({ rows: [{ question: "¿Ayni?", importance: "Pone a prueba c5", status: "draft", by: "agente" }] }));
+    expect(m.why).toBe("Pone a prueba c5");
+    expect(m.by).toBe("agente");
+    expect(parseMeta(JSON.stringify({ rows: [{ why: "ya escrito", importance: "otra" }] }))[0].why).toBe("ya escrito");
+    expect(parseMeta(JSON.stringify({ rows: [{ reason: "por qué importa" }] }))[0].why).toBe("por qué importa");
+    expect(parseMeta(JSON.stringify({ rows: [{ group: "x" }] }))[0].why).toBeUndefined();
+  });
 });
 
 describe("multiple-choice rows", () => {
@@ -118,6 +168,20 @@ describe("multiple-choice rows", () => {
       { key: "d", text: "Digestión" },
     ]);
     expect(qs[0].status).toBe("progress");
+  });
+
+  it("reads a flat multiple-choice row the way the agent writes it", () => {
+    const opts: [string, string, string, string] = ["División celular", "Fotosíntesis", "Respiración", "Digestión"];
+    const flat = JSON.stringify({ question: "¿Qué es la mitosis?", options: { a: opts[0], b: opts[1], c: opts[2], d: opts[3] }, answer: opts[0] });
+    const rows = parseExam(flat);
+    expect(serializeExam(rows)).toBe(mcRow("¿Qué es la mitosis?", opts, 0) + "\n");
+    expect(readOptions(rows[0])).toEqual([
+      { key: "a", text: "División celular" },
+      { key: "b", text: "Fotosíntesis" },
+      { key: "c", text: "Respiración" },
+      { key: "d", text: "Digestión" },
+    ]);
+    expect(correctOptionKey(readOptions(rows[0]), "división celular")).toBe("a");
   });
 
   it("reads options from a list too and finds the correct option by exact text", () => {
