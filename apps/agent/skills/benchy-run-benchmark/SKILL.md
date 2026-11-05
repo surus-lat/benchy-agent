@@ -49,6 +49,11 @@ the rubric — run again, and if it repeats, tell the researcher.
 - Everything `invalid_output` with cut-off JSON → raise `max_tokens` in `ai-system.parameters`.
 - `wrong_type` on a number → the model answered `"12.0"`; the engine does not coerce, on purpose.
 - `adapter_not_bound` naming a model → pick one from `benchy_models`.
+- `adapter_not_bound` naming an endpoint/region problem (e.g. "AWS_REGION is
+  not set; the bedrock endpoint needs it") → that is the server environment,
+  not the YAML: the fix is setting the region where benchy runs. Ask the
+  researcher to configure it; never edit the grader or `ai-system` to route
+  around it, and don't report review/quality/run as skipped for a YAML reason.
 
 ## Comparing models
 

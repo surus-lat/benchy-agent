@@ -137,6 +137,13 @@ Say which, and never mark a question approved yourself: approval is the
 researcher's, in the app. A review only counts for the exact rubric it was made
 with; after any change, review again.
 
+- If `benchy_review` (or a run) fails with `adapter_not_bound` / "AWS_REGION is
+  not set", the bedrock grader or AI-system needs the AWS region exported in the
+  engine's environment — get it set, or have the researcher run the review from
+  the app, which carries its own config, and re-run after any rubric change.
+  Report the blocker plainly; never substitute your own manual grading for
+  review results.
+
 Then call `benchy_quality("<slug>/benchmark.yaml")` to score the questions
 themselves (claridad, relevancia, respaldo, calibre). It informs; it does not
 gate approval.
