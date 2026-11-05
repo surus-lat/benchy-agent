@@ -83,10 +83,16 @@ If the benchmark touches cultural axes — knowledge or practices of a specific
 community: regional or indigenous traditions, community practices (food, work,
 ritual, craft), local language varieties and registers, cultural heritage,
 local informal norms — apply `benchy-cultural-benchmark-design` **before
-writing exam rows**: its 8-stage workflow runs alongside the four questions,
+writing exam rows**: adding rows to an existing exam counts, so a batch of new
+questions reads that skill first, and a batch where every item is identification
+trips its AP-2 (trivia-only). Its 8-stage workflow runs alongside the four
+questions,
 and its checks (nationality-as-culture, trivia-only, translation-as-substitute,
 stereotyped answer keys) produce warnings and a cultural quality score in
-`<slug>/cultural-design.md`. Those checks are advisory by design: they never
+`<slug>/cultural-design.md`. If that file does not exist for the benchmark,
+write it (its template is in the cultural skill) and refresh its anti-pattern
+check and dimension scores with each question batch — researchers ask for the
+file, not just the advice. Those checks are advisory by design: they never
 block the exam — but their warnings must reach the researcher and, later, the
 report's `Limitaciones`. Universal disciplinary knowledge (a physics exam, a
 national legal code) does not trigger it.
@@ -148,6 +154,9 @@ ai-system:
   `benchy-evaluation-criteria`.
 - **Exam rows** are `{"input": {"question": "..."}, "expected": {"answer": "..."}}`:
   the expected answer is the expert answer — the key the grader compares with.
+  Always write those nested keys exactly; never flat `{"question": …, "answer": …}`
+  rows (the app may silently normalize them but the researcher will ask for the
+  exact shape, as happened in test5).
 - **Question notes** go in `<slug>/questions.json`, never in the exam (the
   engine rejects extra keys in a row): `{"rows": [{"why": "...", "sources":
   ["..."], "tags": ["..."], "status": "draft", "by": "agente"}]}`, one entry per
@@ -176,6 +185,21 @@ is there (no open PDF, or a scanned one): say so if you use it.
 When asked for questions and the benchmark has papers, read the papers first and
 write every question from them:
 
+- Re-read `design.json` and the rubric in `benchmark.yaml` immediately before
+  writing: the researcher edits both live in the app between turns (criteria get
+  removed, renumbered or reweighted), so target the criteria that are actually
+  in the file now, not the ones you last wrote or saw.
+
+- **The rubric is where the questions come from.** Before drafting, go criterion
+  by criterion: what would a model that fails `cX` answer here? Write the
+  question that provokes exactly that answer. Across a batch, cover the
+  criteria — do not test the same criterion twice while another is uncovered —
+  and name in `why` the criteria each question tests. If `design.json` names no
+  failure modes, derive them from the criteria instead of aiming at nothing.
+- **No two questions measure the same thing, and not every question is
+  identification** (what word, what language, what date): mix forms — a
+  situated case or a testimony, explain why, compare, apply. A batch where every
+  item asks the same thing measures one thing five times.
 - Each question tests something a specialist would know **from that paper** —
   a finding, an argument, a method and why it was chosen — not trivia (a date,
   a sample size alone) and not something answerable from the title. It must also
@@ -184,9 +208,19 @@ write every question from them:
 - The expert answer is what the paper supports, in your own words, complete
   enough that the grader can check every rubric criterion against it.
 - In `questions.json`, `sources` cites the paper by id and page:
-  `["conicet-179477 p. 4"]` (`pdf-...` ids for uploads). `why` says what error
-  of a model the question exposes. Spread questions across the papers, and
-  across groups (`group`) by topic.
+  `["conicet-179477 p. 4"]` (`pdf-...` ids for uploads), using the `[p. N]`
+  markers inside `sources/<id>.md`. `why` says what error of a model the
+  question exposes — name the rubric criteria it tests (the field is `why`, not
+  `importance`). Give each row a stable
+  `id` (`q1`, `q2`, …) and a topic `group`. Spread questions across the papers
+  and across groups.
+- Before finalizing, grep each expert answer's proper names (communities, lof,
+  people, place names, grafemarios) in `sources/<id>.md` and fix any drift —
+  the key must quote the paper's exact spellings, since the rubric's
+  "no contradice la respuesta experta" criterion is judged against it.
+- When a fact comes from a grep hit rather than a full read, locate the nearest
+  `[p. N]` marker before that line and cite that page in `sources` — page
+  numbers guessed from line numbers are wrong.
 - To find papers, search the library with `benchy_library_search` (CONICET
   Digital plus researchers' BICyT records): by `author` for "my papers"
   ("Chávez Martín"), by `query` for a topic. Show the researcher what you
