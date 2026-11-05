@@ -41,6 +41,10 @@
 .bp .badge.valid { color: var(--ok-ink); background: var(--ok-bg); border-color: var(--ok-line); }
 .bp .badge.error { color: var(--fail); background: var(--fail-bg); border-color: var(--fail-line); }
 .bp .badge.draft { color: var(--body); background: var(--surface-2); border-color: var(--line); }
+/* Publication: frozen as vN, or a draft iterating on top of a published version. */
+.bp .badge.pub { color: var(--amber-ink); background: var(--amber-wash); border-color: #f1d9ae; }
+.bp .badge.based { color: var(--body); background: var(--surface-2); border-color: var(--line); border-style: dashed; }
+.bp .badge-stack { display: inline-flex; gap: 5px; flex-wrap: wrap; justify-self: start; }
 .bp .dot { width: 7px; height: 7px; flex: none; border-radius: 999px; background: #d9d2ca; }
 .bp .dot.valid { background: var(--ok-dot); }
 .bp .dot.error { background: var(--fail); }

@@ -79,6 +79,8 @@ export function errorText(err: unknown): string {
     case "FORBIDDEN_PATH":
     case "TOO_LARGE":
       return "No se pudo guardar ese archivo.";
+    case "PUBLISHED":
+      return "Este benchmark está publicado: su definición está congelada. Revertí la publicación para seguir iterando.";
     case "NETWORK":
       return "Sin conexión. Revisá tu red y probá de nuevo.";
     default:

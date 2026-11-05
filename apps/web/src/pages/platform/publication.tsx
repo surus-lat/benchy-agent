@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { api, errorText, newestPerModel, publicPath, type Analysis } from "./data";
+import { api, errorText, newestPerModel, publicPath, since, type Analysis } from "./data";
 import { usePlatform, type BenchSummary } from "./store";
 import { useRunResults, type EvaluationState, type ExamState } from "./use-exam";
 import { hasDesign } from "./exam-model";
@@ -487,13 +487,23 @@ function PublishView({ bench, exam, openExam, mcExam, go }: { bench: BenchSummar
   const board = newestPerModel(results, bench.doc?.model);
   const [scope, setScope] = useState<"approved" | "all">("approved");
   const [visibility, setVisibility] = useState<"private" | "public">("private");
+  /** One line for this version: what it measures or what changed. */
+  const [note, setNote] = useState("");
+  /** The step before freezing or unlocking a version, so neither is an accident. */
+  const [confirming, setConfirming] = useState<"publish" | "revert" | null>(null);
   const qs = exam.questions;
   const approved = openExam ? qs.filter((q) => q.status === "done").length : qs.length;
   const n = scope === "approved" ? approved : qs.length;
   const title = exam.doc?.title ?? bench.slug;
   const org = me?.org?.name ?? "";
   const rubricCount = exam.criteria?.length ?? 0;
-  const checks = [
+  const pub = exam.publication;
+  const published = pub?.state === "published";
+  const lastVersion = pub?.version ?? 0;
+  const basedOn = pub?.basedOn ?? null;
+  const nextVersion = lastVersion + 1;
+  const versions = pub?.versions ?? [];
+  const checks: { ok: boolean; label: string; soft?: boolean; go: PubStage; goLabel: string }[] = [
     {
       ok: hasDesign(exam.design),
       label: hasDesign(exam.design) ? "El diseño dice qué se evalúa" : "Falta definir qué se quiere evaluar",
@@ -511,16 +521,47 @@ function PublishView({ bench, exam, openExam, mcExam, go }: { bench: BenchSummar
           },
         ]
       : []),
-    { ok: approved > 0, label: `${approved} de ${qs.length} preguntas aprobadas`, go: "autoria" as PubStage, goLabel: "Preguntas" },
-    { ok: board.length > 0, label: board.length ? "Hay una evaluación para adjuntar" : "Falta ejecutar la evaluación", go: "evaluacion" as PubStage, goLabel: "Evaluación" },
+    {
+      ok: qs.length > 0 && approved > 0,
+      label: qs.length === 0 ? "Todavía no hay preguntas" : `${approved} de ${qs.length} preguntas aprobadas`,
+      go: "autoria" as PubStage,
+      goLabel: "Preguntas",
+    },
+    // A benchmark is worth freezing before anyone has run it: what it measures
+    // does not depend on the results. Only say out loud that the version has none.
+    {
+      ok: board.length > 0,
+      soft: true,
+      label: board.length ? "Hay una evaluación para adjuntar" : "Sin evaluación todavía: la versión queda sin resultados",
+      go: "evaluacion" as PubStage,
+      goLabel: "Evaluación",
+    },
     { ok: !!bench.validation?.ok, label: bench.validation?.ok ? "El benchmark compila (benchy_validate)" : "El benchmark no compila todavía", go: "autoria" as PubStage, goLabel: "Preguntas" },
   ];
+  const missing = checks.filter((c) => !c.ok && !c.soft);
+  const busy = exam.publicationBusy;
+
+  const doPublish = async () => {
+    if (await exam.publish(note)) setNote("");
+    setConfirming(null);
+  };
+  const doRevert = async () => {
+    await exam.revertPublication();
+    setConfirming(null);
+  };
+
+  const state = published
+    ? `Está publicado como v${lastVersion}${pub?.at ? ` · ${since(new Date(pub.at).getTime() / 1000)} por ${pub.by ?? "alguien de la organización"}` : ""}. La copia congelada quedó en ${bench.slug}/published/v${lastVersion} y nada la cambia. Mientras esté publicada podés seguir evaluándolo y rehacer su informe; la definición no se edita.`
+    : basedOn
+      ? `La última versión publicada es v${basedOn}${pub?.at ? ` · ${since(new Date(pub.at).getTime() / 1000)}` : ""}. Revertiste la publicación: lo que hay acá es una copia editable de esa versión, y v${basedOn} sigue congelada donde estaba. Al publicar, esto pasa a ser v${nextVersion}.`
+      : "Todavía no publicaste este benchmark. Publicar guarda una copia exacta de lo que es hoy —su definición, sus preguntas, sus papers y sus resultados— y la congela; después podés seguir iterando y publicar versiones nuevas.";
+
   const radio = (on: boolean) => `ws-radio${on ? " on" : ""}`;
   return (
     <>
       <div className="ws-soon-banner">
         <span className="mono amber">[·]</span>
-        La publicación llega pronto: tablero público, paquete descargable y DOI. Así se va a ver.
+        Publicar y congelar versiones ya funciona: guarda la copia y bloquea la definición. Lo que falta es el tablero público, el paquete descargable y el DOI. Así se va a ver.
       </div>
       <div className="ws-pub">
         <div className="ws-col">
@@ -533,7 +574,7 @@ function PublishView({ bench, exam, openExam, mcExam, go }: { bench: BenchSummar
             <div className="ws-pad ws-preview-body">
               <div>
                 <div className="tags">
-                  <span className="ws-chip">BORRADOR</span>
+                  <span className="ws-chip">{published ? `PUBLICADO v${lastVersion}` : basedOn ? `BORRADOR DE v${basedOn}` : "BORRADOR"}</span>
                   <span className="ws-chip">{[exam.doc?.domain, exam.doc?.language].filter(Boolean).join(" · ").toUpperCase()}</span>
                 </div>
                 <h2>{title}</h2>
@@ -581,6 +622,92 @@ function PublishView({ bench, exam, openExam, mcExam, go }: { bench: BenchSummar
           </div>
         </div>
         <div className="ws-col">
+          <div className="ws-card ws-pad ws-publish-state">
+            <p className="ws-eyebrow">La versión que se congela</p>
+            <p className="now">{state}</p>
+            {exam.publicationError && <p className="ws-note fail">{exam.publicationError}</p>}
+            {exam.publicationBusy && <p className="ws-note">[···] Congelando la copia en el workspace…</p>}
+            {published ? (
+              confirming === "revert" ? (
+                <>
+                  <p className="ws-note amber">
+                    ¿Revertir la publicación? v{lastVersion} queda tal cual y el benchmark vuelve a ser editable: lo que cambies después arma la
+                    versión siguiente.
+                  </p>
+                  <div className="ws-row-btns">
+                    <button className="ws-btn-dark sm" disabled={busy} onClick={() => void doRevert()}>
+                      Sí, volver a editarlo
+                    </button>
+                    <button className="ws-btn-line sm" onClick={() => setConfirming(null)}>
+                      Cancelar
+                    </button>
+                  </div>
+                </>
+              ) : (
+                <button className="ws-publish-undo" disabled={busy} onClick={() => setConfirming("revert")}>
+                  Revertir la publicación y seguir iterando
+                </button>
+              )
+            ) : confirming === "publish" ? (
+              <>
+                <p className="ws-note amber">
+                  ¿Publicar v{nextVersion}? Se congela una copia exacta de {bench.slug} (definición, preguntas, papers y resultados) en
+                  published/v{nextVersion}, y desde ahora nada de eso se edita.
+                </p>
+                <div className="ws-row-btns">
+                  <button className="ws-btn-dark sm" disabled={busy} onClick={() => void doPublish()}>
+                    Sí, publicar v{nextVersion}
+                  </button>
+                  <button className="ws-btn-line sm" onClick={() => setConfirming(null)}>
+                    Cancelar
+                  </button>
+                </div>
+              </>
+            ) : (
+              <>
+                <label>
+                  <span className="t">Nota de esta versión (opcional)</span>
+                  <input
+                    value={note}
+                    maxLength={280}
+                    onChange={(e) => setNote(e.target.value)}
+                    placeholder={lastVersion ? "Qué cambia respecto de la versión anterior" : "Qué mide esta primera versión"}
+                  />
+                </label>
+                <button
+                  className="ws-publish"
+                  disabled={busy || missing.length > 0}
+                  title={missing.length ? `Falta: ${missing.map((m) => m.label.toLowerCase()).join(" · ")}` : `Congela v${nextVersion} y deja el benchmark listo para citar`}
+                  onClick={() => setConfirming("publish")}
+                >
+                  {busy ? "Publicando…" : `Publicar v${nextVersion} y congelar`}
+                </button>
+              </>
+            )}
+            <p className="ws-note">
+              {published
+                ? "Un benchmark publicado se puede evaluar y citar. Para cambiar su definición, revertí la publicación: la versión congelada no se toca."
+                : "Mientras no esté publicado, el benchmark se edita como siempre. Publicar no borra nada: la copia queda al lado de la que seguís usando."}
+            </p>
+          </div>
+          {versions.length > 0 && (
+            <div className="ws-card ws-pad ws-stack">
+              <p className="ws-eyebrow">Versiones publicadas · la más reciente primero</p>
+              <div className="ws-versions">
+                {versions.map((v) => (
+                  <div key={v.version} className="ws-version">
+                    <span className="v">v{v.version}</span>
+                    <span className="t">{v.note || (published && v.version === lastVersion ? "La versión publicada hoy" : "Versión congelada")}</span>
+                    <span className="d">
+                      {v.at ? since(new Date(v.at).getTime() / 1000) : ""}
+                      {v.by ? ` · ${v.by}` : ""} · {v.files} archivos · {bench.slug}/published/v{v.version}
+                    </span>
+                  </div>
+                ))}
+              </div>
+              <p className="ws-note">Cada versión guarda su propio manifiesto: qué archivos tenía y cuándo se congelaron.</p>
+            </div>
+          )}
           <div className="ws-card ws-pad ws-stack">
             <p className="ws-eyebrow">Antes de publicar</p>
             {checks.map((c) => (
@@ -596,7 +723,7 @@ function PublishView({ bench, exam, openExam, mcExam, go }: { bench: BenchSummar
             ))}
           </div>
           <div className="ws-card ws-pad ws-stack">
-            <p className="ws-eyebrow">Qué preguntas entran</p>
+            <p className="ws-eyebrow">Qué preguntas entran · vista previa</p>
             <button className={radio(scope === "approved")} onClick={() => setScope("approved")}>
               <span className="dot" />
               <span>
@@ -613,7 +740,7 @@ function PublishView({ bench, exam, openExam, mcExam, go }: { bench: BenchSummar
             </button>
           </div>
           <div className="ws-card ws-pad ws-stack">
-            <p className="ws-eyebrow">Las preguntas, ¿se ven?</p>
+            <p className="ws-eyebrow">Las preguntas, ¿se ven? · vista previa</p>
             <button className={radio(visibility === "private")} onClick={() => setVisibility("private")}>
               <span className="dot" />
               <span>
@@ -629,10 +756,9 @@ function PublishView({ bench, exam, openExam, mcExam, go }: { bench: BenchSummar
               </span>
             </button>
           </div>
-          <button className="ws-publish" disabled>
-            Publicar · pronto
-          </button>
-          <p className="ws-note center">Cuando llegue, la versión publicada queda congelada y los cambios siguientes van a la próxima.</p>
+          <p className="ws-note center">
+            La publicación guarda la definición y lo que ya se midió. Estas dos decisiones entran en la ficha pública cuando llegue el tablero.
+          </p>
         </div>
       </div>
     </>

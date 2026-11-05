@@ -159,8 +159,24 @@ export default function Home() {
                 <span className="num col-items">{b.items ?? "—"}</span>
                 <span className="num strong">{b.best == null ? "—" : b.best.toFixed(2)}</span>
                 <span className="when col-when">{b.runs[0] ? since(b.runs[0].modified) : "sin corridas"}</span>
-                <span className={`badge ${st}`}>
-                  {b.validation && !b.validation.ok ? b.validation.error.code : STATUS_LABEL[st]}
+                <span className="badge-stack">
+                  <span className={`badge ${st}`}>
+                    {b.validation && !b.validation.ok ? b.validation.error.code : STATUS_LABEL[st]}
+                  </span>
+                  {b.publication && (
+                    <span
+                      className={`badge ${b.publication.state === "published" ? "pub" : "based"}`}
+                      title={
+                        b.publication.state === "published"
+                          ? `Publicado como v${b.publication.version}: su definición está congelada. Podés revertir la publicación para seguir editando.`
+                          : `Iterando sobre una copia de v${b.publication.basedOn ?? b.publication.version}, la última versión publicada.`
+                      }
+                    >
+                      {b.publication.state === "published"
+                        ? `publicado v${b.publication.version}`
+                        : `borrador de v${b.publication.basedOn ?? b.publication.version}`}
+                    </span>
+                  )}
                 </span>
                 <button
                   className="bp-del"

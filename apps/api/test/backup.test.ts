@@ -7,7 +7,24 @@ import { HermesError, type HermesClient } from "../src/hermes";
 // and one org's failing agent does not stop the others.
 
 function agent(archive: () => Promise<ArrayBuffer>): HermesClient {
-  return { backup: archive } as unknown as HermesClient;
+  return {
+    backup: archive,
+    async publication() {
+      return { ok: true, state: null, versions: [] };
+    },
+    async publish(bench: string) {
+      return {
+        ok: true,
+        version: 1,
+        publishedAt: 1_769_900_001,
+        path: `${bench}/published/v1`,
+        files: [{ path: "benchmark.yaml", size: 100, modified: 1 }],
+      };
+    },
+    async revert() {
+      return { ok: true, version: 1, updatedAt: 1_769_900_500, state: "editing" };
+    },
+  } as unknown as HermesClient;
 }
 
 it("keeps one dated archive per org and carries on past a failing agent", async () => {

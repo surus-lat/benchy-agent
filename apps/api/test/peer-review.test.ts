@@ -46,6 +46,21 @@ function fakeHermes(opts: { benches?: string[]; questions?: Record<string, strin
       const question = opts.questions?.[bench] ?? "¿Cuál es la capital de Francia?";
       return { ok: true, total: 2, valid: 2, rejected: 0, truncated: false, rows: examRows(question), dimensions: [] };
     },
+    async publication() {
+      return { ok: true, state: null, versions: [] };
+    },
+    async publish(bench) {
+      return {
+        ok: true,
+        version: 1,
+        publishedAt: 1_769_900_001,
+        path: `${bench}/published/v1`,
+        files: [{ path: "benchmark.yaml", size: 100, modified: 1 }],
+      };
+    },
+    async revert() {
+      return { ok: true, version: 1, updatedAt: 1_769_900_500, state: "editing" };
+    },
   } as unknown as HermesClient;
 }
 

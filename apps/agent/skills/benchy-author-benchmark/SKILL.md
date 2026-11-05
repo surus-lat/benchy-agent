@@ -28,6 +28,15 @@ update it if the benchmark's purpose changes.
 Tools take paths **relative to the workspace**: `benchy_validate("<slug>/benchmark.yaml")`.
 The workspace is shared by the whole organization — name folders clearly.
 
+**Never write inside `<slug>/published/`.** Those folders are the frozen copies of
+what the organization published; the app makes them and never edits them again. A
+benchmark whose `<slug>/publish.json` says `"state": "published"` is frozen as a
+whole: its `benchmark.yaml`, `exam.jsonl`, `questions.json`, `design.json` and
+papers do not change until the researcher reverts the publication in the app,
+which makes an editable copy of that version. If a request needs one of those
+changes, say the benchmark is published, say what you would change, and ask them
+to revert it first.
+
 ## Start with what the benchmark evaluates
 
 Before the four questions below, settle **what the benchmark sets out to find

@@ -36,6 +36,8 @@ from pathlib import Path
 
 from aiohttp import ClientError, ClientSession, ClientTimeout
 
+import benchy_publication
+
 WORKSPACE = Path(os.environ.get("BENCHY_WORKSPACE", "/opt/data/workspace")).resolve()
 # The Worker: the library's own PDFs (R2), fetched with this container's key.
 API_URL = os.environ.get("BENCHY_API_URL", "https://getbenchy.lat").rstrip("/")
@@ -195,6 +197,7 @@ def render(source: dict, abstract: str, pages: list[str], missing: str | None) -
 
 async def _store(folder: Path, source: dict, abstract: str, pages: list[str], missing: str | None) -> dict:
     async with _locked(folder):
+        _writable(folder)
         sources = load_index(folder)
         existing = next((s for s in sources if s.get("id") == source["id"]), None)
         if existing:
@@ -299,6 +302,7 @@ async def add_upload(bench: str, name: str, data: bytes) -> dict:
 async def remove(bench: str, sid: str) -> bool:
     folder = bench_dir(bench)
     async with _locked(folder):
+        _writable(folder)
         sources = load_index(folder)
         keep = [s for s in sources if s.get("id") != sid]
         if len(keep) == len(sources):
@@ -315,6 +319,17 @@ async def remove_benchmark(bench: str) -> None:
     folder = bench_dir(bench)
     async with _locked(folder):
         await asyncio.to_thread(shutil.rmtree, folder)
+
+
+def _writable(folder: Path) -> None:
+    """A published benchmark's questions and papers are frozen: they are what its
+    published version says they are. Only after the publication is reverted does
+    anything change here — the agent's tools included."""
+    if benchy_publication.is_published(folder.name):
+        raise SourceError(
+            "published",
+            f"{folder.name} is published: its questions and papers are frozen. Ask the researcher to revert the publication to keep iterating.",
+        )
 
 
 def _exam_path(folder: Path) -> Path:
@@ -418,6 +433,7 @@ async def remove_question(bench: str, q: int) -> None:
     newer, the same staleness any exam edit produces)."""
     folder = bench_dir(bench)
     async with _locked(folder):
+        _writable(folder)
         exam = _exam_path(folder)
         lines = [ln for ln in exam.read_text(encoding="utf-8").splitlines() if ln.strip()]
         index = q - 1

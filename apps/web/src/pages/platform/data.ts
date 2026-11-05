@@ -223,6 +223,48 @@ export type JudgeConfig = {
   source: "override" | "org" | "system";
 };
 
+/** Where a benchmark's publication stands, as the Worker's row says. */
+export type Publication = {
+  bench: string;
+  /** draft: never published. published: v`version` is frozen. editing: a draft
+   *  reverted from v`basedOn`, iterating toward the next version. */
+  state: "draft" | "published" | "editing";
+  /** The last published version, 0 when there is none. */
+  version: number;
+  basedOn: number | null;
+  at: string | null;
+  by: string | null;
+  versions: { version: number; note: string | null; at: string | null; by: string | null; files: number }[];
+};
+
+export type PublicationSummary = {
+  bench: string;
+  state: "published" | "editing";
+  version: number;
+  basedOn: number | null;
+  updatedAt: string;
+};
+
+export type PublishResult = { ok: true; version: number; at: string; files: number } | { ok: false; error: { code: string; message: string } };
+
+export type RevertResult = { ok: true; state: "editing"; version: number } | { ok: false; error: { code: string; message: string } };
+
+/** Why publishing or reverting was refused, in the researcher's words. */
+export function publicationErrorText(code: string): string {
+  switch (code) {
+    case "bench_not_found":
+      return "Ese benchmark ya no está en el workspace de tu organización.";
+    case "not_published":
+      return "Este benchmark no tiene una publicación que revertir.";
+    case "version_exists":
+      return "Esa versión ya estaba publicada: recargá para verla.";
+    case "bad_bench":
+      return "No pudimos identificar el benchmark.";
+    default:
+      return `No se pudo completar (${code}).`;
+  }
+}
+
 export const api = {
   ...chatApi,
   me: () => get<Me>("/api/me"),
@@ -253,6 +295,16 @@ export const api = {
   backfillAuthors: () => send<{ ok: boolean; inserted: number }>("/api/workspace/authors/backfill"),
   /** Delete a benchmark and everything it produced; the app confirms first. */
   removeBenchmark: (bench: string) => del<{ ok: boolean }>(`/api/workspace/benchmark?bench=${encodeURIComponent(bench)}`),
+  /** Where a benchmark stands: never published, published (frozen) as vN, or a
+   *  draft reverted from vN — with the versions it has, newest first. */
+  publication: (bench: string) => get<Publication>(`/api/workspace/publication?bench=${encodeURIComponent(bench)}`),
+  /** The same, for every benchmark of the org at once (the list's badges). */
+  publications: () => get<{ publications: PublicationSummary[] }>("/api/workspace/publications"),
+  /** Freeze the benchmark as v(n+1): its definition stops being editable. */
+  publish: (bench: string, note?: string) =>
+    send<PublishResult>("/api/workspace/publication/publish", { bench, ...(note ? { note } : {}) }),
+  /** Unlock the working copy again, as a draft based on the published version. */
+  revertPublication: (bench: string) => send<RevertResult>("/api/workspace/publication/revert", { bench }),
   removeQuestion: (bench: string, q: number) =>
     del<{ ok: boolean }>(`/api/workspace/benchmark/question?bench=${encodeURIComponent(bench)}&q=${q}`),
   validate: (path: string) => get<Validation>(`/api/workspace/validate?path=${encodeURIComponent(path)}`),

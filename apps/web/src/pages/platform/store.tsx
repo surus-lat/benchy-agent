@@ -8,6 +8,7 @@ import {
   type Bench,
   type BenchDoc,
   type Me,
+  type PublicationSummary,
   type RunResult,
   type Validation,
   type WorkspaceFile,
@@ -23,6 +24,8 @@ export type BenchSummary = Bench & {
   items?: number;
   best?: number | null;
   validation?: Validation;
+  /** Where its publication stands (absent: never published). From the Worker's rows. */
+  publication?: PublicationSummary;
 };
 
 export type ComparisonRun = {
@@ -150,14 +153,20 @@ export function PlatformProvider({ children }: { children: ReactNode }) {
 
   const refresh = useCallback(async () => {
     try {
-      const { files } = await filesWithRetry();
+      // The publication rows come from the Worker's own record, so the list
+      // knows which benchmarks are frozen without reading the workspace.
+      const [{ files }, publications] = await Promise.all([
+        filesWithRetry(),
+        api.publications().catch(() => ({ publications: [] as PublicationSummary[] })),
+      ]);
       loaded.current = true;
       setFiles(files);
       setNotProvisioned(false);
       setLoadError(null);
       const list = benchesFrom(files);
       setBenches((prev) => list.map((b) => prev.find((p) => p.slug === b.slug && p.modified === b.modified) ?? b));
-      const full = await Promise.all(list.map((b) => summarize(b, cache.current)));
+      const bySlug = new Map(publications.publications.map((p) => [p.bench, p]));
+      const full = await Promise.all(list.map(async (b) => ({ ...(await summarize(b, cache.current)), publication: bySlug.get(b.slug) })));
       setBenches(full);
     } catch (err) {
       if (err instanceof ApiError && err.code === "AGENT_NOT_PROVISIONED") {

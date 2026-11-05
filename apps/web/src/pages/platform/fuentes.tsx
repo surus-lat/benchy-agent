@@ -6,6 +6,7 @@ import { coverage, coverageNote, pickedFromSources, sourceOfPaper } from "./fuen
 import type { PickedPaper } from "./new-bench-model";
 import type { Design } from "./exam-model";
 import { useStageCta, type StageCta } from "./stage-next";
+import { PUBLISHED_NOTE } from "./use-exam";
 import "./library.css";
 
 // 02 · Fuentes — curaduría como pantalla completa: la colección elegida a la
@@ -24,6 +25,7 @@ export function SourcesStage({
   design,
   criteriaCount,
   questionCount,
+  frozen,
   onNext,
   setStageCta,
   onCriteria,
@@ -35,6 +37,8 @@ export function SourcesStage({
   design: Design;
   criteriaCount: number;
   questionCount: number;
+  /** The benchmark is published: its papers are part of what was published. */
+  frozen: boolean;
   onNext: () => void;
   /** Publishes this stage's next step into the toolbar. */
   setStageCta: (cta: StageCta | null) => void;
@@ -65,6 +69,10 @@ export function SourcesStage({
   const cov = coverage(list);
 
   const remove = async (s: Source) => {
+    if (frozen) {
+      setError(PUBLISHED_NOTE);
+      return;
+    }
     setRemoving(s.id);
     setError(null);
     try {
@@ -82,6 +90,10 @@ export function SourcesStage({
   // atop the collection while the agent reads the PDF).
   const toggle = async (p: PickedPaper) => {
     if (removing !== null) return;
+    if (frozen) {
+      setError(PUBLISHED_NOTE);
+      return;
+    }
     const inBench = sourceOfPaper(list, p);
     if (inBench) {
       await remove(inBench);
@@ -133,6 +145,12 @@ export function SourcesStage({
               Estás en 02 · Fuentes. Elegí el material con el que el agente escribirá las preguntas: las lee y en cada una cita el paper y la página.
               Sin PDF abierto, solo tiene el resumen. Cuando tengas al menos una, seguí a 03 · Preguntas.
             </p>
+            {frozen && (
+              <p className="ws-locked" role="status">
+                <span className="mono amber">[·]</span> Este benchmark está publicado: sus fuentes son parte de lo publicado. Revertí la publicación en 05 ·
+                Publicación para agregar o quitar papers.
+              </p>
+            )}
           </div>
           <div className="ws-fnt-col-body">
           {reading.map((p) => (
@@ -161,7 +179,7 @@ export function SourcesStage({
               <div key={s.id} className="ws-fnt-src">
                 <div className="h">
                   <span className={`lib-tag ${s.origin}`}>{s.origin === "conicet" ? "CONICET" : s.origin === "bicyt" ? "BICyT" : "PDF"}</span>
-                  <button className="ws-link ws-del" disabled={removing !== null} onClick={() => void remove(s)}>
+                  <button className="ws-link ws-del" disabled={removing !== null || frozen} title={frozen ? "El benchmark está publicado: sus fuentes están congeladas" : "Sacar del benchmark"} onClick={() => void remove(s)}>
                     {removing === s.id ? "Sacando…" : "Sacar"}
                   </button>
                 </div>
@@ -201,7 +219,7 @@ export function SourcesStage({
         </div>
       </aside>
 
-      <LibrarySearch chosen={chosen} busyIds={busy} onToggle={(p) => void toggle(p)} toggleError={error} onDismissError={() => setError(null)} />
+      <LibrarySearch chosen={chosen} busyIds={busy} frozen={frozen} onToggle={(p) => void toggle(p)} toggleError={error} onDismissError={() => setError(null)} />
       </div>
     </div>
   );
@@ -214,12 +232,15 @@ export function SourcesStage({
 function LibrarySearch({
   chosen,
   busyIds,
+  frozen,
   onToggle,
   toggleError,
   onDismissError,
 }: {
   chosen: ReadonlySet<number>;
   busyIds: ReadonlySet<number>;
+  /** The benchmark is published: its papers are part of what was published. */
+  frozen: boolean;
   onToggle: (p: PickedPaper) => void;
   toggleError: string | null;
   onDismissError: () => void;
@@ -342,7 +363,8 @@ function LibrarySearch({
                       <button
                         className="ws-fnt-pick"
                         aria-pressed={isIn}
-                        title={isIn ? "Sacar de la colección" : "Elegir para el benchmark"}
+                        disabled={frozen}
+                        title={frozen ? "El benchmark está publicado: sus fuentes están congeladas" : isIn ? "Sacar de la colección" : "Elegir para el benchmark"}
                         onClick={() => onToggle(paper)}
                       >
                         {isIn ? "✓ Elegida" : "+ Elegir"}

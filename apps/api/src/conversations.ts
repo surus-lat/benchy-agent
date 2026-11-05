@@ -34,6 +34,22 @@ const STALE_TURN_MS = 15 * 60 * 1000;
 
 /** A benchmark is a top-level workspace folder; the container checks it has a benchmark.yaml. */
 const BENCH = /^[^./\\][^/\\]{0,99}$/;
+
+// A published benchmark still takes these: its findings report (rewritten after
+// every evaluation) and what its grader grades with. Everything else in its
+// folder is its definition, which is what the published version says it is
+// until the publication is reverted. The container enforces the same list.
+const MUTABLE_WHEN_PUBLISHED = new Set(["report.md", "report.previous.md", "review.json", "quality.json"]);
+
+/** How many files a published version's snapshot kept, from its manifest. */
+function countFiles(manifest: string): number {
+  try {
+    const parsed: unknown = JSON.parse(manifest);
+    return Array.isArray(parsed) ? parsed.length : 0;
+  } catch {
+    return 0;
+  }
+}
 const benchSchema = z.string().regex(BENCH);
 
 const createSchema = z.object({
@@ -254,9 +270,38 @@ export function createConversationsApp(deps: ConversationsDeps) {
         createdAt: now,
       });
 
+      // The agent edits these same files with its own tools, where no HTTP gate
+      // reaches: so the turn tells it what is frozen, and why.
+      let speaker = speakerLine(user);
+      if (conversation.bench && conversation.bench !== "new") {
+        const frozen = await publishedLock(user.orgId, conversation.bench);
+        if (frozen !== null) {
+          speaker +=
+            `\n\nThe benchmark ${conversation.bench} is published as v${frozen}. Its definition is frozen: do not edit ` +
+            `benchmark.yaml, the exam, the questions or their papers, and never write inside ${conversation.bench}/published/. ` +
+            `Running evaluations and rewriting the findings report still work. To change the definition, the researcher has ` +
+            `to revert the publication in the app first — ask them if that is what the request needs.`;
+        }
+      } else {
+        // A conversation not tied to one benchmark still edits files in the same
+        // workspace: name what is frozen there, so the agent reads it before it tries.
+        const published = await db
+          .select({ bench: schema.benchPublications.bench, version: schema.benchPublications.version })
+          .from(schema.benchPublications)
+          .where(and(eq(schema.benchPublications.orgId, user.orgId), eq(schema.benchPublications.state, "published")))
+          .orderBy(schema.benchPublications.bench)
+          .limit(12);
+        if (published.length) {
+          speaker +=
+            `\n\nPublished in this workspace: ${published.map((p) => `${p.bench} (v${p.version})`).join(", ")}. Their ` +
+            `definitions are frozen — do not edit their benchmark.yaml, exam, questions or papers, and never write inside ` +
+            `their published/ folders. To change one, the researcher has to revert its publication in the app first.`;
+        }
+      }
+
       let turn;
       try {
-        turn = await agent.chat(conversation.hermesSessionId, user.id, message, speakerLine(user));
+        turn = await agent.chat(conversation.hermesSessionId, user.id, message, speaker);
       } catch (err) {
         return agentFailure(c, err);
       }
@@ -340,11 +385,22 @@ export function createConversationsApp(deps: ConversationsDeps) {
     if (typeof path !== "string" || !path || path.length > 1000) return c.json({ error: "INVALID_PATH" }, 400);
     if (typeof content !== "string") return c.json({ error: "INVALID_CONTENT" }, 400);
     if (baseModified !== undefined && typeof baseModified !== "number") return c.json({ error: "INVALID_CONTENT" }, 400);
+    // A published version's snapshot is never written, and a published
+    // benchmark's definition is not written either: only its report and what its
+    // grader grades with. The container refuses the same writes; saying it here
+    // keeps the app's editors from losing an edit on the way.
+    const [benchFolder, ...sub] = path.split("/");
+    if (sub.length >= 2 && sub[0] === "published") return c.json({ error: "FORBIDDEN_PATH" }, 403);
+    if (sub.length && !MUTABLE_WHEN_PUBLISHED.has(sub[sub.length - 1])) {
+      const frozen = await publishedLock(c.get("user").orgId, benchFolder);
+      if (frozen !== null) return c.json({ error: "PUBLISHED", bench: benchFolder, version: frozen }, 409);
+    }
     const agent = await deps.agentFor(c.get("user").orgId);
     if (!agent) return c.json({ error: "AGENT_NOT_PROVISIONED" }, 503);
     try {
       const result = await agent.writeFile(path, content, baseModified);
       if (result.status === "conflict") return c.json({ error: "CONFLICT", modified: result.modified }, 409);
+      if (result.status === "published") return c.json({ error: "PUBLISHED", bench: benchFolder }, 409);
       if (result.status === "forbidden") return c.json({ error: "FORBIDDEN_PATH" }, 403);
       if (result.status === "too_large") return c.json({ error: "TOO_LARGE" }, 413);
       const [bench, ...rest] = result.path.split("/");
@@ -493,6 +549,9 @@ export function createConversationsApp(deps: ConversationsDeps) {
     const body = (await c.req.json().catch(() => null)) as { bench?: unknown; paperId?: unknown } | null;
     if (typeof body?.bench !== "string" || !BENCH.test(body.bench)) return c.json({ error: "INVALID_BENCH" }, 400);
     if (typeof body.paperId !== "number" || !Number.isSafeInteger(body.paperId)) return c.json({ error: "INVALID_BODY" }, 400);
+    // A published benchmark's papers are part of what was published.
+    const frozen = await publishedLock(c.get("user").orgId, body.bench);
+    if (frozen !== null) return c.json({ error: "PUBLISHED", bench: body.bench, version: frozen }, 409);
     const paper = await deps.paper(body.paperId);
     if (!paper) return c.json({ error: "PAPER_NOT_FOUND" }, 404);
     const agent = await deps.agentFor(c.get("user").orgId);
@@ -524,6 +583,8 @@ export function createConversationsApp(deps: ConversationsDeps) {
     // The header may follow some junk, within the first 1024 bytes (PDF 1.7, 7.5.2).
     const head = new Uint8Array(pdf, 0, Math.min(1024, pdf.byteLength));
     if (!String.fromCharCode(...head).includes("%PDF-")) return c.json({ error: "NOT_PDF" }, 415);
+    const frozen = await publishedLock(c.get("user").orgId, bench);
+    if (frozen !== null) return c.json({ error: "PUBLISHED", bench, version: frozen }, 409);
     const agent = await deps.agentFor(c.get("user").orgId);
     if (!agent) return c.json({ error: "AGENT_NOT_PROVISIONED" }, 503);
     try {
@@ -544,6 +605,8 @@ export function createConversationsApp(deps: ConversationsDeps) {
     const id = c.req.query("id") ?? "";
     if (!BENCH.test(bench)) return c.json({ error: "INVALID_BENCH" }, 400);
     if (!/^[a-z0-9-]{1,120}$/.test(id)) return c.json({ error: "INVALID_BODY" }, 400);
+    const frozen = await publishedLock(c.get("user").orgId, bench);
+    if (frozen !== null) return c.json({ error: "PUBLISHED", bench, version: frozen }, 409);
     const agent = await deps.agentFor(c.get("user").orgId);
     if (!agent) return c.json({ error: "AGENT_NOT_PROVISIONED" }, 503);
     try {
@@ -578,6 +641,8 @@ export function createConversationsApp(deps: ConversationsDeps) {
     if (!BENCH.test(bench)) return c.json({ error: "INVALID_BENCH" }, 400);
     if (!Number.isInteger(q) || q < 1 || q > 10_000) return c.json({ error: "INVALID_BODY" }, 400);
     const user = c.get("user");
+    const frozen = await publishedLock(user.orgId, bench);
+    if (frozen !== null) return c.json({ error: "PUBLISHED", bench, version: frozen }, 409);
     const agent = await deps.agentFor(user.orgId);
     if (!agent) return c.json({ error: "AGENT_NOT_PROVISIONED" }, 503);
     try {
@@ -610,9 +675,147 @@ export function createConversationsApp(deps: ConversationsDeps) {
         await db
           .delete(schema.benchJudgeOverrides)
           .where(and(eq(schema.benchJudgeOverrides.orgId, user.orgId), eq(schema.benchJudgeOverrides.bench, bench)));
+        // Its publication goes with it: the folder held the published copies.
+        await db
+          .delete(schema.benchPublications)
+          .where(and(eq(schema.benchPublications.orgId, user.orgId), eq(schema.benchPublications.bench, bench)));
+        await db
+          .delete(schema.benchPublicationVersions)
+          .where(and(eq(schema.benchPublicationVersions.orgId, user.orgId), eq(schema.benchPublicationVersions.bench, bench)));
         await log(user, bench, "delete", `eliminó el benchmark ${bench}`);
       }
       return c.json(result);
+    } catch (err) {
+      return agentFailure(c, err);
+    }
+  });
+
+  // Publication. Publishing freezes a benchmark: the container keeps an
+  // immutable copy of it in <bench>/published/vN and marks the workspace copy as
+  // that version, and this org's row says the same, so the editors and the
+  // benchmark list know it without reading the workspace. While the row says
+  // "published", the definition — benchmark.yaml, the exam, the questions' notes
+  // and design, the papers — is locked; running evaluations and rewriting the
+  // findings report still work. Reverting changes nothing that was published:
+  // vN stays exactly as it was and the workspace copy becomes an editable draft
+  // tied to it (`basedOn`), so the researcher always knows which is the last
+  // published version and the next publish is vN+1.
+  app.get("/api/workspace/publication", async (c) => {
+    const bench = c.req.query("bench") ?? "";
+    if (!BENCH.test(bench)) return c.json({ error: "INVALID_BENCH" }, 400);
+    const orgId = c.get("user").orgId;
+    const where = and(eq(schema.benchPublications.orgId, orgId), eq(schema.benchPublications.bench, bench));
+    const [row] = await db.select().from(schema.benchPublications).where(where).limit(1);
+    const versions = await db
+      .select({
+        version: schema.benchPublicationVersions.version,
+        note: schema.benchPublicationVersions.note,
+        publishedAt: schema.benchPublicationVersions.publishedAt,
+        userName: schema.benchPublicationVersions.userName,
+        manifest: schema.benchPublicationVersions.manifest,
+      })
+      .from(schema.benchPublicationVersions)
+      .where(
+        and(
+          eq(schema.benchPublicationVersions.orgId, orgId),
+          eq(schema.benchPublicationVersions.bench, bench),
+        ),
+      )
+      .orderBy(desc(schema.benchPublicationVersions.version))
+      .limit(50);
+    return c.json({
+      bench,
+      state: row?.state ?? "draft",
+      version: row?.version ?? 0,
+      basedOn: row?.basedOn ?? null,
+      at: row?.updatedAt ?? null,
+      by: row?.userName ?? null,
+      versions: versions.map((v) => ({
+        version: v.version,
+        note: v.note,
+        at: v.publishedAt,
+        by: v.userName,
+        // The snapshot's file count, from the manifest the container returned.
+        files: countFiles(v.manifest),
+      })),
+    });
+  });
+
+  // Where every benchmark of the org stands, for the list: one row each, no versions.
+  app.get("/api/workspace/publications", async (c) => {
+    const rows = await db
+      .select({
+        bench: schema.benchPublications.bench,
+        state: schema.benchPublications.state,
+        version: schema.benchPublications.version,
+        basedOn: schema.benchPublications.basedOn,
+        updatedAt: schema.benchPublications.updatedAt,
+      })
+      .from(schema.benchPublications)
+      .where(eq(schema.benchPublications.orgId, c.get("user").orgId))
+      .limit(500);
+    return c.json({ publications: rows });
+  });
+
+  app.post("/api/workspace/publication/publish", async (c) => {
+    const body = (await c.req.json().catch(() => null)) as { bench?: unknown; note?: unknown } | null;
+    if (typeof body?.bench !== "string" || !BENCH.test(body.bench)) return c.json({ error: "INVALID_BENCH" }, 400);
+    if (body.note !== undefined && (typeof body.note !== "string" || body.note.length > 500)) return c.json({ error: "INVALID_BODY" }, 400);
+    const bench = body.bench;
+    const note = typeof body.note === "string" ? body.note.trim() || null : null;
+    const user = c.get("user");
+    const agent = await deps.agentFor(user.orgId);
+    if (!agent) return c.json({ error: "AGENT_NOT_PROVISIONED" }, 503);
+    // The container's copy is the record: it is taken from the workspace files
+    // themselves, at the moment of publishing, and nothing edits them again.
+    try {
+      const result = await agent.publish(bench, note, user.name);
+      if (!result.ok) return c.json(result);
+      const [before] = await db
+        .select({ basedOn: schema.benchPublications.basedOn })
+        .from(schema.benchPublications)
+        .where(and(eq(schema.benchPublications.orgId, user.orgId), eq(schema.benchPublications.bench, bench)))
+        .limit(1);
+      const publishedAt = new Date(result.publishedAt * 1000);
+      await db
+        .insert(schema.benchPublicationVersions)
+        .values({
+          orgId: user.orgId,
+          bench,
+          version: result.version,
+          note,
+          manifest: JSON.stringify(result.files),
+          publishedAt,
+          userId: user.id,
+          userName: user.name,
+        })
+        .onConflictDoUpdate({
+          target: [schema.benchPublicationVersions.orgId, schema.benchPublicationVersions.bench, schema.benchPublicationVersions.version],
+          set: { note, manifest: JSON.stringify(result.files), publishedAt, userId: user.id, userName: user.name },
+        });
+      await setPublication(user, bench, "published", result.version, before?.basedOn ?? null);
+      await log(user, bench, "publish", `publicó la versión ${result.version}`);
+      return c.json({ ok: true, version: result.version, at: publishedAt, files: result.files.length });
+    } catch (err) {
+      return agentFailure(c, err);
+    }
+  });
+
+  app.post("/api/workspace/publication/revert", async (c) => {
+    const body = (await c.req.json().catch(() => null)) as { bench?: unknown } | null;
+    if (typeof body?.bench !== "string" || !BENCH.test(body.bench)) return c.json({ error: "INVALID_BENCH" }, 400);
+    const bench = body.bench;
+    const user = c.get("user");
+    const agent = await deps.agentFor(user.orgId);
+    if (!agent) return c.json({ error: "AGENT_NOT_PROVISIONED" }, 503);
+    try {
+      const result = await agent.revert(bench, user.name);
+      if (!result.ok) return c.json(result);
+      // The published version keeps its row and its files; only the working copy
+      // unlocks, and it keeps pointing at the version it grew out of.
+      await setPublication(user, bench, "editing", result.version, result.version);
+      await log(user, bench, "publish", `revirtió la publicación v${result.version} y sigue editando`);
+      return c.json({ ok: true, state: "editing", version: result.version });
     } catch (err) {
       return agentFailure(c, err);
     }
@@ -990,6 +1193,36 @@ export function createConversationsApp(deps: ConversationsDeps) {
       .limit(1);
     return c.json({ user: { id: user.id, name: user.name, email: user.email }, org: org ?? null });
   });
+
+    /** Where a benchmark's publication stands: the one row per benchmark, written
+   *  by publishing and by reverting, and read by every gate below. */
+  async function setPublication(
+    user: CurrentUser & { orgId: string },
+    bench: string,
+    state: "published" | "editing",
+    version: number,
+    basedOn: number | null,
+  ) {
+    const updatedAt = new Date();
+    await db
+      .insert(schema.benchPublications)
+      .values({ orgId: user.orgId, bench, state, version, basedOn, updatedAt, userId: user.id, userName: user.name })
+      .onConflictDoUpdate({
+        target: [schema.benchPublications.orgId, schema.benchPublications.bench],
+        set: { state, version, basedOn, updatedAt, userId: user.id, userName: user.name },
+      });
+  }
+
+  /** The answer a write to a published benchmark's definition gets: the container
+   *  keeps its copy frozen, so the app says so too instead of losing the edit. */
+  async function publishedLock(orgId: string, bench: string) {
+    const [row] = await db
+      .select({ state: schema.benchPublications.state, version: schema.benchPublications.version })
+      .from(schema.benchPublications)
+      .where(and(eq(schema.benchPublications.orgId, orgId), eq(schema.benchPublications.bench, bench)))
+      .limit(1);
+    return row?.state === "published" ? row.version : null;
+  }
 
   /** One entry in the org's record; the same edit within COALESCE_MS only moves its time. */
   async function log(user: CurrentUser & { orgId: string }, bench: string, kind: string, detail: string) {

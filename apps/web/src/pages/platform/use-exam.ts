@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { api, ApiError, errorText, readBenchYaml, type BenchDoc, type Evaluation, type RunResult } from "./data";
+import { api, ApiError, errorText, publicationErrorText, readBenchYaml, type BenchDoc, type Evaluation, type Publication, type RunResult } from "./data";
 import {
   EMPTY_DESIGN,
   parseBenchDoc,
@@ -46,6 +46,10 @@ async function readOptional(path: string, known: Set<string> | null): Promise<{ 
 
 export type SaveState = "idle" | "saving" | "saved" | "error";
 
+/** What the app says when a write is refused because the benchmark is published. */
+export const PUBLISHED_NOTE =
+  "El benchmark está publicado: su definición está congelada. Revertí la publicación para seguir iterando sobre ella.";
+
 export function useExam(bench: BenchSummary | undefined) {
   const slug = bench?.slug;
   const [yaml, setYaml] = useState<Versioned<string> | null>(null);
@@ -59,7 +63,12 @@ export function useExam(bench: BenchSummary | undefined) {
   const [error, setError] = useState<string | null>(null);
   const [save, setSave] = useState<SaveState>("idle");
   const [savedAt, setSavedAt] = useState<number | null>(null);
-  const { files } = usePlatform();
+  // Where the benchmark stands as a publication: the Worker's record, which is
+  // what freezes the editors while it says the benchmark is published.
+  const [publication, setPublication] = useState<Publication | null>(null);
+  const [publicationBusy, setPublicationBusy] = useState(false);
+  const [publicationError, setPublicationError] = useState<string | null>(null);
+  const { files, refresh } = usePlatform();
   // The review's, the quality's, the papers' and the design's versions as last
   // read: written by the container, never by A.
   const side = useRef<{ review?: number; quality?: number; sources?: number; design?: number }>({});
@@ -127,6 +136,26 @@ export function useExam(bench: BenchSummary | undefined) {
     void reload();
   }, [reload]);
 
+  // Where the benchmark stands as a publication. The Worker's rows are the
+  // record; the container keeps the frozen copy of the files themselves.
+  const reloadPublication = useCallback(async () => {
+    if (!slug) return;
+    try {
+      setPublication(await api.publication(slug));
+    } catch {
+      // The org's listing carries the same rows: the next look catches up.
+    }
+  }, [slug]);
+  useEffect(() => {
+    setPublication(null);
+    setPublicationError(null);
+    void reloadPublication();
+  }, [reloadPublication]);
+
+  // A published benchmark's definition is frozen: the Worker and the container
+  // refuse those writes, and the editors here do not even try.
+  const frozen = publication?.state === "published";
+
   /** Re-read what only the container writes (the papers, the grader's review and quality), leaving edits alone. */
   const refreshSide = useCallback(async () => {
     if (!slug) return;
@@ -162,6 +191,11 @@ export function useExam(bench: BenchSummary | undefined) {
     const job = pending.current;
     pending.current = null;
     if (!job || !examPath || !metaPath) return;
+    if (frozen) {
+      setSave("error");
+      setError(PUBLISHED_NOTE);
+      return;
+    }
     setSave("saving");
     try {
       if (job.rows) {
@@ -181,7 +215,7 @@ export function useExam(bench: BenchSummary | undefined) {
       setError(errorText(err));
       if (err instanceof ApiError && err.code === "CONFLICT") await reload();
     }
-  }, [examPath, metaPath, reload]);
+  }, [examPath, metaPath, reload, frozen]);
 
   const schedule = useCallback(
     (job: { rows?: (ExamRow | { raw: string })[]; meta?: QuestionMeta[] }) => {
@@ -222,6 +256,11 @@ export function useExam(bench: BenchSummary | undefined) {
   const saveYaml = useCallback(
     async (text: string) => {
       if (!bench) return;
+      if (frozen) {
+        setSave("error");
+        setError(PUBLISHED_NOTE);
+        return;
+      }
       setYaml((cur) => (cur ? { ...cur, value: text } : cur));
       setSave("saving");
       try {
@@ -235,12 +274,17 @@ export function useExam(bench: BenchSummary | undefined) {
         if (err instanceof ApiError && err.code === "CONFLICT") await reload();
       }
     },
-    [bench, reload],
+    [bench, reload, frozen],
   );
 
   const saveDesign = useCallback(
     async (next: Design) => {
       if (!designPath) return;
+      if (frozen) {
+        setSave("error");
+        setError(PUBLISHED_NOTE);
+        return;
+      }
       setDesign((cur) => ({ ...cur, value: next }));
       setSave("saving");
       try {
@@ -256,8 +300,61 @@ export function useExam(bench: BenchSummary | undefined) {
         if (err instanceof ApiError && err.code === "CONFLICT") await reload();
       }
     },
-    [designPath, reload],
+    [designPath, reload, frozen],
   );
+
+  // Publishing freezes this benchmark as its next version; reverting leaves that
+  // version exactly where it is and turns the working copy back into an
+  // editable draft tied to it, which is where the iterating continues.
+  const publish = useCallback(
+    async (note?: string): Promise<boolean> => {
+      if (!slug || publicationBusy) return false;
+      setPublicationError(null);
+      setPublicationBusy(true);
+      // Whatever is still being typed goes into the version being published.
+      await flush();
+      try {
+        const r = await api.publish(slug, note?.trim() || undefined);
+        if (r.ok) {
+          await Promise.all([reloadPublication(), refresh()]);
+          return true;
+        }
+        setPublicationError(publicationErrorText(r.error.code));
+        await reloadPublication();
+        return false;
+      } catch (err) {
+        setPublicationError(errorText(err));
+        await reloadPublication();
+        return false;
+      } finally {
+        setPublicationBusy(false);
+      }
+    },
+    [slug, publicationBusy, flush, reloadPublication, refresh],
+  );
+
+  const revertPublication = useCallback(async (): Promise<boolean> => {
+    if (!slug || publicationBusy) return false;
+    setPublicationError(null);
+    setPublicationBusy(true);
+    try {
+      const r = await api.revertPublication(slug);
+      if (r.ok) {
+        // The files did not change, but the gate did: reload them as editable.
+        await Promise.all([reloadPublication(), reload(), refresh()]);
+        return true;
+      }
+      setPublicationError(publicationErrorText(r.error.code));
+      await reloadPublication();
+      return false;
+    } catch (err) {
+      setPublicationError(errorText(err));
+      await reloadPublication();
+      return false;
+    } finally {
+      setPublicationBusy(false);
+    }
+  }, [slug, publicationBusy, reloadPublication, reload, refresh]);
 
   // The platform's listing says a file changed behind this window (the agent, a
   // colleague, a paper read in the background): load it, without losing typing.
@@ -320,6 +417,16 @@ export function useExam(bench: BenchSummary | undefined) {
     saveYaml,
     saveDesign,
     flush,
+    /** Where the benchmark stands as a publication (null while it is being read). */
+    publication,
+    /** Its definition is frozen because its publication is published. */
+    frozen,
+    publicationBusy,
+    publicationError,
+    setPublicationError,
+    publish,
+    revertPublication,
+    reloadPublication,
   };
 }
 

@@ -92,6 +92,8 @@
 .ws-ver { font: 400 11px var(--mono); letter-spacing: 0.06em; border-radius: 6px; padding: 2px 8px; color: var(--ink-soft); background: var(--chip); white-space: nowrap; }
 .ws-ver.ok { color: var(--ok); background: var(--ok-bg); }
 .ws-ver.err { color: var(--fail); background: var(--fail-bg); }
+/* Published: its definition is frozen. A draft reverted from a version says so. */
+.ws-ver.pub { color: var(--amber-deep); background: var(--amber-soft); border: 1px solid var(--amber-line); }
 .ws-stages { display: flex; align-items: center; gap: 4px; margin-left: 8px; flex-wrap: wrap; }
 .ws-stages button { display: flex; align-items: center; gap: 7px; border: 0; border-radius: 9px; padding: 6px 11px; font-size: 13.5px; white-space: nowrap; background: transparent; color: var(--ink-soft); }
 .ws-stages button:hover:not(.on) { background: rgba(42, 46, 58, 0.05); }
@@ -440,7 +442,24 @@
 .ws-radio.on .dot { border: 4px solid var(--ink); }
 .ws-radio .l { display: block; font-size: 13.5px; }
 .ws-radio .h { display: block; margin-top: 2px; font-size: 12px; line-height: 1.45; color: var(--body); }
-.ws-publish { width: 100%; border: 0; border-radius: 10px; padding: 11px 14px; font-size: 14px; background: var(--line); color: var(--muted); }
+.ws-publish { width: 100%; border: 0; border-radius: 10px; padding: 11px 14px; font-size: 14px; background: var(--ink); color: #fff; cursor: pointer; }
+.ws-publish:hover:not(:disabled) { background: var(--ink-deep); }
+.ws-publish:disabled { background: var(--line); color: var(--muted); }
+/* Undoing a publication: not a danger, it keeps the published version intact. */
+.ws-publish-undo { width: 100%; border: 1px solid var(--amber-line); border-radius: 10px; padding: 10px 14px; font-size: 13.5px; background: var(--amber-soft); color: var(--amber-deep); cursor: pointer; }
+.ws-publish-undo:disabled { opacity: 0.5; }
+.ws-publish-state { display: grid; gap: 9px; }
+.ws-publish-state .now { font-size: 13.5px; line-height: 1.5; }
+.ws-publish-state label { display: grid; gap: 5px; }
+.ws-publish-state label .t { font: 500 11px var(--mono); letter-spacing: 0.08em; text-transform: uppercase; color: var(--ink-soft); }
+.ws-publish-state input { border: 1px solid var(--line); border-radius: 8px; background: #fff; padding: 8px 10px; font: 13.5px var(--sans); color: var(--ink); outline: none; }
+.ws-publish-state input:focus { border-color: var(--ink-soft); }
+/* The published versions this benchmark has, newest first. */
+.ws-versions { display: grid; gap: 11px; }
+.ws-version { display: grid; grid-template-columns: auto 1fr; gap: 1px 10px; align-items: baseline; }
+.ws-version .v { font: 500 12px var(--mono); color: var(--ink-soft); white-space: nowrap; }
+.ws-version .t { font-size: 13px; }
+.ws-version .d { grid-column: 2; font-size: 12px; color: var(--muted); }
 .ws-pub .ws-note.center { font-size: 12px; }
 
 /* ---- status bar ---- */

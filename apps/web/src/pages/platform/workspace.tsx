@@ -320,6 +320,22 @@ export default function Workspace({ slug, stage: stageParam }: { slug: string; s
             ) : (
               <ValidationBadge bench={bench} />
             )}
+            {bench.publication?.state === "published" ? (
+              <button
+                className="ws-ver pub"
+                title={`Publicado como v${bench.publication.version}: su definición está congelada. Podés seguir evaluándolo; para cambiar la definición, revertí la publicación.`}
+                onClick={() => go("publicacion")}
+              >
+                PUBLICADO v{bench.publication.version}
+              </button>
+            ) : bench.publication ? (
+              <span
+                className="ws-ver"
+                title={`Estás iterando sobre una copia de v${bench.publication.basedOn ?? bench.publication.version}, la última versión publicada. Al publicar, esa pasa a ser la siguiente versión.`}
+              >
+                BORRADOR DE v{bench.publication.basedOn ?? bench.publication.version}
+              </span>
+            ) : null}
             <nav aria-label="Etapas" className="ws-stages">
               {STAGES.map(([k, num, label]) => (
                 <button key={k} ref={tourAnchorRef(`tour-ws-tab-${k}`)} className={stage === k ? "on" : ""} onClick={() => go(k)}>
@@ -389,6 +405,7 @@ export default function Workspace({ slug, stage: stageParam }: { slug: string; s
                 design={exam.design}
                 criteriaCount={exam.criteria?.length ?? 0}
                 questionCount={qs.length}
+                frozen={exam.frozen}
                 onNext={() => go("autoria")}
                 setStageCta={publishCta}
                 onCriteria={() => go("criterios")}
@@ -450,6 +467,7 @@ export default function Workspace({ slug, stage: stageParam }: { slug: string; s
                   pushEvent({ who: "Vos", path: `${question.num}.aprobación`, change: "verificada → aprobada", open: () => go("autoria") });
                 }}
                 onCriteria={() => go("criterios")}
+                onPublication={() => go("publicacion")}
                 papers={papers}
                 validPapers={validPapers}
                 onPapers={() => setPapersOpen(true)}
@@ -492,7 +510,7 @@ export default function Workspace({ slug, stage: stageParam }: { slug: string; s
                 bench={slug}
                 list={papers}
                 reading={pendingSources.filter((p) => p.bench === slug)}
-                locked={false}
+                locked={exam.frozen}
                 checklist={checklist}
                 validations={validations}
                 onValidation={(v) => setValidations((all) => ({ ...all, [v.sourceId]: v }))}
@@ -597,6 +615,7 @@ function Authoring({
   onReview,
   onApprove,
   onCriteria,
+  onPublication,
   papers,
   validPapers,
   onPapers,
@@ -634,6 +653,8 @@ function Authoring({
   onApprove: (q: Question) => void;
   /** Open 01 · Criterios, where the rubric is edited. */
   onCriteria: () => void;
+  /** Open 05 · Publicación, where the publication is made and reverted. */
+  onPublication: () => void;
   papers: Source[];
   /** The papers whose validation passed: the only ones the agent may write from. */
   validPapers: Source[];
@@ -652,6 +673,10 @@ function Authoring({
   // MC exams get the same authoring affordances (papers, batches, the approval
   // status) minus the rubric ones (quality scoring): its judge assumes open answers.
   const editable = openExam || mcExam;
+  // A published benchmark reads the same, but its definition is frozen: what
+  // changes is only what a new evaluation produces.
+  const frozen = exam.frozen;
+  const blocked = locked || frozen;
   const [writing, setWriting] = useState<number | null>(null);
   // Right-click on a question offers to delete it: the row becomes the confirmation.
   const [askDelete, setAskDelete] = useState<number | null>(null);
@@ -912,7 +937,7 @@ function Authoring({
             <div className="ws-batch-foot">
               <button
                 className="ws-btn-dark sm"
-                disabled={locked || !editable || validPapers.length === 0}
+                disabled={blocked || !editable || validPapers.length === 0}
                 onClick={() => {
                   setBatchOpen(false);
                   onBatch(batchN);
@@ -927,10 +952,10 @@ function Authoring({
           </div>
         )}
         <div className="ws-qlist-foot">
-          <button onClick={addQuestion} disabled={locked || !editable}>
+          <button onClick={addQuestion} disabled={blocked || !editable}>
             <span className="ico dashed">+</span>Pregunta
           </button>
-          <button className="warm" onClick={() => setBatchOpen((o) => !o)} disabled={!editable}>
+          <button className="warm" onClick={() => setBatchOpen((o) => !o)} disabled={!editable || frozen}>
             <span className="ico amberbox">[·]</span>Nuevo lote
           </button>
           {openExam && (
@@ -996,6 +1021,16 @@ function Authoring({
             <span className="mono amber">[···]</span> El agente está escribiendo preguntas en este examen: los campos se habilitan apenas termina.
           </p>
         )}
+        {frozen && !locked && (
+          <p className="ws-locked" role="status">
+            <span className="mono amber">[·]</span> Este benchmark está publicado como v{exam.publication?.version ?? ""}: su definición está congelada.
+            Podés evaluarlo y rehacer su informe.{" "}
+            <button className="ws-link" onClick={onPublication}>
+              Revertir la publicación ↗
+            </button>{" "}
+            crea una copia editable a partir de esa versión.
+          </p>
+        )}
         <select className="ws-qselect" value={q?.index ?? 0} onChange={(e) => setQIndex(Number(e.target.value))} aria-label="Pregunta">
           {qs.map((x) => (
             <option key={x.index} value={x.index}>
@@ -1013,7 +1048,7 @@ function Authoring({
               onAgent={onPapers}
               agentLabel="Agregar fuentes"
               onSelf={addQuestion}
-              locked={false}
+              locked={frozen}
             />
           ) : validPapers.length === 0 ? (
             <EmptyCard
@@ -1031,7 +1066,7 @@ function Authoring({
               onAgent={() => onBatch(5)}
               agentLabel="Pedile 5 preguntas al agente"
               onSelf={addQuestion}
-              locked={locked}
+              locked={blocked}
             />
           )
         ) : q.status === "empty" && writing !== q.index ? (
@@ -1042,7 +1077,7 @@ function Authoring({
             agentLabel="Pedile un borrador al agente"
             onSelf={() => setWriting(q.index)}
             onDelete={() => onDelete(q)}
-            locked={locked}
+            locked={blocked}
           />
         ) : (
           <QuestionEditor
@@ -1051,6 +1086,7 @@ function Authoring({
             criteria={exam.criteria ?? []}
             total={qs.length}
             locked={locked}
+            frozen={frozen}
             edit={edit}
             editOption={editOption}
             setCorrect={setCorrect}
@@ -1185,6 +1221,7 @@ function QuestionEditor({
   criteria,
   total,
   locked,
+  frozen,
   edit,
   editOption,
   setCorrect,
@@ -1202,6 +1239,8 @@ function QuestionEditor({
   criteria: Criterion[];
   total: number;
   locked: boolean;
+  /** The benchmark is published: its question is read, not edited. */
+  frozen: boolean;
   edit: (field: "text" | "answer" | "why", value: string) => void;
   editOption: (key: string, value: string) => void;
   setCorrect: (key: string) => void;
@@ -1216,6 +1255,9 @@ function QuestionEditor({
 }) {
   const agent = byAgent(q.meta);
   const writer = !agent && q.meta.by && q.meta.by !== "vos" ? q.meta.by : null;
+  // What a published benchmark still allows: verifying the answer with the
+  // judge. What it does not: touching the question, its answer, its notes.
+  const blocked = locked || frozen;
   // Approval comes after the grader's verification of the answer as it stands.
   const canApprove = (q.status === "progress" || q.status === "new") && !!q.review;
   const missed = q.review ? criteria.filter((c) => criterionMet(q.review!, c) === false).length : 0;
@@ -1235,19 +1277,19 @@ function QuestionEditor({
               ● aprobada{q.meta.approved_by ? ` por ${q.meta.approved_by}` : ""}
             </span>
           )}
-          <DeleteQuestion num={q.num} locked={locked} onDelete={onDelete} />
+          <DeleteQuestion num={q.num} locked={blocked} onDelete={onDelete} />
         </div>
         <div className="ws-card ws-qcard">
-          <AutoText className="big" value={q.text} onChange={(v) => edit("text", v)} label="Texto de la pregunta" disabled={locked} placeholder="Escribí la pregunta…" />
+          <AutoText className="big" value={q.text} onChange={(v) => edit("text", v)} label="Texto de la pregunta" disabled={blocked} placeholder="Escribí la pregunta…" />
           {mc ? (
             <div className="ws-sep ws-options">
               <p className="ws-eyebrow">Opciones · marcá la respuesta correcta</p>
-              <McOptions q={q} locked={locked} editOption={editOption} setCorrect={setCorrect} />
+              <McOptions q={q} locked={blocked} editOption={editOption} setCorrect={setCorrect} />
             </div>
           ) : (
             <div className="ws-sep ws-answer">
               <p className="ws-eyebrow">Respuesta experta</p>
-              <AutoText className="answer" value={q.answer} onChange={(v) => edit("answer", v)} label="Respuesta experta" disabled={locked} placeholder="La respuesta contra la que el juez compara…" />
+              <AutoText className="answer" value={q.answer} onChange={(v) => edit("answer", v)} label="Respuesta experta" disabled={blocked} placeholder="La respuesta contra la que el juez compara…" />
             </div>
           )}
           <div className="ws-byline">
@@ -1344,7 +1386,7 @@ function QuestionEditor({
           )}
           <div className="ws-row-btns">
             {canApprove && (
-              <button className="ws-btn-dark sm" onClick={onApprove} disabled={locked}>
+              <button className="ws-btn-dark sm" onClick={onApprove} disabled={blocked}>
                 Aprobar pregunta
               </button>
             )}
@@ -1395,14 +1437,14 @@ function QuestionEditor({
           <span className="ws-eyebrow">Por qué esta pregunta</span>
         </div>
         <div className="ws-card ws-pad">
-          <AutoText className="soft" value={q.meta.why ?? ""} onChange={(v) => edit("why", v)} label="Por qué esta pregunta" disabled={locked} placeholder="Qué error de los modelos busca exponer…" />
+          <AutoText className="soft" value={q.meta.why ?? ""} onChange={(v) => edit("why", v)} label="Por qué esta pregunta" disabled={blocked} placeholder="Qué error de los modelos busca exponer…" />
         </div>
 
         <div className="ws-col-head sub">
           <span className="ws-eyebrow">Fuentes</span>
         </div>
         <div className="ws-card ws-pad">
-          <SourcesEditor sources={q.meta.sources ?? []} papers={papers} locked={locked} onChange={setSources} />
+          <SourcesEditor sources={q.meta.sources ?? []} papers={papers} locked={blocked} onChange={setSources} />
         </div>
       </div>
     </div>

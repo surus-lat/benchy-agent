@@ -130,6 +130,9 @@ export function CriteriaStage({
   showAgent: () => void;
 }) {
   const criteria = exam.criteria ?? [];
+  // A published benchmark's definition — the design and its rubric — is frozen;
+  // the stage still shows everything, read-only.
+  const frozen = exam.frozen;
   const [library, setLibrary] = useState<LibraryCriterion[]>([]);
   const [libraryOpen, setLibraryOpen] = useState(false);
 
@@ -336,14 +339,20 @@ export function CriteriaStage({
                   ? "Con estos criterios el juez mide cada respuesta. Reescribilos, cambiá cuánto pesan o sumá los tuyos."
                   : "Este examen no usa rúbrica: cada respuesta se corrige por coincidencia exacta."}
             </p>
+            {frozen && (
+              <p className="ws-note amber">
+                El benchmark está publicado: el diseño y los criterios se leen, no se editan. Revertí la publicación en 05 · Publicación para crear una
+                copia editable a partir de esa versión.
+              </p>
+            )}
           </header>
 
           <div className="ws-crit-body">
             {step === "design" ? (
               <>
                 <div className="ws-crit-design">
-                  <DesignField spec={PURPOSE} value={design.purpose} onChange={(v) => write({ ...design, purpose: v })} big />
-                  <DesignField spec={CONSTRUCT} value={design.construct} onChange={(v) => write({ ...design, construct: v })} />
+                  <DesignField spec={PURPOSE} value={design.purpose} onChange={(v) => write({ ...design, purpose: v })} disabled={frozen} big />
+                  <DesignField spec={CONSTRUCT} value={design.construct} onChange={(v) => write({ ...design, construct: v })} disabled={frozen} />
                 </div>
 
                 {designPrompt && <AgentAsk prompt={designPrompt} ask={ask} showAgent={showAgent} />}
@@ -359,8 +368,8 @@ export function CriteriaStage({
                 </button>
                 {extrasOpen && (
                   <div className="ws-crit-design extras">
-                    <DesignField spec={FAILURE_MODES} value={design.failureModes} onChange={(v) => write({ ...design, failureModes: v })} />
-                    <DesignField spec={NOTES} value={design.notes} onChange={(v) => write({ ...design, notes: v })} />
+                    <DesignField spec={FAILURE_MODES} value={design.failureModes} onChange={(v) => write({ ...design, failureModes: v })} disabled={frozen} />
+                    <DesignField spec={NOTES} value={design.notes} onChange={(v) => write({ ...design, notes: v })} disabled={frozen} />
                   </div>
                 )}
 
@@ -407,6 +416,7 @@ export function CriteriaStage({
                       onSaved={(item) => setLibrary((list) => [...list, item])}
                       onGenerate={() => void generate(starter)}
                       generating={generating}
+                      frozen={frozen}
                       generateHint={rubricPrompt(starter)}
                     />
                     {generationFailed && (
@@ -464,11 +474,14 @@ function DesignField({
   value,
   onChange,
   big = false,
+  disabled = false,
 }: {
   spec: DesignFieldSpec;
   value: string;
   onChange: (v: string) => void;
   big?: boolean;
+  /** Read-only: the benchmark is published. */
+  disabled?: boolean;
 }) {
   const ref = useRef<HTMLTextAreaElement>(null);
   const lang = useContext(Lang);
@@ -489,6 +502,7 @@ function DesignField({
         spellCheck={spellcheckFor(lang)}
         rows={2}
         value={value}
+        readOnly={disabled}
         placeholder={spec.placeholder}
         aria-label={spec.title}
         onChange={(e) => onChange(e.target.value)}
@@ -508,6 +522,7 @@ function CriteriaEditor({
   onSaved,
   onGenerate,
   generating,
+  frozen,
   generateHint,
 }: {
   exam: ExamState;
@@ -519,6 +534,8 @@ function CriteriaEditor({
   /** Ask the agent for criteria, with the design and this rubric in hand. */
   onGenerate: () => void;
   generating: boolean;
+  /** The benchmark is published: its rubric is part of what was published. */
+  frozen: boolean;
   /** The message the button sends, shown as a tooltip. */
   generateHint: string;
 }) {
@@ -532,7 +549,8 @@ function CriteriaEditor({
   const [savedKeys, setSavedKeys] = useState<Set<string>>(new Set());
   const [error, setError] = useState<string | null>(null);
   const full = criteria.length >= MAX_CRITERIA;
-  const locked = false;
+  // The rubric belongs to the benchmark's definition: a published one is read here.
+  const locked = frozen;
 
   const change = (c: Criterion, patch: { weight?: number; description?: string }, label: string) => {
     void exam.saveYaml(setCriterion(exam.yamlText, c.key, patch));

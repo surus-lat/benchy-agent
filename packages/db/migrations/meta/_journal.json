@@ -134,6 +134,13 @@
       "when": 1793152933000,
       "tag": "0018_untref_agent_endpoint",
       "breakpoints": true
+    },
+    {
+      "idx": 19,
+      "version": "7",
+      "when": 1793800000000,
+      "tag": "0019_bench_publication",
+      "breakpoints": true
     }
   ]
 }

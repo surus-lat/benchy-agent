@@ -352,3 +352,53 @@ export const questionAuthors = sqliteTable(
   },
   (t) => [primaryKey({ columns: [t.orgId, t.bench, t.q] })],
 );
+
+// Publishing a benchmark: the container keeps an immutable copy of its
+// definition in <bench>/published/vN/ and a publish.json saying where the
+// workspace copy stands; these rows are the app's record of the same thing, so
+// the list and the editors know it without reading the workspace.
+//
+// One row per benchmark. `state` is "published" (the workspace copy is locked:
+// its definition is what v`version` says) or "editing" (the researcher reverted
+// the publication: the workspace copy is a new draft, grown out of `basedOn`).
+export const benchPublications = sqliteTable(
+  "benchPublications",
+  {
+    orgId: text("orgId")
+      .notNull()
+      .references(() => orgs.id, { onDelete: "cascade" }),
+    bench: text("bench").notNull(),
+    state: text("state", { enum: ["published", "editing"] }).notNull(),
+    /** Latest published version; 0 when it was never published. */
+    version: integer("version").notNull().default(0),
+    /** The version the working copy was reverted from (null: never). */
+    basedOn: integer("basedOn"),
+    updatedAt: integer("updatedAt", { mode: "timestamp" }).notNull(),
+    // Null once that member is deleted: the record of the work stays.
+    userId: text("userId").references(() => user.id, { onDelete: "set null" }),
+    // Name at the time, so the record reads the same after a rename or deletion.
+    userName: text("userName").notNull(),
+  },
+  (t) => [primaryKey({ columns: [t.orgId, t.bench] })],
+);
+
+// One row per published version: the files themselves live in the workspace
+// snapshot; here is what the app shows about it — when, who, an optional note,
+// and the files the snapshot kept (JSON: [{path, size, modified}]).
+export const benchPublicationVersions = sqliteTable(
+  "benchPublicationVersions",
+  {
+    orgId: text("orgId")
+      .notNull()
+      .references(() => orgs.id, { onDelete: "cascade" }),
+    bench: text("bench").notNull(),
+    version: integer("version").notNull(),
+    note: text("note"),
+    manifest: text("manifest").notNull(),
+    publishedAt: integer("publishedAt", { mode: "timestamp" }).notNull(),
+    userId: text("userId").references(() => user.id, { onDelete: "set null" }),
+    userName: text("userName").notNull(),
+  },
+  (t) => [primaryKey({ columns: [t.orgId, t.bench, t.version] })],
+);
+

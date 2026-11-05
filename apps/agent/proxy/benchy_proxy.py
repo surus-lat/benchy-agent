@@ -21,13 +21,18 @@ Hermes's API server listens on 127.0.0.1 only; this process fronts it:
   DELETE /benchy/sources?bench=...&id=...          take a paper out of a benchmark
   DELETE /benchy/benchmark?bench=...               delete a benchmark and everything in it
   DELETE /benchy/benchmark/question?bench=...&q=...  take one question out of a benchmark's exam
+  GET  /benchy/publication?bench=...               where a benchmark stands: draft, published vN, or a reverted draft
+  POST /benchy/publish?bench=...                   freeze the benchmark as <bench>/published/vN (body: {note?, by?})
+  POST /benchy/revert?bench=...                    unlock the working copy again (body: {by?})
   everything else                reverse-proxied to Hermes, streamed, unmodified
 
 The /benchy routes check the same bearer key Hermes does (API_SERVER_KEY), so
 the Worker — the only caller — uses one credential for both. Paths are
 confined to the workspace. Writes are limited to benchmark text files, never
 run results, and refuse to overwrite a file that changed since the caller read
-it (the agent may have written it meanwhile).
+it (the agent may have written it meanwhile). A published benchmark's own
+files and its <bench>/published/ snapshots are frozen: only the report and the
+grader's files may still be written there until the publication is reverted.
 """
 
 from __future__ import annotations
@@ -52,6 +57,7 @@ import benchy_search  # noqa: E402
 from benchy_analysis import analyze  # noqa: E402
 from benchy_review import review as review_answers  # noqa: E402
 from benchy_quality import quality as score_questions  # noqa: E402
+import benchy_publication  # noqa: E402
 from benchy_shared import MODELS, catalog  # noqa: E402
 
 from benchy import types  # noqa: E402
@@ -92,7 +98,12 @@ async def list_files(request: web.Request) -> web.Response:
         for path in sorted(WORKSPACE.rglob("*")):
             if len(entries) >= MAX_ENTRIES:
                 break
-            if path.is_symlink() or not path.is_file() or any(p.startswith(".") for p in path.relative_to(WORKSPACE).parts):
+            rel = path.relative_to(WORKSPACE)
+            if path.is_symlink() or not path.is_file() or any(p.startswith(".") for p in rel.parts):
+                continue
+            # Published snapshots are not part of the working workspace: the app
+            # knows them through the publication routes, and reads one by path.
+            if "published" in rel.parts[:-1]:
                 continue
             stat = path.stat()
             entries.append({
@@ -216,6 +227,9 @@ async def write_file(request: web.Request) -> web.Response:
         or target.is_symlink()
     ):
         return web.json_response({"error": "forbidden_path"}, status=403)
+    frozen = benchy_publication.refuses_write(rel)
+    if frozen:
+        return web.json_response({"error": frozen, "bench": parts[0]}, status=409)
     raw = content.encode("utf-8")
     if len(raw) > MAX_FILE_BYTES:
         return web.json_response({"error": "too_large"}, status=413)
@@ -440,6 +454,62 @@ async def remove_question(request: web.Request) -> web.Response:
     return web.json_response({"ok": True})
 
 
+async def publication(request: web.Request) -> web.Response:
+    """Where a benchmark stands — no publication, published as vN, or a draft
+    reverted from vN — with its versions, newest first."""
+    if not _authorized(request):
+        return web.json_response({"error": "unauthorized"}, status=401)
+    bench = request.query.get("bench", "")
+    if not bench:
+        return web.json_response({"error": "bad_request"}, status=400)
+    try:
+        state = await asyncio.to_thread(benchy_publication.state_of, bench)
+        versions = await asyncio.to_thread(benchy_publication.list_versions, bench)
+    except benchy_publication.PublicationError as exc:
+        return web.json_response({"ok": False, "error": exc.to_dict()})
+    return web.json_response({"ok": True, "state": state, "versions": versions})
+
+
+async def publish(request: web.Request) -> web.Response:
+    """Body: {note?, by?}. Freezes the benchmark as <bench>/published/vN and
+    marks the workspace copy as that version, which freezes its definition."""
+    if not _authorized(request):
+        return web.json_response({"error": "unauthorized"}, status=401)
+    bench = request.query.get("bench", "")
+    try:
+        body = await request.json() if request.can_read_body else {}
+    except ValueError:
+        return web.json_response({"error": "bad_request"}, status=400)
+    note, by = body.get("note"), body.get("by")
+    if not bench or not isinstance(note, (str, type(None))) or not isinstance(by, (str, type(None))):
+        return web.json_response({"error": "bad_request"}, status=400)
+    try:
+        result = await asyncio.to_thread(benchy_publication.publish, bench, note, by)
+    except benchy_publication.PublicationError as exc:
+        return web.json_response({"ok": False, "error": exc.to_dict()})
+    return web.json_response({"ok": True, **result})
+
+
+async def revert(request: web.Request) -> web.Response:
+    """Body: {by?}. Leaves the published version where it is and makes the
+    workspace copy an editable draft based on it."""
+    if not _authorized(request):
+        return web.json_response({"error": "unauthorized"}, status=401)
+    bench = request.query.get("bench", "")
+    try:
+        body = await request.json() if request.can_read_body else {}
+    except ValueError:
+        return web.json_response({"error": "bad_request"}, status=400)
+    by = body.get("by")
+    if not bench or not isinstance(by, (str, type(None))):
+        return web.json_response({"error": "bad_request"}, status=400)
+    try:
+        result = await asyncio.to_thread(benchy_publication.revert, bench, by)
+    except benchy_publication.PublicationError as exc:
+        return web.json_response({"ok": False, "error": exc.to_dict()})
+    return web.json_response({"ok": True, **result})
+
+
 async def embed(request: web.Request) -> web.Response:
     """Body: {q}. Embeds a query string with EmbeddingGemma-2, returns {vector}."""
     if not _authorized(request):
@@ -508,6 +578,9 @@ def main() -> None:
     app.router.add_delete("/benchy/sources", remove_source)
     app.router.add_delete("/benchy/benchmark", remove_benchmark)
     app.router.add_delete("/benchy/benchmark/question", remove_question)
+    app.router.add_get("/benchy/publication", publication)
+    app.router.add_post("/benchy/publish", publish)
+    app.router.add_post("/benchy/revert", revert)
     app.router.add_route("*", "/{tail:.*}", proxy)
     port = int(os.environ.get("PORT", "8080"))
     print(f"[benchy-proxy] :{port} -> {UPSTREAM}, workspace {WORKSPACE}", flush=True)

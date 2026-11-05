@@ -101,6 +101,21 @@ function fakeHermes(): { client: HermesClient; added: string[]; removed: string[
       removed.push(id);
       return { ok: true };
     },
+    async publication() {
+      return { ok: true, state: null, versions: [] };
+    },
+    async publish(bench) {
+      return {
+        ok: true,
+        version: 1,
+        publishedAt: 1_769_900_001,
+        path: `${bench}/published/v1`,
+        files: [{ path: "benchmark.yaml", size: 100, modified: 1 }],
+      };
+    },
+    async revert() {
+      return { ok: true, version: 1, updatedAt: 1_769_900_500, state: "editing" };
+    },
     async backup() {
       return new ArrayBuffer(0);
     },

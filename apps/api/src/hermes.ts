@@ -39,6 +39,12 @@ export interface HermesClient {
   /** Delete a benchmark: the whole workspace folder and everything it produced. */
   removeBenchmark(bench: string): Promise<{ ok: boolean }>;
   removeQuestion(bench: string, q: number): Promise<{ ok: boolean }>;
+  /** Where a benchmark stands in the workspace: no publication, published (frozen), or a reverted draft. */
+  publication(bench: string): Promise<PublicationInfo>;
+  /** Freeze the benchmark as <bench>/published/vN; its definition stops being editable. */
+  publish(bench: string, note: string | null, by: string): Promise<PublishedResult>;
+  /** Unlock the working copy again, as a draft based on the published version. */
+  revert(bench: string, by: string): Promise<RevertedResult>;
   /** The whole workspace as a .tar.gz, for the daily backup. */
   backup(): Promise<ArrayBuffer>;
   /** A benchmark's last evaluation: each model's run, then the report. */
@@ -79,7 +85,34 @@ export type WriteResult =
   | { status: "ok"; path: string; modified: number }
   | { status: "conflict"; modified: number }
   | { status: "forbidden" }
-  | { status: "too_large" };
+  | { status: "too_large" }
+  /** The benchmark is published (or the file is inside a published snapshot). */
+  | { status: "published" };
+
+/** Where a benchmark stands: never published (state null), published as vN
+ *  (its definition is frozen in the workspace), or a draft reverted from vN. */
+export type PublicationState = {
+  state: "published" | "editing";
+  version: number;
+  basedOn: number | null;
+  updatedAt: number;
+  by: string | null;
+  note: string | null;
+};
+
+export type PublishedVersion = { version: number; publishedAt: number | null; by: string | null; note: string | null; files: number };
+
+export type PublicationInfo =
+  | { ok: true; state: PublicationState | null; versions: PublishedVersion[] }
+  | { ok: false; error: { code: string; message: string } };
+
+export type PublishedResult =
+  | { ok: true; version: number; publishedAt: number; path: string; files: { path: string; size: number; modified: number }[] }
+  | { ok: false; error: { code: string; message: string } };
+
+export type RevertedResult =
+  | { ok: true; version: number; updatedAt: number; state: "editing" }
+  | { ok: false; error: { code: string; message: string } };
 
 export class HermesError extends Error {
   constructor(
@@ -194,7 +227,12 @@ export function hermesClient(baseUrl: string, apiKey: string): HermesClient {
       } catch {
         throw new HermesError("agent unreachable", 502);
       }
-      if (res.status === 409) return { status: "conflict", modified: ((await res.json()) as { modified: number }).modified };
+      if (res.status === 409) {
+        const body = (await res.json()) as { modified?: number; error?: string };
+        // 409 is either "changed since you read it" or "this benchmark is published".
+        if (body.error === "published" || body.error === "frozen") return { status: "published" };
+        return { status: "conflict", modified: body.modified ?? 0 };
+      }
       if (res.status === 403 || res.status === 400) return { status: "forbidden" };
       if (res.status === 413) return { status: "too_large" };
       const body = (await json(res)) as { path: string; modified: number };
@@ -253,6 +291,30 @@ export function hermesClient(baseUrl: string, apiKey: string): HermesClient {
         SESSION_TIMEOUT_MS,
       );
       return (await json(res)) as { ok: boolean };
+    },
+    async publication(bench) {
+      const res = await get(`/benchy/publication?bench=${encodeURIComponent(bench)}`);
+      return (await res.json()) as PublicationInfo;
+    },
+    async publish(bench, note, by) {
+      // Copying the benchmark into its snapshot is local and quick; the whole
+      // workspace is a few megabytes.
+      const res = await send(
+        "POST",
+        `/benchy/publish?bench=${encodeURIComponent(bench)}`,
+        { body: JSON.stringify({ note, by }), type: "application/json" },
+        SOURCE_TIMEOUT_MS,
+      );
+      return (await json(res)) as PublishedResult;
+    },
+    async revert(bench, by) {
+      const res = await send(
+        "POST",
+        `/benchy/revert?bench=${encodeURIComponent(bench)}`,
+        { body: JSON.stringify({ by }), type: "application/json" },
+        SESSION_TIMEOUT_MS,
+      );
+      return (await json(res)) as RevertedResult;
     },
     async backup() {
       const res = await send("GET", "/benchy/backup", {}, SOURCE_TIMEOUT_MS);
