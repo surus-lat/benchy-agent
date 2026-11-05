@@ -9,3 +9,6 @@ dist/
 .env
 __pycache__/
 *.pyc
+
+# Filled peel-org.env holds operational identifiers — never commit (public repo)
+scripts/peel-org.env
