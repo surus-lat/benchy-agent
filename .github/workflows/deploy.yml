@@ -195,28 +195,38 @@ jobs:
             REV=$(aws ecs register-task-definition --cli-input-json file:///tmp/td-$SVC.json --query 'taskDefinition.revision' --output text --no-cli-pager)
             aws ecs update-service --cluster benchy --service "$SVC" --task-definition "$SVC:$REV" --no-cli-pager --query 'service.serviceName' --output text
           done
-      - name: Assert the three agents come back healthy
+      - name: Assert the three agents come back healthy on the new revision
         # The services run minimumHealthyPercent=0, maximumPercent=100, so a
         # deploy stops the old task before the new one passes the ALB health
         # check (~5-9 min: task provisioning + gateway cold start). Poll each
-        # target group for up to ~10 minutes; fail the job if any agent never
-        # comes back instead of leaving prod down unnoticed.
+        # service until it runs the NEW task-def revision AND its target is
+        # healthy; fail if any agent never converges. Blind to revision = the
+        # gate passes on old healthy targets while new ones crash-loop (issue #63).
         run: |
-          PENDING="benchy-agent-surus benchy-agent-conicet benchy-agent-untref"
+          declare -A EXPECTED
+          EXPECTED[agent-surus]=$(aws ecs describe-services --cluster benchy --services agent-surus --query 'services[0].deployments[?status==`PRIMARY`].taskDefinition' --output text | awk -F: '{print $NF}')
+          EXPECTED[agent-conicet]=$(aws ecs describe-services --cluster benchy --services agent-conicet --query 'services[0].deployments[?status==`PRIMARY`].taskDefinition' --output text | awk -F: '{print $NF}')
+          EXPECTED[agent-untref]=$(aws ecs describe-services --cluster benchy --services agent-untref --query 'services[0].deployments[?status==`PRIMARY`].taskDefinition' --output text | awk -F: '{print $NF}')
+          PENDING="agent-surus agent-conicet agent-untref"
           DEADLINE=$((SECONDS + 1320))
           while [ -n "$PENDING" ] && [ "$SECONDS" -lt "$DEADLINE" ]; do
             STILL=""
-            for TG in $PENDING; do
+            for SVC in $PENDING; do
+              WANT=${EXPECTED[$SVC]}
+              GOT=$(aws ecs describe-services --cluster benchy --services "$SVC" --query 'services[0].deployments[?status==`PRIMARY`].taskDefinition' --output text | awk -F: '{print $NF}')
+              TG="benchy-agent-${SVC#agent-}"
               ARN=$(aws elbv2 describe-target-groups --names "$TG" --query 'TargetGroups[0].TargetGroupArn' --output text)
-              STATES=$(aws elbv2 describe-target-health --target-group-arn "$ARN" --query 'TargetHealthDescriptions[].TargetHealth.State' --output text | tr '\t' ' ')
-              echo "[$TG] ${STATES:-no targets}"
-              echo "$STATES" | tr ' ' '\n' | grep -qx healthy || STILL="$STILL $TG"
+              HEALTHY=$(aws elbv2 describe-target-health --target-group-arn "$ARN" --query 'TargetHealthDescriptions[?TargetHealth.State==`healthy`].Target.Id' --output text | wc -l)
+              echo "[$SVC] want rev $WANT, got rev $GOT, healthy targets: $HEALTHY"
+              if [ "$GOT" != "$WANT" ] || [ "$HEALTHY" -eq 0 ]; then
+                STILL="$STILL $SVC"
+              fi
             done
             PENDING=$(echo "$STILL" | xargs)
             [ -n "$PENDING" ] && sleep 15
           done
           if [ -n "$PENDING" ]; then
-            echo "::error title=Deploy gate::no healthy target after ~22 min: $PENDING"
+            echo "::error title=Deploy gate::services not converged to new revision after ~22 min: $PENDING"
             exit 1
           fi
-          echo "all three target groups healthy"
+          echo "all three services converged to new revision and healthy"
