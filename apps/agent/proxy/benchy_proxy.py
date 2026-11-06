@@ -110,6 +110,12 @@ def _load_orgs() -> list[dict]:
     shared-tier orgs. A malformed file or an org without secrets/hostnames is
     a deployment error and stops the proxy — multiplex fails closed.
     """
+    # Mode gate, same rule as /etc/cont-init.d/04-benchy-multiplex: multiplex
+    # only when BENCHY_MULTIPLEX=1. The image is shared with dedicated agents;
+    # without the flag orgs.yaml must be inert. (Incident 2026-11-06: the
+    # fail-closed loader SystemExit'ed dedicated tasks — proxy never listened.)
+    if os.environ.get("BENCHY_MULTIPLEX") != "1":
+        return []
     path = Path(os.environ.get("BENCHY_ORGS_YAML", "/opt/benchy/orgs.yaml"))
     if not path.is_file():
         return []
