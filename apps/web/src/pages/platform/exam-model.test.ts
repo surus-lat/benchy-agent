@@ -3,6 +3,7 @@ import {
   byAgent,
   correctOptionKey,
   criterionMet,
+  criteriaEntryStep,
   groupsOf,
   parseBenchDoc,
   parseDesign,
@@ -14,6 +15,7 @@ import {
   readInputFields,
   readMetric,
   readOptions,
+  rubricMissing,
   addCriterion,
   removeCriterion,
   removeQuestion,
@@ -241,6 +243,46 @@ describe("benchmark design (design.json)", () => {
     const text = serializeDesign(d);
     expect(parseDesign(text)).toEqual(d);
     expect(JSON.parse(text).updatedAt).toEqual(expect.any(String));
+  });
+});
+
+describe("which screen 01 · Criterios opens on", () => {
+  /** Criteria of the benchmark's own: written by the researcher or generated. */
+  const own = [{ key: "c1", weight: 5, description: "Identifica las posiciones centrales.", levels: [0, 1] }];
+  /** The generic set every new benchmark starts with. */
+  const generic = [
+    { key: "c1", weight: 3, description: "Responde con precisión.", levels: [0, 1] },
+    { key: "c2", weight: 3, description: "Usa la terminología del campo.", levels: [0, 1] },
+  ];
+
+  it("comes back to the rubric when its criteria are already its own, design or not", () => {
+    expect(criteriaEntryStep(EMPTY_DESIGN, own, false)).toBe("criteria");
+    expect(criteriaEntryStep({ ...EMPTY_DESIGN, purpose: "qué" }, own, false)).toBe("criteria");
+  });
+
+  it("opens on the design while the rubric is the generic one and nothing is defined", () => {
+    expect(criteriaEntryStep(EMPTY_DESIGN, generic, true)).toBe("design");
+    expect(criteriaEntryStep(EMPTY_DESIGN, [], true)).toBe("design");
+  });
+
+  it("opens on the rubric once the design is written, starter rubric or none", () => {
+    expect(criteriaEntryStep({ ...EMPTY_DESIGN, purpose: "qué" }, generic, true)).toBe("criteria");
+    expect(criteriaEntryStep({ ...EMPTY_DESIGN, construct: "puede" }, [], true)).toBe("criteria");
+  });
+});
+
+describe("the rubric as a blocker for what comes after 01 · Criterios", () => {
+  const own = [{ key: "c1", weight: 5, description: "Identifica las posiciones centrales.", levels: [0, 1] }];
+
+  it("blocks an open exam the judge has nothing to measure with", () => {
+    expect(rubricMissing(true, [])).toBe(true);
+    expect(rubricMissing(true, null)).toBe(true);
+    expect(rubricMissing(true, own)).toBe(false);
+  });
+
+  it("never blocks an exam scored by exact match", () => {
+    expect(rubricMissing(false, null)).toBe(false);
+    expect(rubricMissing(false, [])).toBe(false);
   });
 });
 

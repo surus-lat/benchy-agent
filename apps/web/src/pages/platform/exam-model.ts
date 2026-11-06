@@ -120,6 +120,34 @@ export function hasDesign(d: Design): boolean {
   return !!(d.purpose.trim() || d.construct.trim() || d.failureModes.trim() || d.notes.trim());
 }
 
+/** The two screens 01 · Criterios is made of: the design first, then the rubric. */
+export type CriteriaStep = "design" | "criteria";
+
+/**
+ * Which of the two screens 01 · Criterios opens on. What says the stage's
+ * decision was already made is its rubric: criteria of their own — written by
+ * the researcher, or generated from the design and never touched since — open
+ * it on the rubric, even when design.json never got written down. A benchmark
+ * still on the generic starter rubric has the design missing, and one with
+ * nothing defined starts at the design.
+ */
+export function criteriaEntryStep(design: Design, criteria: Criterion[], starter: boolean): CriteriaStep {
+  const decided = criteria.length > 0 && !starter;
+  return decided || hasDesign(design) ? "criteria" : "design";
+}
+
+/**
+ * Whether the rubric blocks what comes after 01 · Criterios. An open exam with
+ * no criteria has nothing for the judge to measure with: picking sources and
+ * writing questions over it would test nothing, so the way forward stays shut
+ * until the researcher writes them or asks the agent for them. A multiple
+ * choice or closed exam is scored by exact match, so an empty rubric never
+ * blocks it.
+ */
+export function rubricMissing(openExam: boolean, criteria: Criterion[] | null): boolean {
+  return openExam && (criteria?.length ?? 0) === 0;
+}
+
 /** Status in the question list. */
 export type QStatus = "done" | "progress" | "attention" | "new" | "error" | "empty";
 

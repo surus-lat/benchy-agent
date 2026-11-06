@@ -24,6 +24,7 @@ export function SourcesStage({
   list,
   design,
   criteriaCount,
+  noCriteria,
   questionCount,
   frozen,
   onNext,
@@ -36,6 +37,9 @@ export function SourcesStage({
   /** What the researcher set out to evaluate (design.json), shown as context. */
   design: Design;
   criteriaCount: number;
+  /** Empty rubric on an open exam: the papers have nothing to test, so the
+   *  stage ahead of them stays shut until the criteria are written. */
+  noCriteria: boolean;
   questionCount: number;
   /** The benchmark is published: its papers are part of what was published. */
   frozen: boolean;
@@ -55,15 +59,24 @@ export function SourcesStage({
   // flips to ready without waiting for the 30 s background look.
   usePokeWhile(list.some((s) => s.status === "reading"));
 
-  // Where the curaduría leads: writing the questions from what was picked.
-  useStageCta(setStageCta, {
-    label: "Ir a Preguntas",
-    tip:
-      list.length > 0
-        ? `03 · Preguntas. Con ${list.length === 1 ? "esta fuente" : `estas ${list.length} fuentes`} el agente puede escribir preguntas que pongan a prueba los criterios de 01 · Criterios; allá las revisás, verificás la clave y aprobás una por una.${questionCount > 0 ? ` El examen ya tiene ${questionCount} ${questionCount === 1 ? "pregunta" : "preguntas"}.` : ""}`
-        : "03 · Preguntas. Todavía no elegiste fuentes: el agente no puede escribir preguntas sin material. Podés seguir y volver, o elegir una candidata de la biblioteca ahora.",
-    onClick: onNext,
-  });
+  // Where the curaduría leads: writing the questions from what was picked. With
+  // no rubric the papers have nothing to test, so the next step is writing it.
+  useStageCta(setStageCta,
+    noCriteria
+      ? {
+          label: "Ir a Criterios",
+          tip: "01 · Criterios. Sin criterios el juez no tiene con qué medir y estas fuentes no ponen a prueba nada: escribilos o pedile al agente que los baje de tu diseño para seguir.",
+          onClick: onCriteria,
+        }
+      : {
+          label: "Ir a Preguntas",
+          tip:
+            list.length > 0
+              ? `03 · Preguntas. Con ${list.length === 1 ? "esta fuente" : `estas ${list.length} fuentes`} el agente puede escribir preguntas que pongan a prueba los criterios de 01 · Criterios; allá las revisás, verificás la clave y aprobás una por una.${questionCount > 0 ? ` El examen ya tiene ${questionCount} ${questionCount === 1 ? "pregunta" : "preguntas"}.` : ""}`
+              : "03 · Preguntas. Todavía no elegiste fuentes: el agente no puede escribir preguntas sin material. Podés seguir y volver, o elegir una candidata de la biblioteca ahora.",
+          onClick: onNext,
+        },
+  );
   const [removing, setRemoving] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   // On narrow screens the two panes become tabs; wide screens keep both up.
@@ -147,10 +160,19 @@ export function SourcesStage({
               <button className="ws-link" onClick={onCriteria}>
                 {criteriaCount > 0 ? `${criteriaCount} ${criteriaCount === 1 ? "criterio" : "criterios"} · abrir 01 · Criterios ↗` : "Abrir 01 · Criterios ↗"}
               </button>
+              {noCriteria && (
+                <p className="ws-note fail">
+                  Sin criterios el juez no tiene con qué medir: las fuentes se pueden elegir igual, pero el paso a 03 ·
+                  Preguntas se abre con el primer criterio escrito.
+                </p>
+              )}
             </div>
             <p className="ws-fnt-note">
               Estás en 02 · Fuentes. Elegí el material con el que el agente escribirá las preguntas: las lee y en cada una cita el paper y la página.
-              Sin PDF abierto, solo tiene el resumen. Cuando tengas al menos una, seguí a 03 · Preguntas.
+              Sin PDF abierto, solo tiene el resumen.{" "}
+              {noCriteria
+                ? "Antes de seguir, escribí en 01 · Criterios con qué se mide cada respuesta."
+                : "Cuando tengas al menos una, seguí a 03 · Preguntas."}
             </p>
             {frozen && (
               <p className="ws-locked" role="status">

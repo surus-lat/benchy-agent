@@ -2,11 +2,13 @@ import { createContext, useContext, useEffect, useRef, useState } from "react";
 import { api, spellcheckFor, type LibraryCriterion } from "./data";
 import {
   addCriterion,
+  criteriaEntryStep,
   hasDesign,
   MAX_CRITERIA,
   removeCriterion,
   setCriterion,
   type Criterion,
+  type CriteriaStep,
   type Design,
 } from "./exam-model";
 import { STARTER_CRITERIA } from "./new-bench-model";
@@ -24,7 +26,10 @@ import type { ExamState } from "./use-exam";
 // Dos pantallas, una decisión cada una: primero la pregunta y la capacidad,
 // después los criterios. Al pasar a la segunda, el agente escribe un primer
 // juego de criterios a partir del diseño; el investigador los edita o suma los
-// suyos. Nada se muestra de golpe y ninguna pantalla necesita scroll de página.
+// suyos. Volver a esta etapa abre la pantalla que falta: la rúbrica es lo que
+// dice que la decisión ya está tomada, así que un benchmark con criterios
+// propios vuelve a ellos aunque su diseño nunca se haya escrito. Nada se
+// muestra de golpe y ninguna pantalla necesita scroll de página.
 
 const Lang = createContext("es");
 
@@ -145,9 +150,12 @@ export function CriteriaStage({
       });
   }, []);
 
-  /** Design first; a benchmark that already has one opens straight in the rubric. */
+  /** Design first; a benchmark that already has one, or a rubric of its own,
+   *  opens straight in the rubric. */
   const [startedWithDesign] = useState(() => hasDesign(exam.design));
-  const [step, setStep] = useState<"design" | "criteria">(() => (hasDesign(exam.design) ? "criteria" : "design"));
+  const [step, setStep] = useState<CriteriaStep>(() =>
+    criteriaEntryStep(exam.design, criteria, criteria.length === 0 || isStarterRubric(criteria)),
+  );
   const [generating, setGenerating] = useState(false);
   const generatingRef = useRef(false);
   /** The agent was already asked for this benchmark's first rubric. */
@@ -377,6 +385,16 @@ export function CriteriaStage({
               </>
             ) : (
               <>
+                {openExam && !hasDesign(design) && (
+                  <p className="ws-note amber" role="note">
+                    Todavía no escribiste qué querés averiguar: estos criterios no bajan de un diseño tuyo. Definilo y
+                    pedile al agente que los reescriba a partir de lo que definiste.{" "}
+                    <button className="ws-link" onClick={() => setStep("design")}>
+                      Volver al paso 1
+                    </button>
+                  </p>
+                )}
+
                 {openExam && needsReview && (
                   <div className="ws-crit-warn" role="note">
                     <p>
