@@ -158,6 +158,10 @@ async def tenancy(request: web.Request, handler):
     the request resolves against that org's workspace. Legacy: pass through."""
     if not MULTIPLEX:
         return await handler(request)
+    # Liveness is org-agnostic: the ALB health check arrives with the target's
+    # IP as Host, which maps to no org; let it fall through to the gateway.
+    if request.path == "/health":
+        return await handler(request)
     host = (request.headers.get("Host") or "").split(":")[0].strip().lower().rstrip(".")
     org = BY_HOST.get(host)
     if org is None:
