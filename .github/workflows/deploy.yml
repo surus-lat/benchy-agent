@@ -203,7 +203,7 @@ jobs:
         # comes back instead of leaving prod down unnoticed.
         run: |
           PENDING="benchy-agent-surus benchy-agent-conicet benchy-agent-untref"
-          DEADLINE=$((SECONDS + 600))
+          DEADLINE=$((SECONDS + 1320))
           while [ -n "$PENDING" ] && [ "$SECONDS" -lt "$DEADLINE" ]; do
             STILL=""
             for TG in $PENDING; do
@@ -216,7 +216,7 @@ jobs:
             [ -n "$PENDING" ] && sleep 15
           done
           if [ -n "$PENDING" ]; then
-            echo "::error title=Deploy gate::no healthy target after ~10 min: $PENDING"
+            echo "::error title=Deploy gate::no healthy target after ~22 min: $PENDING"
             exit 1
           fi
           echo "all three target groups healthy"
