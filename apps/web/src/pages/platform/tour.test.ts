@@ -53,7 +53,7 @@ describe("walkthrough first-visit state", () => {
 describe("walkthrough step model", () => {
   it("orders the steps: home first, then the workspace stages", () => {
     expect(tourStepsFor("home").map((s) => s.id)).toEqual(["home-new", "nuevo-create"]);
-    expect(tourStepsFor("workspace").map((s) => s.id)).toEqual(["ws-criterios", "ws-fuentes", "ws-autoria", "ws-evaluacion", "ws-publicacion"]);
+    expect(tourStepsFor("workspace").map((s) => s.id)).toEqual(["ws-criterios", "ws-fuentes", "ws-autoria", "ws-evaluacion", "ws-resultados", "ws-publicacion"]);
     expect(new Set(TOUR_STEPS.map((s) => s.anchor)).size).toBe(TOUR_STEPS.length);
   });
 
@@ -61,7 +61,8 @@ describe("walkthrough step model", () => {
     expect(advanceFrom(TOUR_STEPS, 0, "b1")).toEqual({ state: { s: "on", i: 1 }, route: "/app/nuevo" });
     expect(advanceFrom(TOUR_STEPS, 1, "b1")).toEqual({ state: { s: "on", i: 2 }, route: "/app/b/b1/criterios" });
     expect(advanceFrom(TOUR_STEPS, 5, "b1").state).toEqual({ s: "on", i: 6 });
-    expect(advanceFrom(TOUR_STEPS, 6, "b1")).toEqual({ state: { s: "done", i: 6 }, route: null });
+    expect(advanceFrom(TOUR_STEPS, 6, "b1")).toEqual({ state: { s: "on", i: 7 }, route: "/app/b/b1/publicacion" });
+    expect(advanceFrom(TOUR_STEPS, 7, "b1")).toEqual({ state: { s: "done", i: 7 }, route: null });
   });
 
   it("skips the workspace steps when the org has no benchmark yet", () => {
@@ -82,7 +83,8 @@ describe("walkthrough step model", () => {
   it("routes each workspace step to its stage, encoding the slug", () => {
     expect(resolveTourRoute(TOUR_STEPS[2], "mi bench")).toBe("/app/b/mi%20bench/criterios");
     expect(resolveTourRoute(TOUR_STEPS[3], "x")).toBe("/app/b/x/fuentes");
-    expect(resolveTourRoute(TOUR_STEPS[6], "x")).toBe("/app/b/x/publicacion");
+    expect(resolveTourRoute(TOUR_STEPS[6], "x")).toBe("/app/b/x/resultados");
+    expect(resolveTourRoute(TOUR_STEPS[7], "x")).toBe("/app/b/x/publicacion");
     expect(resolveTourRoute(TOUR_STEPS[0], "x")).toBeNull();
     // No benchmark known yet: the tour does not navigate to a workspace step.
     expect(resolveTourRoute(TOUR_STEPS[3])).toBeNull();

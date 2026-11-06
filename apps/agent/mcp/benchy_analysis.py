@@ -4,9 +4,9 @@ From the newest run of each model in `<bench>/runs/`: each model's score and
 failures; for rubric benchmarks, how often each criterion was met; the score
 by topic (questions.json's `group`) and by paper (the papers each question
 cites); and every question with each model's answer, its score and the
-criteria it missed, with the grader's justification. The app's Publication
-stage shows it, and the agent uses it to discuss the results and write the
-findings report — so both read the same numbers.
+criteria it missed, with the grader's justification. The app's Results stage
+shows it, and the agent uses it to discuss the results and write the findings
+report — so both read the same numbers.
 
 Shared by the MCP server (`benchy_analysis`) and the proxy (`GET /benchy/analysis`).
 """

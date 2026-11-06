@@ -341,7 +341,7 @@ export function CriteriaStage({
             </p>
             {frozen && (
               <p className="ws-note amber">
-                El benchmark está publicado: el diseño y los criterios se leen, no se editan. Revertí la publicación en 05 · Publicación para crear una
+                El benchmark está publicado: el diseño y los criterios se leen, no se editan. Revertí la publicación en 06 · Publicación para crear una
                 copia editable a partir de esa versión.
               </p>
             )}

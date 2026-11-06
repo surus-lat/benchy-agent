@@ -533,7 +533,7 @@
 .ws-region { margin: 12px 0 2px !important; font: 400 10.5px var(--mono); letter-spacing: 0.08em; text-transform: uppercase; color: var(--amber-ink); }
 .ws-system .m .mk { font: 400 12.5px var(--sans); color: var(--muted); }
 
-/* ---- publication: analysis and report ---- */
+/* ---- 05 · Resultados (the analysis reading) and 06 · Publicación (its tabs) ---- */
 .ws-pub-tabs { display: flex; gap: 3px; width: fit-content; margin: 0 auto 18px; background: rgba(42, 46, 58, 0.05); border-radius: 999px; padding: 3px; }
 .ws-pub-tabs button { border: 0; border-radius: 999px; padding: 6px 16px; font-size: 13.5px; background: transparent; color: var(--body); }
 .ws-pub-tabs button.on { background: #fff; color: var(--ink); box-shadow: 0 1px 2px rgba(42, 46, 58, 0.14); }
@@ -559,6 +559,70 @@
 .ws-hard > .ws-btn-line { align-self: flex-start; }
 .ws-report-card h3 { margin: 4px 0 10px; font-size: 20px; font-weight: 500; line-height: 1.3; letter-spacing: -0.01em; }
 .ws-report-card .ws-row-btns { margin: 14px 0 10px; display: flex; flex-wrap: wrap; gap: 8px; }
+
+/* ---- 05 · Resultados: one block per model, its detail, the run in progress ---- */
+.ws-res-live { display: flex; flex-direction: column; gap: 6px; }
+.ws-res-live .ws-evprog { margin-bottom: 0; }
+
+.ws-res-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 300px), 1fr)); gap: 12px; }
+.ws-res-block { display: flex; flex-direction: column; gap: 8px; width: 100%; border: 1px solid var(--line-soft); border-radius: 12px; background: #fff; padding: 13px 15px; text-align: left; transition: border-color 150ms ease, box-shadow 150ms ease, transform 160ms var(--eo); }
+.ws-res-block:hover { border-color: var(--line-strong); box-shadow: 0 8px 20px -18px rgba(42, 46, 58, 0.6); }
+.ws-res-block:active:not(:disabled) { transform: scale(0.99); }
+.ws-res-block .head { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; }
+.ws-res-block .head .nm { font-size: 15px; font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ws-res-block .head .v { flex: none; font: 500 19px var(--mono); font-variant-numeric: tabular-nums; }
+.ws-res-block .track { display: block; height: 9px; border-radius: 2px; background: var(--surface-2); overflow: hidden; }
+.ws-res-block .track span { display: block; height: 100%; background: var(--ink); }
+.ws-res-block .track span.top { background: var(--amber); }
+.ws-res-block .meta { font-size: 12px; line-height: 1.45; color: var(--body); }
+.ws-res-block .meta .stale { color: var(--amber-deep); }
+.ws-res-block .crit { display: flex; align-items: center; gap: 4px; flex-wrap: wrap; }
+.ws-res-block .crit .sq { width: 11px; height: 11px; border-radius: 3px; background: var(--line-soft); }
+.ws-res-block .crit .cl { margin-left: auto; font: 400 10.5px var(--mono); color: var(--muted); }
+.ws-res-block .foot { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; border-top: 1px solid var(--line-soft); padding-top: 8px; }
+.ws-res-block .foot .rg { font-size: 11.5px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ws-res-block .foot .go { flex: none; font-size: 12px; color: var(--muted); transition: color 150ms ease; }
+.ws-res-block:hover .foot .go, .ws-res-block:focus-visible .foot .go { color: var(--amber-ink); }
+
+/* The detail takes the whole stage over: the tabs and the toolbar stay behind it. */
+.ws-res-detail { position: absolute; inset: 0; z-index: 12; display: flex; flex-direction: column; background: #fff; overflow: hidden; animation: ws-fade 180ms ease both; }
+.ws-res-detail-head { flex: none; display: flex; align-items: center; gap: 12px; padding: 10px 14px; border-bottom: 1px solid var(--line-soft); background: var(--paper-2); }
+.ws-res-detail-head .nm { font-size: 15px; font-weight: 600; }
+.ws-res-detail-head .rg { font-size: 12.5px; color: var(--muted); }
+.ws-res-detail-head .sp { flex: 1; }
+.ws-res-detail-head .sc { font: 500 16px var(--mono); font-variant-numeric: tabular-nums; }
+.ws-res-detail-head .mono.muted { font-size: 11.5px; }
+.ws-res-detail-body { flex: 1; min-height: 0; display: grid; grid-template-columns: minmax(0, 21rem) minmax(0, 1fr); }
+.ws-res-metrics { min-height: 0; overflow-y: auto; display: flex; flex-direction: column; gap: 10px; padding: 14px; border-right: 1px solid var(--line-soft); background: var(--paper-2); }
+.ws-res-metrics .ws-card { flex: none; }
+.ws-res-score { margin: 2px 0 0; font: 500 30px/1 var(--mono); font-variant-numeric: tabular-nums; }
+.ws-res-metric { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 3px 8px; align-items: baseline; }
+.ws-res-metric .k { font-size: 12.5px; color: var(--ink-soft); overflow-wrap: anywhere; }
+.ws-res-metric .k .sub { display: block; font: 400 10.5px var(--mono); color: var(--muted); }
+.ws-res-metric .v { font: 500 12.5px var(--mono); font-variant-numeric: tabular-nums; }
+.ws-res-metric .track { grid-column: 1 / -1; display: block; height: 6px; border-radius: 999px; background: var(--surface-2); overflow: hidden; }
+.ws-res-metric .track span { display: block; height: 100%; background: var(--ink); }
+.ws-res-answers { min-height: 0; min-width: 0; display: flex; flex-direction: column; gap: 10px; padding: 14px; overflow: hidden; }
+.ws-res-answers-head { flex: none; display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.ws-res-answers-head input { flex: 1; min-width: 150px; border: 1px solid var(--line); border-radius: 8px; background: #fff; padding: 6px 10px; font: 13px var(--sans); color: var(--ink); }
+.ws-res-answers-head input:focus { border-color: var(--ink-soft); }
+.ws-res-answers-head .ws-pills { flex: none; }
+.ws-res-answers > .ws-card { flex: 1; min-height: 0; overflow-y: auto; }
+/* The same row as the exam review, but its wide column says what happened to
+   this model: let it shrink so the question keeps the room it needs. */
+.ws-res-answers .ws-rev-toggle { grid-template-columns: 2rem minmax(0, 1fr) auto minmax(0, 9.5rem) 14px; }
+/* The status of an answer, in the row's last wide column (hidden like .mini). */
+.ws-res-stat { font-size: 12px; color: var(--muted); text-align: right; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* The shortcut rows of 04 · Evaluación's board: a bar, a line, and the way in. */
+.ws-res-row { display: block; width: 100%; border: 0; border-radius: 8px; background: transparent; padding: 6px 8px; text-align: left; transition: background-color 150ms ease; }
+.ws-res-row:hover:not(:disabled) { background: var(--paper-2); }
+.ws-res-row:disabled { opacity: 1; cursor: default; }
+.ws-res-row .go { color: var(--amber-ink); }
+
+/* Handoff from Resultados to Publicación. */
+.ws-next { display: flex; align-items: center; justify-content: space-between; gap: 10px 14px; flex-wrap: wrap; border: 1px solid var(--line); border-radius: 12px; background: var(--paper-2); padding: 12px 14px; }
+.ws-next .t { font-size: 13.5px; line-height: 1.5; color: var(--body); max-width: 62ch; }
 
 /* ---- papers ---- */
 .ws-drawer.wide { width: min(640px, 96%); }
@@ -689,6 +753,15 @@
   .ws-kbd { display: none; }
   .ws-rev-toggle { grid-template-columns: 2rem minmax(0, 1fr) auto 14px; }
   .ws-rev-toggle .mini { display: none; }
+  .ws-res-stat { display: none; }
+  /* The detail stops being two columns and becomes one reading: metrics first,
+     then the answers, the whole thing scrolling as one page with the filter
+     header pinned to the top. Nothing gets clipped by a second scroll region. */
+  .ws-res-detail-body { display: block; overflow-y: auto; }
+  .ws-res-metrics, .ws-res-answers, .ws-res-answers > .ws-card { overflow: visible; }
+  .ws-res-metrics { border-right: 0; border-bottom: 1px solid var(--line-soft); }
+  .ws-res-answers-head { position: sticky; top: 0; z-index: 2; background: #fff; padding: 8px 0 10px; }
+  .ws-res-detail-head { flex-wrap: wrap; }
   .ws-rev-body { padding-left: 16px; }
 }
 @media (max-width: 640px) {
@@ -706,6 +779,10 @@
   .ws-qcard { padding: 14px; }
   .ws-rev-grid { grid-template-columns: minmax(0, 1fr) 3.5rem; }
   .ws-rev-grid .ws-pips, .ws-rev-grid.head span:nth-child(2) { display: none; }
+  .ws-res-detail-head { gap: 6px 10px; padding: 9px 12px; }
+  .ws-res-detail-head .rg, .ws-res-detail-head .mono.muted { display: none; }
+  .ws-res-answers, .ws-res-metrics { padding: 12px; }
+  .ws-res-block .crit { display: none; }
 }
 @media (prefers-reduced-motion: reduce) {
   .ws-msg, .ws-event { animation-name: ws-fade !important; }

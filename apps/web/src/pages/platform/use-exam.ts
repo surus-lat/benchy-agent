@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { api, ApiError, errorText, publicationErrorText, readBenchYaml, type BenchDoc, type Evaluation, type Publication, type RunResult } from "./data";
+import { api, ApiError, errorText, publicationErrorText, readBenchYaml, type BenchDoc, type CatalogModel, type Evaluation, type Publication, type RunResult } from "./data";
 import {
   EMPTY_DESIGN,
   parseBenchDoc,
@@ -479,6 +479,27 @@ export function useRunResults(bench: BenchSummary | undefined) {
     };
   }, [key]); // eslint-disable-line react-hooks/exhaustive-deps
   return results;
+}
+
+/**
+ * The AI systems this platform can run, with the catalog info the app shows
+ * for them (name, maker, region): the same list 04 · Evaluación picks from and
+ * 05 · Resultados uses to name a run in progress.
+ */
+export function useModelCatalog() {
+  const [state, setState] = useState<{ models: string[]; catalog: CatalogModel[] }>({ models: [], catalog: [] });
+  useEffect(() => {
+    void api
+      .models()
+      .then((r) =>
+        setState({
+          models: r.models,
+          catalog: r.catalog ?? r.models.map((id) => ({ id, name: id, maker: "", region: "Otras", default: false })),
+        }),
+      )
+      .catch(() => {});
+  }, []);
+  return state;
 }
 
 /** The AI systems chosen to evaluate a benchmark, remembered in this browser. */

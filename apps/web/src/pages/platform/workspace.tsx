@@ -2,10 +2,10 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useRef, use
 import { Link, useLocation } from "wouter";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
-import { api, errorText, newestPerModel, REGIONS, spellcheckFor, splitAsk, type CatalogModel, type Evaluation, type JudgeConfig, type Message } from "./data";
+import { api, errorText, newestPerModel, REGIONS, spellcheckFor, splitAsk, type JudgeConfig, type Message } from "./data";
 import { useAgentChat } from "./agent-chat";
 import { usePlatform, type BenchSummary, type PendingSource } from "./store";
-import { useEvaluation, useExam, useRunResults, useSelectedModels, type EvaluationState, type ExamState } from "./use-exam";
+import { useEvaluation, useExam, useModelCatalog, useRunResults, useSelectedModels, type EvaluationState, type ExamState } from "./use-exam";
 import {
   byAgent,
   correctOptionKey,
@@ -27,6 +27,7 @@ import { CriteriaStage } from "./criteria";
 import { SourcesStage } from "./fuentes";
 import { useStageCta, type StageCta } from "./stage-next";
 import { PublicationStage } from "./publication";
+import { EvaluationProgress, ResultsStage } from "./results";
 import {
   citation,
   sources as sourcesApi,
@@ -44,16 +45,18 @@ import { Tour, tourAnchorRef } from "./tour";
 
 // One benchmark as two windows over the same exam (design: Plataforma AB v3).
 // A · Interfaz is the researcher's: questions, expert answers, the rubric, the
-// review, the evaluation. B · Agente is the org's Hermes, working on the same
-// files. Whatever either side changes shows in the other: A reloads after every
-// agent turn, and A's saves appear in B's thread as events.
+// review, the evaluation, and what the evaluations returned. B · Agente is the
+// org's Hermes, working on the same files. Whatever either side changes shows
+// in the other: A reloads after every agent turn, and A's saves appear in B's
+// thread as events.
 
 const STAGES = [
   ["criterios", "01", "Criterios"],
   ["fuentes", "02", "Fuentes"],
   ["autoria", "03", "Preguntas"],
   ["evaluacion", "04", "Evaluación"],
-  ["publicacion", "05", "Publicación"],
+  ["resultados", "05", "Resultados"],
+  ["publicacion", "06", "Publicación"],
 ] as const;
 type Stage = (typeof STAGES)[number][0];
 
@@ -125,6 +128,18 @@ export default function Workspace({ slug, stage: stageParam }: { slug: string; s
     go("evaluacion");
     setRunRequest((n) => n + 1);
   }, [go]);
+
+  // A model of 04 · Evaluación's board: 05 · Resultados opens with its detail
+  // covering the stage (its metrics and every answer it gave).
+  const [detail, setDetail] = useState<string | null>(null);
+  const openDetail = useCallback(
+    (model: string) => {
+      setDetail(model);
+      go("resultados");
+    },
+    [go],
+  );
+  const clearDetail = useCallback(() => setDetail(null), []);
 
   // What the next step is belongs to the stage, but it is shown in the toolbar:
   // only one stage is mounted at a time, so the one that is up owns the button.
@@ -497,10 +512,23 @@ export default function Workspace({ slug, stage: stageParam }: { slug: string; s
                 setStageCta={publishCta}
                 onReview={() => go("autoria")}
                 onCriteria={() => go("criterios")}
-                onNext={() => go("publicacion")}
+                onNext={() => go("resultados")}
+                onDetail={openDetail}
+              />
+            ) : stage === "resultados" ? (
+              <ResultsStage
+                bench={bench}
+                evaluation={evaluation}
+                setStageCta={publishCta}
+                ask={ask}
+                showAgent={() => bringFront("B")}
+                busy={busy}
+                go={go}
+                focus={detail}
+                clearFocus={clearDetail}
               />
             ) : (
-              <PublicationStage bench={bench} exam={exam} openExam={openExam} mcExam={mcExam} go={go} ask={ask} showAgent={() => bringFront("B")} busy={busy} evaluation={evaluation} />
+              <PublicationStage bench={bench} exam={exam} openExam={openExam} mcExam={mcExam} go={go} showAgent={() => bringFront("B")} evaluation={evaluation} />
             )}
 
             {editable && (
@@ -653,7 +681,7 @@ function Authoring({
   onApprove: (q: Question) => void;
   /** Open 01 · Criterios, where the rubric is edited. */
   onCriteria: () => void;
-  /** Open 05 · Publicación, where the publication is made and reverted. */
+  /** Open 06 · Publicación, where the publication is made and reverted. */
   onPublication: () => void;
   papers: Source[];
   /** The papers whose validation passed: the only ones the agent may write from. */
@@ -1952,6 +1980,7 @@ function EvaluationStage({
   onReview,
   onCriteria,
   onNext,
+  onDetail,
 }: {
   bench: BenchSummary;
   evaluation: EvaluationState;
@@ -1965,19 +1994,11 @@ function EvaluationStage({
   onReview: () => void;
   onCriteria: () => void;
   onNext: () => void;
+  /** Open 05 · Resultados on this model's detail: a run of the board is a shortcut. */
+  onDetail: (model: string) => void;
 }) {
   const running = evaluation.active;
-  const [models, setModels] = useState<string[]>([]);
-  const [catalog, setCatalog] = useState<CatalogModel[]>([]);
-  useEffect(() => {
-    void api
-      .models()
-      .then((r) => {
-        setModels(r.models);
-        setCatalog(r.catalog ?? r.models.map((id) => ({ id, name: id, maker: "", region: "Otras", default: false })));
-      })
-      .catch(() => {});
-  }, []);
+  const { models, catalog } = useModelCatalog();
   const [selected, setSelected] = useSelectedModels(
     bench.slug,
     models,
@@ -2017,7 +2038,7 @@ function EvaluationStage({
   const board = newestPerModel(results, bench.doc?.model);
 
   // Where to go from here, in the toolbar's corner: with no rubric the next
-  // step is writing it, otherwise telling what the run found.
+  // step is writing it, otherwise reading what the run returned.
   useStageCta(setStageCta, noCriteria
     ? {
         label: "Ir a Criterios",
@@ -2025,8 +2046,10 @@ function EvaluationStage({
         onClick: onCriteria,
       }
     : {
-        label: "Ir a Publicación",
-        tip: `05 · Publicación. ${board.length ? "Con lo que arrojó esta corrida, contá qué encontraste" : "Cuando haya resultados, contá qué encontraste"}: en Publicación van el análisis por criterio, el informe de hallazgos y la ficha pública del benchmark.`,
+        label: "Ir a Resultados",
+        tip: board.length
+          ? "05 · Resultados. Lo que arrojó esta corrida: un bloque por modelo con sus métricas, el detalle de cada respuesta que dio, y la comparación entre modelos criterio por criterio."
+          : "05 · Resultados. Todavía no hay corridas: cuando termines una evaluación vas a ver acá los bloques de cada modelo y sus respuestas.",
         onClick: onNext,
       });
   const start = useCallback(async () => {
@@ -2160,105 +2183,35 @@ function EvaluationStage({
       </div>
 
       <div className="ws-card ws-pad ws-results">
-        <p className="ws-eyebrow">Resultados · {board.length ? `la corrida más reciente de cada modelo` : "todavía sin corridas"}</p>
+        <p className="ws-eyebrow">{board.length ? "La corrida · abrí un modelo para ver sus respuestas" : "La corrida"}</p>
         {evaluation.error && <p className="ws-note fail">{evaluation.error}</p>}
         {evaluation.evaluation && <EvaluationProgress bench={bench} ev={evaluation.evaluation} catalog={catalog} onReport={() => void evaluation.startReport()} />}
         {board.map((r, i) => {
           const s = r.result.summary;
           const bad = s.invalid_outputs + s.execution_errors;
           return (
-            <div key={r.model}>
-              <div className="ws-bar-row">
+            <button key={r.model} className="ws-res-row" onClick={() => onDetail(r.model)} title={`Abrir el detalle de ${r.model} en 05 · Resultados`}>
+              <span className="ws-bar-row">
                 <span className="m" title={r.model}>{r.model}</span>
                 <span className="track">
                   <span className={i === 0 ? "top" : ""} style={{ width: `${r.result.benchmark_score * 100}%` }} />
                 </span>
                 <span className="v">{r.result.benchmark_score.toFixed(2)}</span>
-              </div>
-              <p className="ws-bar-line">
+              </span>
+              <span className="ws-bar-line">
                 {bad === 0 ? `todas válidas · ${s.examples} preguntas` : [s.invalid_outputs && `${s.invalid_outputs} invalid_output`, s.execution_errors && `${s.execution_errors} execution_error`].filter(Boolean).join(" · ")}
                 {" · "}
                 {new Date(r.file.modified * 1000).toLocaleString("es-AR", { dateStyle: "short", timeStyle: "short" })}
-              </p>
-            </div>
+                <span className="go"> · respuestas →</span>
+              </span>
+            </button>
           );
         })}
         {board.length > 0 && top === 0 && <p className="ws-note">Todos en 0: revisá las fallas antes de leer el puntaje.</p>}
+        {board.length === 0 && !evaluation.evaluation && (
+          <p className="ws-note">Todavía sin corridas: cuando termines una evaluación, cada modelo queda acá como atajo a su detalle en 05 · Resultados.</p>
+        )}
       </div>
-    </div>
-  );
-}
-
-const clock = (t: number) => new Date(t * 1000).toLocaleString("es-AR", { dateStyle: "short", timeStyle: "short" });
-
-/** The last evaluation, model by model and then the report: running, done, or what failed. */
-function EvaluationProgress({ bench, ev, catalog, onReport }: { bench: BenchSummary; ev: Evaluation; catalog: CatalogModel[]; onReport: () => void }) {
-  const name = (id: string) => catalog.find((c) => c.id === id)?.name ?? id;
-  const finished = ev.models.filter((m) => m.state === "done" || m.state === "error").length;
-  const head =
-    ev.state === "running"
-      ? `Evaluación en curso · ${finished} de ${ev.models.length} modelos · empezó ${clock(ev.started)}`
-      : ev.state === "reporting"
-        ? "Modelos terminados · el agente está redactando el informe"
-        : ev.state === "interrupted"
-          ? "La evaluación se cortó: el agente se reinició mientras corría. Volvé a ejecutarla."
-          : ev.state === "error"
-            ? "La evaluación falló: ningún modelo pudo terminar."
-            : `Evaluación terminada · ${clock(ev.finished ?? ev.started)}`;
-  const r = ev.report;
-  return (
-    <div className={`ws-evprog ${ev.state}`} role="status" aria-live="polite">
-      <p className="h">
-        <span className={`mono ${ev.state === "done" ? "ok" : ev.state === "error" || ev.state === "interrupted" ? "fail" : "amber"}`}>
-          {ev.state === "done" ? "[✓]" : ev.state === "error" || ev.state === "interrupted" ? "[×]" : "[···]"}
-        </span>
-        {head}
-      </p>
-      {ev.models.map((m) => (
-        <div key={m.model} className="ws-run-row">
-          <span className="m" title={m.model}>{name(m.model)}</span>
-          {m.state === "pending" ? (
-            <span className="mono muted">en cola</span>
-          ) : m.state === "running" ? (
-            <span className="ws-indet" aria-label="corriendo"><span /></span>
-          ) : m.state === "done" ? (
-            <span className="ok mono">
-              [✓] {m.score?.toFixed(2) ?? "—"}
-              {m.summary?.examples ? ` · ${m.summary.valid ?? 0}/${m.summary.examples} válidas` : ""}
-              {m.seconds ? ` · ${Math.round(m.seconds)} s` : ""}
-            </span>
-          ) : (
-            <span className="fail mono ws-run-err" title={m.error ? `${m.error.code}: ${m.error.message}` : undefined}>
-              [×] {m.error?.message || m.error?.code || "error"}
-            </span>
-          )}
-        </div>
-      ))}
-      {r.state !== "skipped" && (
-        <div className="ws-run-row report">
-          <span className="m">Informe de hallazgos</span>
-          {r.state === "pending" ? (
-            <span className="mono muted">cuando terminen los modelos</span>
-          ) : r.state === "running" ? (
-            <span className="ws-indet" aria-label="redactando"><span /></span>
-          ) : r.state === "done" ? (
-            <a className="ok mono" href={`/app/b/${encodeURIComponent(bench.slug)}/informe`} target="_blank" rel="noreferrer">
-              [✓] listo · abrir ↗
-            </a>
-          ) : (
-            <span className="fail mono">
-              [×] no se pudo{" "}
-              <button className="ws-link" onClick={onReport}>
-                reintentar
-              </button>
-            </span>
-          )}
-        </div>
-      )}
-      {r.state === "error" && r.error && <p className="ws-note">{r.error}</p>}
-      {(ev.state === "running" || ev.state === "reporting") && (
-        <p className="ws-note">Corre en el agente de tu organización: podés cerrar la página o seguir con otra cosa; el estado queda acá.</p>
-      )}
     </div>
   );
 }
