@@ -45,7 +45,10 @@ export type Paper = {
 
 export type LibraryStats = { papers: number; withPdf: number; snapshot: string | null };
 
-/** A paper in a benchmark (sources.json). */
+/** A paper in a benchmark (sources.json). A library paper lands here with
+ *  status "reading" while the container fetches and extracts its PDF, and
+ *  with status "failed" if that did not work: until then `text`/`pages`/
+ *  `chars` are not filled in. */
 export type Source = {
   id: string;
   origin: "conicet" | "bicyt" | "upload";
@@ -55,10 +58,13 @@ export type Source = {
   url: string | null;
   pdf_url: string | null;
   file: string;
-  pages: number;
-  chars: number;
-  text: "full" | "abstract";
+  pages?: number;
+  chars?: number;
+  text?: "full" | "abstract";
   added: number;
+  status?: "reading" | "failed";
+  /** Why the read failed, once status is "failed" (the container's code). */
+  error?: { code: string; message: string };
 };
 
 export type SourceResult = { ok: true; source: Source } | { ok: false; error: { code: string; message: string } };

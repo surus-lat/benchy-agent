@@ -4,7 +4,7 @@ import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { api, errorText, newestPerModel, REGIONS, spellcheckFor, splitAsk, type JudgeConfig, type Message } from "./data";
 import { useAgentChat } from "./agent-chat";
-import { usePlatform, type BenchSummary, type PendingSource } from "./store";
+import { usePlatform, usePokeWhile, type BenchSummary, type PendingSource } from "./store";
 import { useEvaluation, useExam, useModelCatalog, useRunResults, useSelectedModels, type EvaluationState, type ExamState } from "./use-exam";
 import {
   byAgent,
@@ -30,6 +30,7 @@ import { PublicationStage } from "./publication";
 import { EvaluationProgress, ResultsStage } from "./results";
 import {
   citation,
+  libraryId,
   sources as sourcesApi,
   libraryErrorText,
   sourceState,
@@ -38,6 +39,7 @@ import {
   type Source,
   type SourceValidation,
 } from "./library-data";
+import { fetchProcesses } from "./processes";
 import { ApiError } from "./data";
 import { ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuTrigger } from "@/components/ui/context-menu";
 import "./workspace.css";
@@ -118,10 +120,45 @@ export default function Workspace({ slug, stage: stageParam }: { slug: string; s
   const [papersOpen, setPapersOpen] = useState(false);
   const [reviewing, setReviewing] = useState(false);
   const [scoring, setScoring] = useState(false);
-  const [generating, setGenerating] = useState<number | null>(null);
+  // A batch asked for from here: how many questions to write, and how many the
+  // exam already had before — so the list can show them arrive one by one.
+  const [generating, setGenerating] = useState<{ n: number; before: number } | null>(null);
   // The exam is read-only only while the agent writes questions the app asked for
   // (a batch, a draft): never just because the researcher is chatting with it.
   const [drafting, setDrafting] = useState(false);
+  // A turn of this benchmark's conversation running on the server, whoever
+  // started it (a reload mid-generation, another tab): the workspace keeps
+  // looking at the files while it lasts, so questions show up as they land.
+  const [serverTurn, setServerTurn] = useState(false);
+  useEffect(() => {
+    let cancelled = false;
+    let timer: ReturnType<typeof setInterval> | null = null;
+    const look = async () => {
+      let running = false;
+      try {
+        const processes = await fetchProcesses();
+        running = processes.some((p) => p.type === "agent" && p.status === "running" && (p.bench === slug || (chat.convId !== null && p.id === `turn:${chat.convId}`)));
+      } catch {
+        // A failed look keeps the last known state; the badge and the next look retry.
+      }
+      if (cancelled) return;
+      setServerTurn(running);
+      if (running && timer === null) timer = setInterval(() => void look(), 4000);
+      else if (!running && timer !== null) {
+        clearInterval(timer);
+        timer = null;
+      }
+    };
+    void look();
+    return () => {
+      cancelled = true;
+      if (timer !== null) clearInterval(timer);
+    };
+  }, [slug, chat.convId]);
+  // While anything is being written over these files (a turn, a batch, a read
+  // of the papers, the judge), re-ask the listing every few seconds: changes
+  // surface as they happen, not on the next 30 s background look.
+  usePokeWhile(chat.pending || serverTurn || generating !== null || drafting || reviewing || scoring || exam.sources.some((s) => s.status === "reading"));
   // "Ejecutar evaluación" from the toolbar or B: Evaluation starts it once mounted.
   const [runRequest, setRunRequest] = useState(0);
   const requestRun = useCallback(() => {
@@ -268,6 +305,11 @@ export default function Workspace({ slug, stage: stageParam }: { slug: string; s
   const q = qs[Math.min(qIndex, Math.max(qs.length - 1, 0))];
   const approved = qs.filter((x) => x.status === "done").length;
   const papers = exam.sources;
+  // Papers being read right now: the ones the container is already recording
+  // (status "reading" in sources.json) plus the ones asked from this browser
+  // whose row has not arrived yet.
+  const readingLocal: PendingSource[] = pendingSources.filter((p) => p.bench === slug && !papers.some((s) => libraryId(s) === p.id));
+  const readingCount = readingLocal.length + papers.filter((s) => s.status === "reading").length;
   // The papers the agent may write questions from: the validated ones. A
   // pending paper waits for the org's checklist in the Papers drawer and stays
   // out of generation (the batch prompt names only the validated ids).
@@ -288,7 +330,7 @@ export default function Workspace({ slug, stage: stageParam }: { slug: string; s
       ? `Evaluando ${ev.models.length} ${ev.models.length === 1 ? "modelo" : "modelos"} sobre ${qs.length} preguntas… ${ev.models.filter((m) => m.state === "done" || m.state === "error").length}/${ev.models.length} terminados`
       : ev?.state === "reporting"
         ? "Evaluación terminada · el agente está redactando el informe…"
-      : chat.pending
+      : chat.pending || serverTurn
         ? "El agente está trabajando…"
         : noCriteria
           ? "Sin criterios de evaluación: el juez no tiene con qué medir"
@@ -441,7 +483,7 @@ export default function Workspace({ slug, stage: stageParam }: { slug: string; s
                 qIndex={qIndex}
                 setQIndex={setQIndex}
                 locked={generating !== null || drafting}
-                reading={pendingSources.filter((p) => p.bench === slug).length}
+                reading={readingCount}
                 generating={generating}
                 scoring={scoring}
                 reviewing={reviewing}
@@ -489,8 +531,8 @@ export default function Workspace({ slug, stage: stageParam }: { slug: string; s
                 onDelete={deleteQuestion}
                 onNext={() => go("evaluacion")}
                 onBatch={async (n) => {
-                  setGenerating(n);
                   const before = qs.length;
+                  setGenerating({ n, before });
                   await ask(batchPrompt(n, slug, validPapers.map((s) => s.id), mcExam));
                   setGenerating(null);
                   setQIndex(before);
@@ -537,7 +579,7 @@ export default function Workspace({ slug, stage: stageParam }: { slug: string; s
                 onClose={() => setPapersOpen(false)}
                 bench={slug}
                 list={papers}
-                reading={pendingSources.filter((p) => p.bench === slug)}
+                reading={readingLocal}
                 locked={exam.frozen}
                 checklist={checklist}
                 validations={validations}
@@ -668,7 +710,8 @@ function Authoring({
   locked: boolean;
   /** Papers of this benchmark still being read. */
   reading: number;
-  generating: number | null;
+  /** A batch asked for from here: how many to write, and how many existed before. */
+  generating: { n: number; before: number } | null;
   /** The judge is scoring the questions' quality right now. */
   scoring: boolean;
   /** The judge is verifying the expert answers against the rubric right now. */
@@ -734,7 +777,7 @@ function Authoring({
     if (generating === null) return;
     const el = listRef.current;
     if (el) el.scrollTop = el.scrollHeight;
-  }, [generating]);
+  }, [generating, qs.length]);
 
   const edit = (field: "text" | "answer" | "why", value: string) => {
     if (!q) return;
@@ -886,14 +929,24 @@ function Authoring({
               )}
             </div>
           ))}
-          {generating !== null && (
-            <div className="ws-gen">
-              <p className="ws-group amber">generando {generating}</p>
-              {Array.from({ length: generating }, (_, i) => (
-                <div key={i} className="ws-skel" style={{ animationDelay: `${i * 80}ms` }} />
-              ))}
-            </div>
-          )}
+          {generating !== null &&
+            (() => {
+              // While the agent writes the batch, the questions it has already
+              // landed show above as real rows: the skeletons only cover the rest.
+              const written = Math.max(qs.length - generating.before, 0);
+              const left = Math.max(generating.n - written, 0);
+              return (
+                <div className="ws-gen">
+                  <p className="ws-group amber">
+                    generando {generating.n}
+                    {written > 0 ? ` · ${written} ${written === 1 ? "pregunta" : "preguntas"} ya escrita${written === 1 ? "" : "s"}` : ""}
+                  </p>
+                  {Array.from({ length: Math.max(left, 1) }, (_, i) => (
+                    <div key={i} className="ws-skel" style={{ animationDelay: `${i * 80}ms` }} />
+                  ))}
+                </div>
+              );
+            })()}
           {groups.length === 0 && generating === null && (
             <p className="ws-note" style={{ margin: "16px 8px" }}>
               {qs.length ? "Ninguna pregunta coincide." : "Todavía no hay preguntas."}
@@ -1870,7 +1923,7 @@ function PapersDrawer({
           <span className="t">Papers del benchmark</span>
           <span className="mono muted">
             {list.length === 1 ? "1 paper" : `${list.length} papers`}
-            {reading.length ? ` · ${reading.length} leyéndose` : ""}
+            {reading.length + list.filter((s) => s.status === "reading").length ? ` · ${reading.length + list.filter((s) => s.status === "reading").length} leyéndose` : ""}
           </span>
           <button onClick={onClose} aria-label="Cerrar">✕</button>
         </div>

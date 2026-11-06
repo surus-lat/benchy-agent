@@ -50,6 +50,9 @@ type Store = {
   notProvisioned: boolean;
   loadError: string | null;
   refresh: () => Promise<void>;
+  /** Just the workspace listing, without the per-benchmark fan-out: for the
+   *  fast look while something is being written (a paper read, a batch). */
+  poke: () => Promise<void>;
   /** Refetch who is signed in and their org (after an org setting changes). */
   reloadMe: () => Promise<void>;
   runs: Record<string, ComparisonRun>;
@@ -74,6 +77,25 @@ export function usePlatform(): Store {
 }
 
 const CONV_KEY = "benchy-conv:";
+
+/** How often to re-ask the workspace listing while something is in flight. */
+const POKING_MS = 3000;
+
+/**
+ * While a view knows something is being written right now (a paper the
+ * container is reading, a batch the agent is writing), re-ask the workspace
+ * listing every few seconds instead of waiting for the 30 s background look.
+ * `files` changing is what makes the exam view reload the files it watches.
+ */
+export function usePokeWhile(active: boolean) {
+  const { poke } = usePlatform();
+  useEffect(() => {
+    if (!active) return;
+    void poke();
+    const t = setInterval(() => void poke(), POKING_MS);
+    return () => clearInterval(t);
+  }, [active, poke]);
+}
 
 /** The researcher's conversation for a benchmark ("new" for a benchmark not yet created). */
 export function conversationFor(slug: string): string | null {
@@ -200,6 +222,25 @@ export function PlatformProvider({ children }: { children: ReactNode }) {
     };
   }, [refresh]);
 
+  // Only the listing: cheap enough to ask often while something is being written,
+  // so a row appears the moment the container writes it instead of on the next
+  // full refresh. Views that care about the change react to `files` (use-exam).
+  const poke = useCallback(async () => {
+    try {
+      const { files } = await api.files();
+      setFiles(files);
+    } catch {
+      // The next look tries again; what is on screen stays.
+    }
+  }, []);
+
+  // While a paper is being added from this browser, don't wait for the 30 s look.
+  useEffect(() => {
+    if (pendingSources.length === 0) return;
+    const t = setInterval(() => void poke(), POKING_MS);
+    return () => clearInterval(t);
+  }, [pendingSources.length, poke]);
+
   const addSource = useCallback(
     async (bench: string, paper: { id: number; title: string; hasPdf: boolean }) => {
       const same = (x: PendingSource) => x.bench === bench && x.id === paper.id;
@@ -256,8 +297,8 @@ export function PlatformProvider({ children }: { children: ReactNode }) {
   }, [running]);
 
   const value = useMemo(
-    () => ({ me, files, benches, notProvisioned, loadError, refresh, reloadMe, runs, setRun, pendingSources, failedSources, dismissFailedSource, addSource, lastBench, setLastBench }),
-    [me, files, benches, notProvisioned, loadError, refresh, reloadMe, runs, setRun, pendingSources, failedSources, dismissFailedSource, addSource, lastBench],
+    () => ({ me, files, benches, notProvisioned, loadError, refresh, poke, reloadMe, runs, setRun, pendingSources, failedSources, dismissFailedSource, addSource, lastBench, setLastBench }),
+    [me, files, benches, notProvisioned, loadError, refresh, poke, reloadMe, runs, setRun, pendingSources, failedSources, dismissFailedSource, addSource, lastBench],
   );
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
 }

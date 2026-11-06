@@ -483,8 +483,11 @@ async def backup(request: web.Request) -> web.Response:
 
 
 async def add_source(request: web.Request) -> web.Response:
-    """Body: {bench, paper} with the Worker's library Paper. Domain failures
-    (no such benchmark, PDF unavailable) are {ok: false, error}, not HTTP errors."""
+    """Body: {bench, paper} with the Worker's library Paper. Answers as soon
+    as the paper is in the index (status "reading"): the PDF itself is
+    fetched and extracted in the background, which is what takes a minute.
+    Domain failures (no such benchmark, bad paper) are {ok: false, error},
+    not HTTP errors."""
     if not _authorized(request):
         return web.json_response({"error": "unauthorized"}, status=401)
     try:
@@ -495,7 +498,7 @@ async def add_source(request: web.Request) -> web.Response:
     except (ValueError, KeyError, TypeError):
         return web.json_response({"error": "bad_request"}, status=400)
     try:
-        source = await benchy_sources.add_paper(bench, paper, request.app["client"])
+        source = await benchy_sources.add_paper(bench, paper)
     except benchy_sources.SourceError as exc:
         return web.json_response({"ok": False, "error": exc.to_dict()})
     return web.json_response({"ok": True, "source": source})
@@ -668,9 +671,18 @@ async def _client(app: web.Application):
     await app["client"].close()
 
 
+async def _sweep_reads(app: web.Application) -> None:
+    """Background source reads a container restart interrupted leave nobody
+    to finish them: the entries still reading are marked failed at startup."""
+    swept = await benchy_sources.reconcile_reading()
+    if swept:
+        print(f"[benchy-proxy] marked {swept} interrupted source read(s) failed", flush=True)
+
+
 def main() -> None:
     app = web.Application(client_max_size=25 * 1024 * 1024, middlewares=[tenancy])
     app.cleanup_ctx.append(_client)
+    app.on_startup.append(_sweep_reads)
     app.router.add_get("/benchy/files", list_files)
     app.router.add_get("/benchy/file", read_file)
     app.router.add_get("/benchy/validate", validate)
