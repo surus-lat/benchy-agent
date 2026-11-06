@@ -103,10 +103,13 @@ export function useExam(bench: BenchSummary | undefined) {
       } catch {
         inputFields = null;
       }
-      // A fresh listing: the agent may have written files since the platform's last refresh.
+      // A fresh listing: the agent may have written files since the platform's last
+      // refresh. It is only an optimization to skip 404s — a truncated listing (a
+      // big workspace) says nothing about the files it never got to, so then every
+      // file is asked for and a missing one simply 404s.
       const known = await api
         .files()
-        .then((r) => new Set(r.files.map((f) => f.path)))
+        .then((r) => (r.truncated ? null : new Set(r.files.map((f) => f.path))))
         .catch(() => null);
       const [e, m, r, q, src, designFile] = await Promise.all([
         readOptional(ePath, known),

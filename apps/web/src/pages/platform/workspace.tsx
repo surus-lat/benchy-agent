@@ -16,6 +16,7 @@ import {
   isOpenQuestionExam,
   isPending,
   QUALITY_CRITERIA,
+  rubricMissing,
   shareOf,
   titleOf,
   type Criterion,
@@ -274,8 +275,9 @@ export default function Workspace({ slug, stage: stageParam }: { slug: string; s
   const validPapers = papers.filter((s) => sourceState(validations[s.id]) === "validated");
   // The exam is "concretado" when the grader has reviewed every question as it
   // stands, the researcher approved each one, and it compiles.
-  // An open exam with no criteria has nothing to grade with: it blocks evaluating.
-  const noCriteria = openExam && (exam.criteria?.length ?? 0) === 0;
+  // An open exam with no criteria has nothing to grade with: that blocks what
+  // comes after writing them — the sources, the questions, running the exam.
+  const noCriteria = rubricMissing(openExam, exam.criteria);
   const ready = openExam && !noCriteria && qs.length > 0 && qs.every((x) => x.status === "done" && x.review) && !!bench.validation?.ok;
   const ev = evaluation.evaluation;
   const running = evaluation.active;
@@ -419,6 +421,7 @@ export default function Workspace({ slug, stage: stageParam }: { slug: string; s
                 list={papers}
                 design={exam.design}
                 criteriaCount={exam.criteria?.length ?? 0}
+                noCriteria={noCriteria}
                 questionCount={qs.length}
                 frozen={exam.frozen}
                 onNext={() => go("autoria")}
@@ -436,6 +439,7 @@ export default function Workspace({ slug, stage: stageParam }: { slug: string; s
                 openExam={openExam}
                 mcExam={mcExam}
                 criteriaCount={exam.criteria?.length ?? 0}
+                noCriteria={noCriteria}
                 setStageCta={publishCta}
                 q={q}
                 qIndex={qIndex}
@@ -628,6 +632,7 @@ function Authoring({
   openExam,
   mcExam,
   criteriaCount,
+  noCriteria,
   setStageCta,
   q,
   qIndex,
@@ -660,6 +665,9 @@ function Authoring({
   mcExam: boolean;
   /** Criteria in the rubric: with none, the judge has nothing to grade with. */
   criteriaCount: number;
+  /** Empty rubric on an open exam: nothing measures these answers, so what
+   *  comes next (a batch, evaluating) waits until the criteria are written. */
+  noCriteria: boolean;
   /** Publishes this stage's next step into the toolbar. */
   setStageCta: (cta: StageCta | null) => void;
   q: Question | undefined;
@@ -713,16 +721,25 @@ function Authoring({
   const approved = qs.filter((x) => x.status === "done").length;
   const verified = qs.filter((x) => !!x.review).length;
 
-  // What comes after writing questions, in the toolbar's corner.
-  useStageCta(setStageCta, {
-    label: "Ir a Evaluación",
-    tip: !openExam
-      ? "04 · Evaluación. Este examen se corrige por coincidencia exacta: no hay claves que verificar ni preguntas que aprobar. Elegí los modelos y corré la evaluación."
-      : ready
-        ? "04 · Evaluación. El juez verificó todas las respuestas expertas y aprobaste todas: elegí los modelos y corré la evaluación."
-        : "04 · Evaluación. Cuando el juez haya verificado las respuestas expertas y hayas aprobado cada pregunta, el examen queda listo. Podés evaluar igual para probar, pero el resultado para publicar sale del examen aprobado.",
-    onClick: onNext,
-  });
+  // What comes after writing questions, in the toolbar's corner. With no rubric
+  // the next step is writing it: nothing here can be verified or approved.
+  useStageCta(setStageCta,
+    noCriteria
+      ? {
+          label: "Ir a Criterios",
+          tip: "01 · Criterios. Sin criterios el juez no tiene con qué medir estas respuestas: escribilos o pedile al agente que los baje de tu diseño antes de evaluar.",
+          onClick: onCriteria,
+        }
+      : {
+          label: "Ir a Evaluación",
+          tip: !openExam
+            ? "04 · Evaluación. Este examen se corrige por coincidencia exacta: no hay claves que verificar ni preguntas que aprobar. Elegí los modelos y corré la evaluación."
+            : ready
+              ? "04 · Evaluación. El juez verificó todas las respuestas expertas y aprobaste todas: elegí los modelos y corré la evaluación."
+              : "04 · Evaluación. Cuando el juez haya verificado las respuestas expertas y hayas aprobado cada pregunta, el examen queda listo. Podés evaluar igual para probar, pero el resultado para publicar sale del examen aprobado.",
+          onClick: onNext,
+        },
+  );
 
   const term = search.trim().toLowerCase();
   const visible = qs.filter(
@@ -962,10 +979,25 @@ function Authoring({
                 </button>
               </p>
             )}
+            {noCriteria && (
+              <p className="ws-batch-note">
+                Sin criterios el lote no tiene qué poner a prueba: cada pregunta sale de un criterio que el juez pueda
+                verificar.{" "}
+                <button
+                  className="ws-link"
+                  onClick={() => {
+                    setBatchOpen(false);
+                    onCriteria();
+                  }}
+                >
+                  Escribir los criterios ↗
+                </button>
+              </p>
+            )}
             <div className="ws-batch-foot">
               <button
                 className="ws-btn-dark sm"
-                disabled={blocked || !editable || validPapers.length === 0}
+                disabled={blocked || !editable || validPapers.length === 0 || noCriteria}
                 onClick={() => {
                   setBatchOpen(false);
                   onBatch(batchN);
@@ -1090,9 +1122,13 @@ function Authoring({
           ) : (
             <EmptyCard
               title="Todavía no hay preguntas"
-              text={`El agente puede escribir un primer lote a partir de ${validPapers.length === 1 ? "tu paper validado" : `tus ${validPapers.length} papers validados`}, para poner a prueba los criterios de 01 · Criterios. Cada pregunta lleva su respuesta experta y la página que la respalda. O escribí la primera vos.`}
-              onAgent={() => onBatch(5)}
-              agentLabel="Pedile 5 preguntas al agente"
+              text={
+                noCriteria
+                  ? "Antes que las preguntas vienen los criterios: sin ellos el juez no tiene con qué medir cada respuesta, y una pregunta sin criterio que verificar no mide nada. Bajalos de tu diseño en 01 · Criterios y volvé por el primer lote. O escribí la primera pregunta vos."
+                  : `El agente puede escribir un primer lote a partir de ${validPapers.length === 1 ? "tu paper validado" : `tus ${validPapers.length} papers validados`}, para poner a prueba los criterios de 01 · Criterios. Cada pregunta lleva su respuesta experta y la página que la respalda. O escribí la primera vos.`
+              }
+              onAgent={noCriteria ? onCriteria : () => onBatch(5)}
+              agentLabel={noCriteria ? "Escribir los criterios" : "Pedile 5 preguntas al agente"}
               onSelf={addQuestion}
               locked={blocked}
             />
@@ -2360,10 +2396,16 @@ function AgentWindow({
           <div className="ws-chips">
             {(openExam || mcExam) && (
               <button
-                disabled={chat.pending || !generatePrompt}
-                title={generatePrompt ? undefined : "Validá un paper primero: el agente escribe solo desde los papers validados"}
+                disabled={chat.pending || !generatePrompt || noCriteria}
+                title={
+                  noCriteria
+                    ? "Sin criterios el agente no tiene qué poner a prueba: escribilos en 01 · Criterios"
+                    : generatePrompt
+                      ? undefined
+                      : "Validá un paper primero: el agente escribe solo desde los papers validados"
+                }
                 onClick={() => {
-                  if (generatePrompt) void ask(generatePrompt);
+                  if (generatePrompt && !noCriteria) void ask(generatePrompt);
                 }}
               >
                 Generá 5 preguntas nuevas
