@@ -41,12 +41,14 @@ to revert it first.
 
 Before the four questions below, settle **what the benchmark sets out to find
 out**: apply `benchy-evaluation-criteria`. It produces `<slug>/design.json`
-(purpose, construct, failureModes, notes) and, for open questions, the rubric
-criteria in `benchmark.yaml`. The app shows this as **01 · Criterios**, before
-Fuentes and Preguntas. The design is the north: every source, question and
+(purpose, construct, failureModes, notes, keywords) and, for open questions, the
+rubric criteria in `benchmark.yaml`. The app shows this as **01 · Criterios**,
+before Fuentes and Preguntas. The design is the north: every source, question and
 criterion must trace back to it. If the researcher asks for questions while the
 design is empty, ask the four design questions first (or fill what they have
-already said) instead of inventing a topic.
+already said) instead of inventing a topic. The `keywords` are the searches that
+follow from the design: the app starts **02 · Fuentes** with them, and they are
+the searches to use when you look for material yourself.
 
 ## The four questions, in order
 

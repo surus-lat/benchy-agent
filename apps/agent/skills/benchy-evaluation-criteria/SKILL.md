@@ -1,6 +1,6 @@
 ---
 name: benchy-evaluation-criteria
-description: Decide what a benchmark sets out to evaluate before writing any questions — the purpose, the construct, the failure modes and the limits in design.json, plus the rubric criteria the judge will apply to every answer. Use at the start of an open-question benchmark, when the researcher asks what to evaluate, or when the criteria need to be rewritten, reweighted or made checkable.
+description: Decide what a benchmark sets out to evaluate before writing any questions — the purpose, the construct, the failure modes, the limits and the library searches in design.json, plus the rubric criteria the judge will apply to every answer. Use at the start of an open-question benchmark, when the researcher asks what to evaluate, or when the criteria need to be rewritten, reweighted or made checkable.
 ---
 # Evaluation criteria: decide what the benchmark measures
 
@@ -30,6 +30,7 @@ A single JSON object, read and written by the app and by you:
   "construct": "What a model that masters the subject should be able to do.",
   "failureModes": "The errors or blind spots the exam should expose.",
   "notes": "What the score captures and what it leaves out.",
+  "keywords": ["reciprocidad ritual andina", "domesticidad andina", "intercambio ceremonial"],
   "updatedAt": "2026-01-01T00:00:00.000Z"
 }
 ```
@@ -45,6 +46,13 @@ A single JSON object, read and written by the app and by you:
   answering from the title, overgeneralising a local case.
 - **notes** are the limits: what the score does not measure (style, originality,
   writing quality) and what a reader should not conclude from it.
+- **keywords** are 5–8 short library searches that follow from the design, one to
+  four words each, written in the language the field publishes in. They are what
+  a researcher would type in the library's box, not criteria and not the
+  benchmark's title: the app puts them in 02 · Fuentes as the first search, and
+  you search them one by one when you look for papers yourself. Prefer the
+  field's own terms over general ones: "reciprocidad ritual andina" beats
+  "cultura andina".
 
 Ask, do not invent. A useful sequence:
 
@@ -53,10 +61,16 @@ Ask, do not invent. A useful sequence:
    repite?"
 3. "¿Qué error te haría desconfiar de una respuesta?"
 4. "¿Qué no mide este examen, aunque alguien pueda leerlo así?"
+5. "¿Con qué palabras buscarías los papers de esto en la biblioteca?"
 
 Write their answers into `design.json` and read them back for correction. When
 the app has already filled some fields, keep the researcher's wording: edit what
 is missing or unclear, do not replace the whole design.
+
+Write `keywords` in the same pass as the criteria. The criteria say what an
+answer has to show; the keywords are the searches that find the material where
+that is documented, and both come out of one reading of the design. Written
+apart, a benchmark ends up with papers that test nothing in the rubric.
 
 ## 2. The criteria (`benchmark.yaml`)
 

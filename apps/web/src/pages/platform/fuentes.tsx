@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { errorText, ApiError } from "./data";
 import { usePlatform, usePokeWhile } from "./store";
 import { authorsLine, library, libraryErrorText, libraryId, sources as sourcesApi, TYPE_LABEL, type LibraryHit, type SemanticHit, type Source } from "./library-data";
-import { coverage, coverageNote, pickedFromSources, sourceOfPaper } from "./fuentes-model";
+import { coverage, coverageNote, mergeBuckets, pickedFromSources, searchTerms, sourceOfPaper, suggestedQuery, type MatchedHit, type TermBucket } from "./fuentes-model";
 import type { PickedPaper } from "./new-bench-model";
 import type { Design } from "./exam-model";
 import { useStageCta, type StageCta } from "./stage-next";
@@ -272,7 +272,16 @@ export function SourcesStage({
         </div>
       </aside>
 
-      <LibrarySearch chosen={chosen} busyIds={busy} frozen={frozen} onToggle={(p) => void toggle(p)} toggleError={error} onDismissError={() => setError(null)} />
+      <LibrarySearch
+        bench={bench}
+        keywords={design.keywords}
+        chosen={chosen}
+        busyIds={busy}
+        frozen={frozen}
+        onToggle={(p) => void toggle(p)}
+        toggleError={error}
+        onDismissError={() => setError(null)}
+      />
       </div>
     </div>
   );
@@ -282,7 +291,15 @@ export function SourcesStage({
 // and the count stay put while the candidates scroll; each one carries what
 // the decision needs (procedencia, autores, año, tipo, muestra del texto,
 // PDF sí/no) and one clear action — elegir, o sacar si ya está.
+//
+// The box holds more than one search: terms separated by comma are looked up one
+// by one and their results put together, because a single query reads its words
+// as AND and asks for papers about everything at once. And the box does not
+// start empty when the design has keywords: 01 · Criterios wrote them for
+// exactly this moment, so they arrive applied, ready to be edited away.
 function LibrarySearch({
+  bench,
+  keywords,
   chosen,
   busyIds,
   frozen,
@@ -290,6 +307,10 @@ function LibrarySearch({
   toggleError,
   onDismissError,
 }: {
+  /** Which benchmark is being curated: the dismissed suggestion is per benchmark. */
+  bench: string;
+  /** The design's searches (design.json), applied as a suggestion. */
+  keywords: string[];
   chosen: ReadonlySet<number>;
   busyIds: ReadonlySet<number>;
   /** The benchmark is published: its papers are part of what was published. */
@@ -298,38 +319,90 @@ function LibrarySearch({
   toggleError: string | null;
   onDismissError: () => void;
 }) {
-  const [text, setText] = useState("");
+  // The keyword set the researcher already edited away, so it does not come back
+  // on the next visit. New keywords are a new suggestion.
+  const suggested = keywords.join(", ");
+  const [text, setText] = useState(() => suggestedQuery(keywords, readDismissed(bench)));
   const [pdfOnly, setPdfOnly] = useState(false);
   const [semantic, setSemantic] = useState(false);
-  const [rows, setRows] = useState<(LibraryHit | SemanticHit)[]>([]);
+  // One page per term searched; the list merges them.
+  const [buckets, setBuckets] = useState<TermBucket[]>([]);
+  const [semanticRows, setSemanticRows] = useState<SemanticHit[]>([]);
+  const [failed, setFailed] = useState<string[]>([]);
   const [total, setTotal] = useState<number | null>(null);
   const [page, setPage] = useState(0);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const seq = useRef(0);
 
+  // The rows on the screen come from these searches, so the labels follow the
+  // buckets and not the box: half-typed text never describes papers it did not
+  // ask for. An empty box is still one search (the library's newest papers).
+  const searched = semantic ? [] : buckets.map((b) => b.term);
+  const multi = searched.length > 1;
+  const merged = useMemo(() => mergeBuckets(buckets), [buckets]);
+  const isSuggestion = !!suggested && text === suggested;
+
+  /** Type in the box. Touching the suggestion takes it over for good. */
+  const onQuery = (next: string) => {
+    if (isSuggestion && suggested !== readDismissed(bench)) writeDismissed(bench, suggested);
+    setText(next);
+  };
+
   const load = useCallback(
     async (p: number) => {
       const n = ++seq.current;
+      const words = searchTerms(text);
+      const wanted = words.length ? words : [""];
       setLoading(true);
       setError(null);
       try {
         if (semantic && text.trim()) {
-          // Semantic search: embed + cosine over the full library.
+          // Semantic search: embed + cosine over the full library. One query.
           const r = await library.semantic(text, pdfOnly);
           if (n !== seq.current) return;
-          setRows(r.papers);
+          setBuckets([]);
+          setSemanticRows(r.papers);
           setTotal(r.papers.length);
+          setFailed([]);
           setPage(0);
-        } else {
-          const r = await library.search({ q: text, author: "", pdf: pdfOnly, page: p });
-          if (n !== seq.current) return;
-          setRows((cur) => (p === 0 ? r.papers : [...cur, ...r.papers]));
-          setTotal(r.total);
-          setPage(p);
+          return;
         }
+        setSemanticRows([]);
+        // Every term in its own request: one query would ask for all the words
+        // at once and usually return nothing.
+        const found = await Promise.all(
+          wanted.map(async (term) => {
+            try {
+              const r = await library.search({ q: term, author: "", pdf: pdfOnly, page: p });
+              return { term, total: r.total, papers: r.papers, error: null as string | null };
+            } catch (err) {
+              return {
+                term,
+                total: 0,
+                papers: [] as LibraryHit[],
+                // Not libraryErrorText: those codes are about adding a paper, and
+                // here the researcher was only looking for one.
+                error: errorText(err),
+              };
+            }
+          }),
+        );
+        if (n !== seq.current) return;
+        setBuckets((cur) =>
+          p === 0
+            ? found.map((f) => ({ term: f.term, total: f.total, papers: f.papers }))
+            : cur.map((b) => {
+                const fresh = found.find((f) => f.term === b.term);
+                return { term: b.term, total: fresh?.total ?? b.total, papers: [...b.papers, ...(fresh?.papers ?? [])] };
+              }),
+        );
+        setTotal(found.reduce((sum, f) => sum + f.total, 0));
+        setFailed(found.filter((f) => f.error).map((f) => f.term));
+        if (found.length && found.every((f) => f.error)) setError(found[0]?.error ?? null);
+        setPage(p);
       } catch (err) {
-        if (n === seq.current) setError(err instanceof ApiError && err.code !== "NETWORK" ? libraryErrorText(err.code) : errorText(err));
+        if (n === seq.current) setError(errorText(err));
       } finally {
         if (n === seq.current) setLoading(false);
       }
@@ -343,15 +416,18 @@ function LibrarySearch({
     return () => clearTimeout(timer);
   }, [load, text, semantic]);
 
-  const more = total !== null && rows.length < Math.min(total, 1000) && !semantic;
+  const rows: (MatchedHit | SemanticHit)[] = semantic && text.trim() ? semanticRows : merged.papers;
+  const more = !(semantic && text.trim()) && merged.more;
   const count =
     total === null
       ? "Cargando la biblioteca…"
       : semantic && text.trim()
         ? `${total} ${total === 1 ? "paper por similitud" : "papers por similitud"}`
-        : text.trim()
-          ? `${total.toLocaleString("es-AR")} ${total === 1 ? "paper coincide" : "papers coinciden"}`
-          : `${total.toLocaleString("es-AR")} papers · los más recientes primero`;
+        : multi
+          ? `${total.toLocaleString("es-AR")} papers entre los ${searched.length} términos`
+          : searched[0]
+            ? `${total.toLocaleString("es-AR")} ${total === 1 ? "paper coincide" : "papers coinciden"}`
+            : `${total.toLocaleString("es-AR")} papers · los más recientes primero`;
   const banner = toggleError ?? error;
 
   return (
@@ -369,8 +445,9 @@ function LibrarySearch({
             type="search"
             className="ws-fnt-search"
             value={text}
-            onChange={(e) => setText(e.target.value)}
-            placeholder={semantic ? "Describí lo que buscás…" : "Buscá por tema, autor o título…"}
+            onChange={(e) => onQuery(e.target.value)}
+            placeholder={semantic ? "Describí lo que buscás…" : "Buscá por tema, autor o título… (varias búsquedas, separadas por coma)"}
+            title="Separá varias búsquedas con coma: buscamos por cada una y sumamos los resultados"
             aria-label="Buscar en la biblioteca"
             spellCheck={false}
           />
@@ -381,6 +458,35 @@ function LibrarySearch({
             Semántica
           </button>
         </div>
+        {isSuggestion && (
+          <div className="ws-fnt-sug" role="note">
+            <span className="ws-eyebrow">Sugerido desde 01 · Criterios</span>
+            <span className="d">
+              Tu diseño trajo {keywords.length} {keywords.length === 1 ? "palabra clave" : "palabras clave"}: buscamos cada una por separado y sumamos los
+              resultados. Editá la caja para cambiar la búsqueda.
+            </span>
+            <button className="ws-link" onClick={() => onQuery("")}>
+              Quitar sugerencia
+            </button>
+          </div>
+        )}
+        {multi && (
+          <div className="ws-fnt-terms">
+            {buckets.map((b) => (
+              <span key={b.term} className="ws-fnt-term mono" title={`Papers que coinciden con «${b.term}»`}>
+                {b.term} <strong>{b.total.toLocaleString("es-AR")}</strong>
+              </span>
+            ))}
+          </div>
+        )}
+        {failed.length > 0 && !banner && (
+          <p className="ws-fnt-soft">
+            No pudimos buscar {failed.map((t) => `«${t}»`).join(", ")}; el resto de los resultados está igual.
+            <button onClick={() => setFailed([])} aria-label="Cerrar">
+              ✕
+            </button>
+          </p>
+        )}
         {banner && (
           <p className="ws-fnt-err" role="alert">
             {banner}
@@ -397,6 +503,8 @@ function LibrarySearch({
               const isIn = chosen.has(h.id);
               const isBusy = busyIds.has(h.id);
               const paper: PickedPaper = { id: h.id, title: h.title, creators: h.creators, year: h.year, hasPdf: h.hasPdf };
+              // With several searches in the box, each paper says which one brought it.
+              const via = "via" in h ? h.via : [];
               return (
                 <li key={`${h.origin}-${h.id}`} className={`ws-fnt-hit${isIn ? " in" : ""}`}>
                   <div className="b">
@@ -406,6 +514,11 @@ function LibrarySearch({
                       <span>{[authorsLine(h.creators, 3), h.year, TYPE_LABEL[h.type] ?? null].filter(Boolean).join(" · ")}</span>
                       {h.hasPdf ? <span className="pf">con PDF</span> : <span className="np">solo resumen</span>}
                     {"score" in h ? <span className="pf">{(h as SemanticHit).score.toFixed(3)}</span> : null}
+                      {multi && via.length > 0 ? (
+                        <span className="via" title={`Coincide con: ${via.join(" · ")}`}>
+                          por «{via[0]}»{via.length > 1 ? ` +${via.length - 1} más` : ""}
+                        </span>
+                      ) : null}
                     </span>
                     {h.excerpt ? <span className="x">{h.excerpt}</span> : null}
                   </div>
@@ -435,7 +548,13 @@ function LibrarySearch({
               </>
             )}
           </ul>
-          {!loading && rows.length === 0 && total !== null && <p className="ws-fnt-none">Nada coincide. Probá con otras palabras.</p>}
+          {!loading && rows.length === 0 && total !== null && (
+            <p className="ws-fnt-none">
+              {multi && merged.total === 0
+                ? "Ninguna de estas búsquedas tiene papers en la biblioteca: los conteos de arriba dicen cuál podés sacar, o probá con términos más generales."
+                : "Nada coincide. Probá con otras palabras."}
+            </p>
+          )}
           {more && (
             <button className="ws-fnt-more" disabled={loading} onClick={() => void load(page + 1)}>
               {loading ? "Cargando…" : "Ver más"}
@@ -446,3 +565,24 @@ function LibrarySearch({
     </section>
   );
 }
+
+/** The keyword set the researcher already edited away, per benchmark: the
+ *  suggestion is applied once per set, so it never nags them twice. */
+const SUGGESTED_KEY = "benchy-src-suggested:";
+
+const readDismissed = (bench: string): string | null => {
+  try {
+    return localStorage.getItem(SUGGESTED_KEY + bench);
+  } catch {
+    return null;
+  }
+};
+
+const writeDismissed = (bench: string, joined: string) => {
+  try {
+    localStorage.setItem(SUGGESTED_KEY + bench, joined);
+  } catch {
+    // Private mode: the suggestion simply comes back next time.
+  }
+};
+
