@@ -1,7 +1,7 @@
-import { expect, it } from "vitest";
-import { coverage, coverageNote, pickedFromSources, sourceOfPaper } from "./fuentes-model";
+import { describe, expect, it } from "vitest";
+import { coverage, coverageNote, mergeBuckets, pickedFromSources, searchTerms, sourceOfPaper, suggestedQuery, MAX_SEARCH_TERMS } from "./fuentes-model";
 import { togglePaper, type PickedPaper } from "./new-bench-model";
-import type { Source } from "./library-data";
+import type { LibraryHit, Source } from "./library-data";
 
 const conicet: Source = {
   id: "conicet-179477",
@@ -61,4 +61,67 @@ it("words the collection summary, empty and mixed", () => {
   expect(coverageNote(coverage([conicet]))).toBe("1 con texto completo");
   expect(coverageNote(coverage([bicyt]))).toBe("1 solo con el resumen");
   expect(coverageNote(coverage([conicet, bicyt, upload]))).toBe("2 con texto completo · 1 solo con el resumen");
+});
+
+const hit = (id: number, origin: string, title: string): LibraryHit => ({
+  id,
+  origin,
+  title,
+  creators: ["Autora, A."],
+  year: 2020,
+  type: "article",
+  language: "spa",
+  hasPdf: true,
+  excerpt: "",
+});
+
+describe("search box with several terms", () => {
+  it("reads one term as typed and a comma-separated box as several searches", () => {
+    expect(searchTerms("reciprocidad ritual andina")).toEqual(["reciprocidad ritual andina"]);
+    expect(searchTerms("ritual, domesticidad andina")).toEqual(["ritual", "domesticidad andina"]);
+    // Spaces around a term are noise; a term of one word still counts.
+    expect(searchTerms("  ritual ,\n domesticidad ; ritual ")).toEqual(["ritual", "domesticidad"]);
+    expect(searchTerms("ritual,, ,domesticidad")).toEqual(["ritual", "domesticidad"]);
+    expect(searchTerms("   ")).toEqual([]);
+    // Same word twice is one search, whatever the case.
+    expect(searchTerms("Ritual, ritual")).toEqual(["Ritual"]);
+    expect(searchTerms(Array.from({ length: 12 }, (_, i) => `t${i}`).join(", "))).toHaveLength(MAX_SEARCH_TERMS);
+  });
+
+  it("puts several searches together: one row per paper, and which term found it", () => {
+    const merged = mergeBuckets([
+      { term: "ritual", total: 3, papers: [hit(1, "conicet", "A"), hit(2, "conicet", "B"), hit(4, "conicet", "D")] },
+      { term: "domesticidad", total: 2, papers: [hit(2, "conicet", "B"), hit(3, "bicyt", "C")] },
+    ]);
+    // Each term's page before the next page of any term: a broad term does not
+    // bury a narrow one below the fold. B was found by both, and says so.
+    expect(merged.papers.map((p) => p.title)).toEqual(["A", "B", "C", "D"]);
+    expect(merged.papers.map((p) => p.via)).toEqual([["ritual"], ["domesticidad", "ritual"], ["domesticidad"], ["ritual"]]);
+    expect(merged.total).toBe(5);
+    expect(merged.more).toBe(false);
+  });
+
+  it("keeps conicet and bicyt papers apart, and knows when a term has more pages", () => {
+    const merged = mergeBuckets([
+      { term: "a", total: 50, papers: [hit(7, "conicet", "Misma id en otra fuente")] },
+      { term: "b", total: 1, papers: [hit(7, "bicyt", "Misma id en otra fuente")] },
+    ]);
+    expect(merged.papers).toHaveLength(2);
+    // "a" has 50 and only one loaded; "b" is done.
+    expect(merged.more).toBe(true);
+    expect(mergeBuckets([{ term: "b", total: 1, papers: [hit(7, "bicyt", "x")] }]).more).toBe(false);
+    expect(mergeBuckets([])).toEqual({ papers: [], total: 0, more: false });
+  });
+});
+
+describe("the design's keywords as the first search", () => {
+  it("applies them as one comma-separated query", () => {
+    expect(suggestedQuery(["reciprocidad ritual", "domesticidad andina"], null)).toBe("reciprocidad ritual, domesticidad andina");
+    // A design without keywords leaves the box empty, as always.
+    expect(suggestedQuery([], null)).toBe("");
+    // The researcher dismissed this exact set: it does not come back. New
+    // keywords, though, suggest themselves again.
+    expect(suggestedQuery(["ritual"], "ritual")).toBe("");
+    expect(suggestedQuery(["ritual", "domesticidad"], "ritual")).toBe("ritual, domesticidad");
+  });
 });

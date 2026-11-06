@@ -231,15 +231,32 @@ describe("benchmark design (design.json)", () => {
     expect(parseDesign("{}")).toEqual(EMPTY_DESIGN);
   });
 
-  it("reads the four fields and ignores anything else", () => {
-    const d = parseDesign(JSON.stringify({ purpose: "qué", construct: "puede", failureModes: "errores", notes: "límites", updatedAt: "ayer" }));
-    expect(d).toEqual({ purpose: "qué", construct: "puede", failureModes: "errores", notes: "límites" });
+  it("reads the fields and ignores anything else", () => {
+    const d = parseDesign(
+      JSON.stringify({ purpose: "qué", construct: "puede", failureModes: "errores", notes: "límites", keywords: ["reciprocidad ritual"], updatedAt: "ayer" }),
+    );
+    expect(d).toEqual({ purpose: "qué", construct: "puede", failureModes: "errores", notes: "límites", keywords: ["reciprocidad ritual"] });
     expect(hasDesign(d)).toBe(true);
     expect(hasDesign({ ...EMPTY_DESIGN, notes: "  " })).toBe(false);
+    // Searches alone are not a design: the researcher still has to say what the
+    // benchmark is about.
+    expect(hasDesign({ ...EMPTY_DESIGN, keywords: ["ritual"] })).toBe(false);
+  });
+
+  it("reads keywords as the list of searches it means, however they arrive", () => {
+    // The agent writes a list; the researcher types two searches in one phrase.
+    expect(parseDesign('{"keywords":["reciprocidad ritual, domesticidad andina","Reciprocidad ritual","",123]}').keywords).toEqual([
+      "reciprocidad ritual",
+      "domesticidad andina",
+    ]);
+    expect(parseDesign('{"keywords":"a; b\\nc"}').keywords).toEqual(["a", "b", "c"]);
+    expect(parseDesign('{"keywords":"a, a, a"}').keywords).toEqual(["a"]);
+    expect(parseDesign('{"keywords":{}}').keywords).toEqual([]);
+    expect(parseDesign(`{"keywords":${JSON.stringify(Array.from({ length: 30 }, (_, i) => `t${i}`))}}`).keywords).toHaveLength(12);
   });
 
   it("round-trips through serializeDesign with an updatedAt stamp", () => {
-    const d = { purpose: "qué", construct: "puede", failureModes: "errores", notes: "límites" };
+    const d = { purpose: "qué", construct: "puede", failureModes: "errores", notes: "límites", keywords: ["reciprocidad ritual", "domesticidad andina"] };
     const text = serializeDesign(d);
     expect(parseDesign(text)).toEqual(d);
     expect(JSON.parse(text).updatedAt).toEqual(expect.any(String));

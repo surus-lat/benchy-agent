@@ -669,6 +669,19 @@
 .ws-fnt-pdf.on { border-color: var(--ink); background: var(--ink); color: #fff; }
 .ws-fnt-err { display: flex; align-items: center; gap: 10px; margin: 0; border: 1px solid #f0cfcb; border-radius: 10px; background: var(--fail-bg); color: var(--fail); padding: 8px 12px; font-size: 12.5px; line-height: 1.45; }
 .ws-fnt-err button { margin-left: auto; flex: none; border: 0; background: transparent; color: var(--fail); }
+/* The design's keywords, already applied: the row says where they came from, so
+   the box reads as a starting point the researcher edits, not as their own typing. */
+.ws-fnt-sug { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 10px; border: 1px solid var(--amber-line); border-left: 3px solid var(--amber); border-radius: 10px; background: var(--amber-paper); padding: 8px 12px; }
+.ws-fnt-sug .ws-eyebrow { margin: 0 !important; color: var(--amber-deep); }
+.ws-fnt-sug .d { flex: 1; min-width: min(340px, 100%); font-size: 12px; line-height: 1.5; color: var(--amber-deep); }
+.ws-fnt-sug .ws-link { flex: none; color: var(--amber-deep); }
+/* One chip per term in the box: what each of the searches is worth on its own. */
+.ws-fnt-terms { display: flex; flex-wrap: wrap; gap: 6px; }
+.ws-fnt-term { border: 1px solid var(--line); border-radius: 999px; background: #fff; padding: 3px 10px; font: 400 11px var(--mono); color: var(--muted); white-space: nowrap; }
+.ws-fnt-term strong { font-weight: 500; color: var(--ink); }
+/* One term could not be searched; the others answered, so this is not an error. */
+.ws-fnt-soft { display: flex; align-items: center; gap: 10px; margin: 0; border: 1px dashed var(--line-strong); border-radius: 10px; background: #fff; padding: 7px 12px; font-size: 12px; line-height: 1.45; color: var(--body); }
+.ws-fnt-soft button { margin-left: auto; flex: none; border: 0; background: transparent; color: var(--muted); }
 .ws-fnt-lib-body { flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain; padding: 12px 16px 36px; }
 .ws-fnt-lib-in { max-width: 960px; margin: 0 auto; display: flex; flex-direction: column; }
 .ws-fnt-hits { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
@@ -680,6 +693,8 @@
 .ws-fnt-hit .m { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; font: 400 11px/1.55 var(--mono); color: var(--muted); }
 .ws-fnt-hit .m .pf { color: var(--ok); }
 .ws-fnt-hit .m .np { color: var(--amber-deep); }
+/* Which of the box's searches this paper answers to. */
+.ws-fnt-hit .m .via { border: 1px solid var(--line-soft); border-radius: 999px; background: var(--paper-2); padding: 1px 7px; color: var(--ink-soft); }
 .ws-fnt-hit .x { font-size: 12.5px; line-height: 1.55; color: var(--body); display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
 .ws-fnt-hit .side { flex: none; display: flex; flex-direction: column; align-items: flex-end; gap: 6px; padding-top: 1px; }
 .ws-fnt-pick { border: 1px solid var(--line); background: #fff; border-radius: 999px; padding: 5px 12px; font: 400 12px var(--mono); color: var(--ink-soft); white-space: nowrap; transition: border-color 150ms ease, color 150ms ease; }
@@ -874,6 +889,22 @@
 .ws-crit-addrow { display: flex; gap: 8px; }
 .ws-crit-addrow .ws-crit-add { flex: 1; }
 .ws-crit-gen-btn { flex: none; }
+
+/* The searches the design hands to 02 · Fuentes: chips the researcher owns, and
+   a comma box like the library's, so typing two terms adds two searches. */
+.ws-kw { display: flex; flex-direction: column; gap: 8px; border: 1px solid var(--line-soft); border-radius: 12px; background: var(--paper-2); padding: 10px 12px 12px; }
+.ws-kw .head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 12px; }
+.ws-kw .head .t { font-size: 13px; font-weight: 600; color: var(--ink); }
+.ws-kw .head .d { flex: 1; min-width: min(340px, 100%); font-size: 12px; line-height: 1.5; color: var(--muted); }
+.ws-kw-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.ws-kw-chip { display: inline-flex; align-items: center; gap: 5px; border: 1px solid var(--line); border-radius: 999px; background: #fff; padding: 4px 6px 4px 11px; font-size: 12px; color: var(--ink); }
+.ws-kw-chip button { border: 0; background: transparent; padding: 2px 4px; font-size: 11px; line-height: 1; color: var(--muted); }
+.ws-kw-chip button:hover:not(:disabled) { color: var(--fail); }
+.ws-kw-none { align-self: center; font-size: 12px; color: var(--muted); }
+.ws-kw-row { display: flex; align-items: center; gap: 8px; }
+.ws-kw-input { flex: 1; min-width: 0; border: 1px solid var(--line); border-radius: 9px; background: #fff; padding: 7px 10px; font: 13px var(--sans); color: var(--ink); }
+.ws-kw-input:focus { outline: none; border-color: var(--ink); box-shadow: 0 0 0 3px rgba(42, 46, 58, 0.1); }
+.ws-kw-row .ws-link { flex: none; }
 
 /* Verification of the expert answer, inline in Preguntas. */
 .ws-keybar { display: flex; flex-wrap: wrap; align-items: flex-start; gap: 10px; margin-bottom: 12px; padding: 10px 12px; border: 1px solid var(--line-soft); border-radius: 12px; background: var(--paper-2); }

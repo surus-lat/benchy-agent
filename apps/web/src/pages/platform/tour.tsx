@@ -58,7 +58,7 @@ export const TOUR_STEPS: TourStep[] = [
     route: "/app/b/{slug}/criterios",
     requireBench: true,
     title: "01 · Criterios",
-    text: "Decidí con el agente qué querés evaluar y escribí los criterios con los que el juez medirá cada respuesta.",
+    text: "Decidí con el agente qué querés evaluar y escribí los criterios con los que el juez medirá cada respuesta. De ahí salen también las palabras clave para buscar las fuentes.",
   },
   {
     id: "ws-fuentes",
@@ -67,7 +67,7 @@ export const TOUR_STEPS: TourStep[] = [
     route: "/app/b/{slug}/fuentes",
     requireBench: true,
     title: "02 · Fuentes",
-    text: "Elegí los papers sobre los que vas a examinar: las preguntas salen de ahí y cada una cita paper y página.",
+    text: "Elegí los papers sobre los que vas a examinar: la búsqueda arranca con las palabras clave de tus criterios y admite varias separadas por coma. Cada pregunta cita paper y página.",
   },
   {
     id: "ws-autoria",

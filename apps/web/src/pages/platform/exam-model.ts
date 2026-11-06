@@ -89,11 +89,39 @@ export type Design = {
   failureModes: string;
   /** What the score captures and what it hides. */
   notes: string;
+  /** Short library searches that come out of the design. The app starts 02 ·
+   *  Fuentes with them, so the papers are looked up for what is being measured
+   *  instead of for the benchmark's title. */
+  keywords: string[];
 };
 
-export const EMPTY_DESIGN: Design = { purpose: "", construct: "", failureModes: "", notes: "" };
+export const EMPTY_DESIGN: Design = { purpose: "", construct: "", failureModes: "", notes: "", keywords: [] };
 
 const designField = (v: unknown) => (typeof v === "string" ? v : "");
+
+/** One design's worth of searches: more than this and the researcher is typing
+ *  the library's whole vocabulary into the design. */
+const MAX_KEYWORDS = 12;
+
+/**
+ * The keywords box: short search strings, deduplicated. The agent often hands
+ * over one comma-separated string instead of a list, and a keyword typed in the
+ * app can name two searches at once; either reads as the list it means.
+ */
+export function designKeywords(v: unknown): string[] {
+  const items = Array.isArray(v) ? v : typeof v === "string" ? [v] : [];
+  const out: string[] = [];
+  for (const item of items) {
+    if (typeof item !== "string") continue;
+    for (const part of item.split(/[,;\n]/)) {
+      const term = part.trim().replace(/\s+/g, " ").slice(0, 80);
+      if (!term || out.some((x) => x.toLowerCase() === term.toLowerCase())) continue;
+      out.push(term);
+      if (out.length === MAX_KEYWORDS) return out;
+    }
+  }
+  return out;
+}
 
 /** Read `design.json`; a missing or unreadable file reads as an empty design. */
 export function parseDesign(text: string | null | undefined): Design {
@@ -105,6 +133,7 @@ export function parseDesign(text: string | null | undefined): Design {
       construct: designField(d.construct),
       failureModes: designField(d.failureModes),
       notes: designField(d.notes),
+      keywords: designKeywords(d.keywords),
     };
   } catch {
     return { ...EMPTY_DESIGN };

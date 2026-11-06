@@ -3,6 +3,7 @@ import { api, spellcheckFor, type LibraryCriterion } from "./data";
 import {
   addCriterion,
   criteriaEntryStep,
+  designKeywords,
   hasDesign,
   MAX_CRITERIA,
   removeCriterion,
@@ -217,6 +218,9 @@ export function CriteriaStage({
 
   const failureModes = design.failureModes.trim();
   const limits = design.notes.trim();
+  const keywords = design.keywords;
+  /** Whether the design already names the searches for 02 · Fuentes. */
+  const hasKeywords = keywords.length > 0;
   /** The rubric spelled out in the message, so the agent works on what is there
    *  instead of inventing a parallel one. It also reads benchmark.yaml itself. */
   const criteriaList = criteria.map((c) => `${c.key}: «${c.description}» (peso ${c.weight})`).join("; ");
@@ -235,6 +239,17 @@ export function CriteriaStage({
           ? "No hay criterios: escribí de cero entre 3 y 5 criterios verificables que se desprendan del diseño."
           : "Sumá los que faltan para cubrir el diseño —cada error o sesgo declarado necesita al menos un criterio que lo capture— y reescribí los que no se puedan comprobar leyendo la respuesta experta de una pregunta. No repitas una idea que otro criterio ya cubre.",
       "Cada criterio: una oración que el juez pueda verificar, weight de 1 a 5 repartido según lo que importa más (lo que pesa es la proporción: nunca todos en 5) y levels 0/1. Explicame en una frase qué agrega cada uno.",
+      // The same thinking, one file over: the searches the researcher will type
+      // in the library, so the papers come from the design and not from a guess.
+      'Y escribí en design.json el campo "keywords" con entre 5 y 8 cadenas cortas de búsqueda (1 a 4 palabras, en el idioma en que se publican los papers del campo): son las búsquedas con las que se van a elegir las fuentes en 02 · Fuentes. No son criterios ni palabras del título.',
+    ].join("\n");
+
+  /** Keywords only, for a design whose rubric is already settled. */
+  const keywordsPrompt = () =>
+    [
+      `En el benchmark ${bench}, escribí en design.json el campo "keywords" con entre 5 y 8 cadenas cortas de búsqueda (1 a 4 palabras, en el idioma en que se publican los papers del campo).`,
+      `Salen de design.json y de los criterios de benchmark.yaml (${criteriaList || "sin criterios todavía"}): son las búsquedas con las que se van a elegir las fuentes en 02 · Fuentes.`,
+      "No copies palabras del título ni escribas criterios.",
     ].join("\n");
 
   const generate = async (replace: boolean) => {
@@ -285,7 +300,9 @@ export function CriteriaStage({
           tip:
             openExam && criteria.length === 0
               ? "Paso 2 de 2. Sin criterios el juez no tiene con qué medir: el examen no se puede evaluar ni publicar. Escribí o generá al menos uno para seguir."
-              : "Paso 2 de 2. El juez verifica las claves con estos criterios; aprobar cada pregunta pasa en 03 · Preguntas.",
+              : `Paso 2 de 2. El juez verifica las claves con estos criterios; aprobar cada pregunta pasa en 03 · Preguntas.${
+                  hasKeywords ? " En 02 · Fuentes la búsqueda arranca con las palabras clave de tu diseño." : ""
+                }`,
           disabled: openExam && criteria.length === 0,
           onClick: next,
         },
@@ -458,6 +475,18 @@ export function CriteriaStage({
                     </p>
                   </div>
                 )}
+
+                {!generating && (
+                  <KeywordEditor
+                    keywords={keywords}
+                    frozen={frozen}
+                    onChange={(next) => write({ ...design, keywords: next })}
+                    onAsk={() => {
+                      showAgent();
+                      void ask(keywordsPrompt());
+                    }}
+                  />
+                )}
               </>
             )}
           </div>
@@ -530,8 +559,87 @@ function DesignField({
   );
 }
 
+/** The searches the design hands to 02 · Fuentes. They come out of the same
+ *  thinking as the criteria — what would put this design to the test — so they
+ *  are written and edited here, and the library starts with them there. */
+function KeywordEditor({
+  keywords,
+  frozen,
+  onChange,
+  onAsk,
+}: {
+  keywords: string[];
+  /** The benchmark is published: its design is part of what was published. */
+  frozen: boolean;
+  onChange: (keywords: string[]) => void;
+  /** Ask the agent for them, with the design and the rubric in hand. */
+  onAsk: () => void;
+}) {
+  const [draft, setDraft] = useState("");
+  const lang = useContext(Lang);
+  // Typing "a, b" adds two searches: the box is the same one as the library's.
+  const pending = designKeywords(draft);
+
+  const add = () => {
+    if (!pending.length) return;
+    onChange(designKeywords([...keywords, ...pending]));
+    setDraft("");
+  };
+
+  return (
+    <section className="ws-kw" aria-label="Palabras clave para buscar las fuentes">
+      <div className="head">
+        <span className="t">Palabras clave para buscar las fuentes</span>
+        <span className="d">
+          Es lo que alguien escribiría en el buscador de la biblioteca para encontrar los papers de este diseño. Cuando pases a 02 · Fuentes, la búsqueda
+          arranca con ellas.
+        </span>
+      </div>
+      <div className="ws-kw-chips">
+        {keywords.map((k) => (
+          <span key={k} className="ws-kw-chip">
+            <span className="mono">{k}</span>
+            <button disabled={frozen} onClick={() => onChange(keywords.filter((x) => x !== k))} aria-label={`Quitar la palabra clave ${k}`}>
+              ✕
+            </button>
+          </span>
+        ))}
+        {keywords.length === 0 && <span className="ws-kw-none">Ninguna todavía.</span>}
+      </div>
+      <div className="ws-kw-row">
+        <input
+          className="ws-kw-input"
+          value={draft}
+          lang={lang}
+          spellCheck={spellcheckFor(lang)}
+          disabled={frozen}
+          placeholder="Ej.: reciprocidad ritual andina (separá varias con coma)"
+          aria-label="Agregá una palabra clave"
+          onChange={(e) => setDraft(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") {
+              e.preventDefault();
+              add();
+            }
+          }}
+        />
+        <button className="ws-btn-line sm" disabled={frozen || !pending.length} onClick={add}>
+          {pending.length > 1 ? `Agregar ${pending.length}` : "Agregar"}
+        </button>
+        <button className="ws-link" disabled={frozen} title={keywordsPromptTitle} onClick={onAsk}>
+          {keywords.length === 0 ? "Pedídselas al agente" : "Que el agente las complete"}
+        </button>
+      </div>
+    </section>
+  );
+}
+
+/** The message the button sends, as a tooltip. */
+const keywordsPromptTitle = "El agente lee el diseño y la rúbrica y escribe las keywords en design.json";
+
 /** The rubric, edited in place: every change saves benchmark.yaml at once. */
 function CriteriaEditor({
+
   exam,
   criteria,
   library,
