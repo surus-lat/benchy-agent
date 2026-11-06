@@ -147,7 +147,7 @@ export function SourcesStage({
             </p>
             {frozen && (
               <p className="ws-locked" role="status">
-                <span className="mono amber">[·]</span> Este benchmark está publicado: sus fuentes son parte de lo publicado. Revertí la publicación en 05 ·
+                <span className="mono amber">[·]</span> Este benchmark está publicado: sus fuentes son parte de lo publicado. Revertí la publicación en 06 ·
                 Publicación para agregar o quitar papers.
               </p>
             )}

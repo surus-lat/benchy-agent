@@ -34,7 +34,7 @@ const PAGE_LEVEL: Record<TourPage, TourLevel> = { home: "home", nuevo: "home", w
 const PAGE_RANK: Record<TourPage, number> = { home: 0, nuevo: 1, workspace: 2 };
 
 // One continuous list: home first, then the workspace stages in the real flow
-// order (criterios → fuentes → preguntas → evaluación → publicación).
+// order (criterios → fuentes → preguntas → evaluación → resultados → publicación).
 export const TOUR_STEPS: TourStep[] = [
   {
     id: "home-new",
@@ -88,13 +88,22 @@ export const TOUR_STEPS: TourStep[] = [
     text: "Elegí los modelos y tocá Ejecutar evaluación: el agente los corre sobre el examen.",
   },
   {
+    id: "ws-resultados",
+    anchor: "tour-ws-tab-resultados",
+    page: "workspace",
+    route: "/app/b/{slug}/resultados",
+    requireBench: true,
+    title: "05 · Resultados",
+    text: "Cada modelo evaluado tiene un bloque con sus métricas: abrilo para ver qué respondió pregunta por pregunta. Abajo, la comparación entre modelos.",
+  },
+  {
     id: "ws-publicacion",
     anchor: "tour-ws-tab-publicacion",
     page: "workspace",
     route: "/app/b/{slug}/publicacion",
     requireBench: true,
-    title: "05 · Publicación",
-    text: "Leé el informe de la corrida en Análisis y publicalo: ya tenés tu evaluación hecha.",
+    title: "06 · Publicación",
+    text: "Contá qué encontraste: el informe de hallazgos se redacta con estos resultados y acá se publica y congela la versión.",
   },
 ];
 
