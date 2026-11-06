@@ -31,7 +31,7 @@ from benchy import providers
 from benchy.errors import BenchyError
 from benchy.run import run
 
-from benchy_shared import WORKSPACE, check_models, model_slug
+from benchy_shared import check_models, model_slug, workspace
 
 MAX_ROWS = int(os.environ.get("BENCHY_MAX_ROWS", "500"))
 # Models run two at a time: faster than one by one, gentle on the grader.
@@ -170,7 +170,7 @@ async def _evaluate(source: Path, ir: dict, state: dict, write_report: ReportWri
                     state="done",
                     score=done["result"].get("benchmark_score"),
                     summary=done["result"].get("summary"),
-                    file=str(done["file"].relative_to(WORKSPACE)),
+                    file=str(done["file"].relative_to(workspace())),
                     seconds=done["seconds"],
                 )
             except BenchyError as exc:

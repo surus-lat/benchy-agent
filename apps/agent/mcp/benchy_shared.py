@@ -3,10 +3,36 @@ routes) must agree on: the workspace root and the models a benchmark may run."""
 
 from __future__ import annotations
 
+import contextvars
 import os
+from contextlib import contextmanager
 from pathlib import Path
 
 WORKSPACE = Path(os.environ.get("BENCHY_WORKSPACE", "/opt/data/workspace")).resolve()
+
+# The proxy serves several orgs from one process in multiplex mode and scopes
+# each request to its org's workspace; MCP stdio children serve one profile
+# each, so they always take the env default.
+_WORKSPACE_OVERRIDE: contextvars.ContextVar[Path | None] = contextvars.ContextVar(
+    "benchy_workspace_override", default=None
+)
+
+
+def workspace() -> Path:
+    """The active workspace root: the per-request override when the proxy set
+    one (multiplex: one per org), else the deployment-wide BENCHY_WORKSPACE."""
+    return _WORKSPACE_OVERRIDE.get() or WORKSPACE
+
+
+@contextmanager
+def workspace_override(root):
+    """Scope every workspace() resolution in this context to `root`. Propagates
+    into asyncio.to_thread and tasks created inside the context."""
+    token = _WORKSPACE_OVERRIDE.set(Path(root).resolve())
+    try:
+        yield
+    finally:
+        _WORKSPACE_OVERRIDE.reset(token)
 
 # The models a benchmark may run, by where they are made: a field's knowledge,
 # and its biases, change with the lab's region, and Latin America is often
@@ -50,8 +76,9 @@ def catalog() -> list[dict]:
 
 def inside(rel: str) -> Path | None:
     """`rel` resolved against the workspace, or None if it escapes it."""
-    candidate = (WORKSPACE / rel).resolve()
-    return candidate if candidate == WORKSPACE or WORKSPACE in candidate.parents else None
+    root = workspace()
+    candidate = (root / rel).resolve()
+    return candidate if candidate == root or root in candidate.parents else None
 
 
 def model_slug(model: str) -> str:
