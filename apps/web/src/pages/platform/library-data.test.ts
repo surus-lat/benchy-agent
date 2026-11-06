@@ -41,6 +41,12 @@ describe("sources.json", () => {
     expect(parseSources("{oops")).toEqual([]);
     expect(parseSources(undefined)).toEqual([]);
   });
+
+  it("keeps a paper's reading and failed state, which the container writes before the text is in", () => {
+    const reading = { ...paper, id: "conicet-55", status: "reading" as const };
+    const failed = { ...reading, id: "conicet-56", status: "failed" as const, error: { code: "pdf_unavailable", message: "no se pudo bajar" } };
+    expect(parseSources(JSON.stringify({ sources: [reading, failed] }))).toEqual([reading, failed]);
+  });
 });
 
 describe("validation of new material", () => {

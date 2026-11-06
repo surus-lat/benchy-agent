@@ -50,6 +50,12 @@ it("summarizes what the collection hands the agent: full texts vs abstracts only
   expect(coverage([conicet, bicyt, upload])).toEqual({ total: 3, full: 2, abstract: 1 });
 });
 
+it("does not count papers still being read (or that failed) as text the agent has", () => {
+  const reading: Source = { ...conicet, id: "conicet-55", status: "reading", text: undefined, pages: undefined, chars: undefined };
+  const failed: Source = { ...reading, id: "conicet-56", status: "failed", error: { code: "pdf_unavailable", message: "no se pudo bajar" } };
+  expect(coverage([reading, failed, conicet])).toEqual({ total: 1, full: 1, abstract: 0 });
+});
+
 it("words the collection summary, empty and mixed", () => {
   expect(coverageNote(coverage([]))).toBe("");
   expect(coverageNote(coverage([conicet]))).toBe("1 con texto completo");

@@ -19,11 +19,14 @@ export function sourceOfPaper(list: Source[], paper: PickedPaper): Source | unde
   return list.find((s) => libraryId(s) === paper.id);
 }
 
-/** What the collection hands the agent: full texts it can cite page-by-page vs abstracts only. */
+/** What the collection hands the agent: full texts it can cite page-by-page vs
+ *  abstracts only. Papers still being read (or that failed) are not yet text
+ *  the agent can write from, so they are not counted here. */
 export function coverage(list: Source[]): { total: number; full: number; abstract: number } {
+  const settled = list.filter((s) => !s.status);
   let full = 0;
-  for (const s of list) if (s.text === "full") full++;
-  return { total: list.length, full, abstract: list.length - full };
+  for (const s of settled) if (s.text === "full") full++;
+  return { total: settled.length, full, abstract: settled.length - full };
 }
 
 /** The collection's one-line summary for the panel head: "2 con texto completo · 1 solo con el resumen". */

@@ -10,7 +10,7 @@ import { ago, badgeText, recentOf, runningOf, STATUS_LABEL, titleOf, type Proces
 
 const POLL_MS = 30_000;
 
-async function fetchProcesses(): Promise<ProcessItem[]> {
+export async function fetchProcesses(): Promise<ProcessItem[]> {
   const res = await fetch("/api/processes", { credentials: "same-origin" });
   if (!res.ok) throw new Error(`HTTP_${res.status}`);
   return ((await res.json()) as { processes: ProcessItem[] }).processes;

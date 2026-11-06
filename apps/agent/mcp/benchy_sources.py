@@ -3,7 +3,8 @@
 Each paper is kept as text next to the exam, where the agent reads it:
 
   <bench>/sources.json             {"sources": [{id, origin, title, authors, year, url,
-                                     pdf_url, file, pages, chars, text, added}]}
+                                     pdf_url, file, pages, chars, text, added,
+                                     status?, error?}]}
   <bench>/sources/<id>.md          the paper: metadata, abstract, full text with
                                      [p. N] page markers to cite
 
@@ -12,6 +13,14 @@ the UNRN/ri-conicet dataset on Hugging Face, and BICyT records whose PDFs the
 Worker keeps in R2) or are PDFs the researcher uploads. A library paper
 without an open PDF, or whose PDF has no text, is kept with its abstract only
 (text: "abstract").
+
+Adding a library paper is asynchronous: fetching the PDF takes up to a
+minute, so the entry goes into sources.json right away with
+status: "reading" and the download/extraction finishes in the background —
+the finished entry drops status, and one that could not be read reads
+status: "failed" with error {code, message}. The app shows the row from the
+moment it is added instead of after the whole read, and a restart that
+interrupted a read is swept at startup (reconcile_reading).
 
 Both the proxy (the app's buttons) and the MCP server (the agent's tools)
 write here, so the index is changed under a file lock.
@@ -51,9 +60,10 @@ MAX_CHARS = 800_000
 # Fewer characters than this in the whole PDF: a scan, not text.
 MIN_TEXT = 200
 
+# The reads this process is finishing in the background, by "<bench>/<id>".
+_tasks: dict[str, asyncio.Task] = {}
+
 _locks: dict[str, asyncio.Lock] = {}
-
-
 @contextlib.asynccontextmanager
 async def _locked(folder: Path):
     """This process's lock, then the cross-process one on <bench>/.sources.lock."""
@@ -213,8 +223,12 @@ def _pages_info(pages: list[str]) -> tuple[int, int]:
     return len(pages), sum(len(p) for p in pages)
 
 
-async def add_paper(bench: str, paper: dict, http: ClientSession) -> dict:
-    """A library paper (the Worker's Paper shape) into the benchmark."""
+async def add_paper(bench: str, paper: dict) -> dict:
+    """A library paper (the Worker's Paper shape) into the benchmark.
+
+    The answer comes back while the PDF is still being read: the entry lands
+    in sources.json with status "reading" and _finish_add fills it in the
+    background, so the app reflects the add right away."""
     folder = bench_dir(bench)
     try:
         pid = int(paper["id"])
@@ -232,17 +246,6 @@ async def add_paper(bench: str, paper: dict, http: ClientSession) -> dict:
     if existing:
         return existing
 
-    pages: list[str] = []
-    missing = None
-    if not pdf_url:
-        missing = "el paper no tiene PDF de acceso abierto"
-    else:
-        data = await _download(http, pdf_url)
-        pages, _ = await asyncio.to_thread(extract, data)
-        if _pages_info(pages)[1] < MIN_TEXT:
-            pages, missing = [], "el PDF no tiene texto extraíble (probablemente está escaneado)"
-
-    n_pages, chars = _pages_info(pages)
     source = {
         "id": sid,
         "origin": origin,
@@ -252,12 +255,117 @@ async def add_paper(bench: str, paper: dict, http: ClientSession) -> dict:
         "url": paper.get("url") if isinstance(paper.get("url"), str) else None,
         "pdf_url": pdf_url,
         "file": f"sources/{sid}.md",
-        "pages": n_pages,
-        "chars": chars,
-        "text": "abstract" if missing else "full",
         "added": int(time.time()),
+        "status": "reading",
     }
-    return await _store(folder, source, str(paper.get("description") or ""), pages, missing)
+    claimed = await _claim(folder, source)
+    if claimed is not source:
+        return claimed
+    key = f"{bench}/{sid}"
+    _tasks[key] = asyncio.create_task(_finish_add(key, folder, source, str(paper.get("description") or "")))
+    return source
+
+
+async def _claim(folder: Path, source: dict) -> dict:
+    """Put the reading entry into the index (refused, as every write, for a
+    published benchmark); the caller already looked and saw nothing, but a
+    concurrent add may have won: then that entry is the one to show."""
+    async with _locked(folder):
+        _writable(folder)
+        sources = load_index(folder)
+        existing = next((s for s in sources if s.get("id") == source["id"]), None)
+        if existing:
+            return existing
+        sources.append(source)
+        _save_index(folder, sources)
+    return source
+
+
+async def _mark_failed(folder: Path, sid: str, code: str, message: str) -> None:
+    async with _locked(folder):
+        sources = load_index(folder)
+        entry = next((s for s in sources if s.get("id") == sid), None)
+        if entry is None or entry.get("status") != "reading":
+            return  # removed while it was being read
+        entry["status"] = "failed"
+        entry["error"] = {"code": code, "message": message}
+        _save_index(folder, sources)
+
+
+async def _finish_add(key: str, folder: Path, placeholder: dict, abstract: str) -> None:
+    """Fetch and extract the PDF the entry promised, then drop it into the
+    index in place of the reading entry (unless the researcher removed it)."""
+    sid = placeholder["id"]
+    try:
+        pages: list[str] = []
+        missing = None
+        pdf_url = placeholder.get("pdf_url")
+        if not pdf_url:
+            missing = "el paper no tiene PDF de acceso abierto"
+        else:
+            # The request's own client lives only as long as the request: a
+            # background read opens its session.
+            async with ClientSession(timeout=ClientTimeout(total=90, sock_connect=10)) as http:
+                data = await _download(http, pdf_url)
+            pages, _ = await asyncio.to_thread(extract, data)
+            if _pages_info(pages)[1] < MIN_TEXT:
+                pages, missing = [], "el PDF no tiene texto extraíble (probablemente está escaneado)"
+        n_pages, chars = _pages_info(pages)
+        source = {**placeholder, "pages": n_pages, "chars": chars, "text": "abstract" if missing else "full"}
+        source.pop("status")
+        async with _locked(folder):
+            sources = load_index(folder)
+            index = next((i for i, s in enumerate(sources) if s.get("id") == sid), None)
+            if index is None:
+                return  # the researcher took it out while it was being read
+            _write(folder / source["file"], render(source, abstract, pages, missing))
+            sources[index] = source
+            _save_index(folder, sources)
+    except SourceError as exc:
+        await _mark_failed(folder, sid, exc.code, exc.message)
+    except Exception as exc:  # a crash here must not leave the entry reading forever
+        await _mark_failed(folder, sid, "read_failed", f"the paper could not be read: {exc}")
+    finally:
+        _tasks.pop(key, None)
+
+
+async def reconcile_reading() -> int:
+    """A container restart leaves background reads nowhere to finish: mark the
+    entries still reading as failed so the app can say so and retry. Returns
+    how many it swept."""
+    swept = 0
+    root = workspace()
+    try:
+        folders = [p for p in root.iterdir() if p.is_dir() and not p.name.startswith(".") and (p / "benchmark.yaml").is_file()]
+    except OSError:
+        return 0
+    for folder in folders:
+        async with _locked(folder):
+            sources = load_index(folder)
+            changed = False
+            for s in sources:
+                if s.get("status") == "reading" and f"{folder.name}/{s.get('id')}" not in _tasks:
+                    s["status"] = "failed"
+                    s["error"] = {"code": "interrupted", "message": "la lectura se interrumpió: volvé a agregar el paper"}
+                    changed = True
+                    swept += 1
+            if changed:
+                _save_index(folder, sources)
+    return swept
+
+
+async def wait_for_read(bench: str, sid: str, timeout: float = 150) -> dict | None:
+    """Block until an entry's background read finishes and answer with the
+    entry as it stands either way: the agent needs the paper's text right
+    after adding it, while the app just shows the row."""
+    task = _tasks.get(f"{bench}/{sid}")
+    if task:
+        with contextlib.suppress(asyncio.TimeoutError, Exception):
+            await asyncio.wait_for(asyncio.shield(task), timeout)
+    try:
+        return next((s for s in load_index(bench_dir(bench)) if s.get("id") == sid), None)
+    except SourceError:
+        return None
 
 
 def _slug(name: str) -> str:

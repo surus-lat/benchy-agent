@@ -274,7 +274,9 @@ async def benchy_add_paper(bench: str, paper_id: int) -> dict:
     Fetches its open PDF and keeps the text, with [p. N] page markers, in
     `<bench>/sources/<id>.md`, listed in `<bench>/sources.json` — where the
     app shows it as one of the benchmark's papers. Without an open PDF only
-    the abstract is kept.
+    the abstract is kept. The PDF is fetched in the background: this waits
+    for it, and answers with the paper's entry once it is ready (or says it
+    could not be read).
 
     Add papers the researcher asked for or agreed to; do not fill a benchmark
     with papers on your own. Adding one that is already there changes nothing.
@@ -283,8 +285,14 @@ async def benchy_add_paper(bench: str, paper_id: int) -> dict:
     if not found.pop("ok"):
         return {"ok": False, **found}
     try:
-        async with ClientSession() as http:
-            source = await benchy_sources.add_paper(bench, found, http)
+        source = await benchy_sources.add_paper(bench, found)
+        if source.get("status") == "reading":
+            # The paper is in the index; its text comes when the background
+            # read finishes. The agent writes from papers, so it waits here
+            # (the app does not: it shows the row right away).
+            source = await benchy_sources.wait_for_read(bench, source["id"]) or source
+        if source.get("status") == "failed":
+            return {"ok": False, "error": source.get("error") or {"code": "read_failed", "message": "the paper could not be read"}}
     except benchy_sources.SourceError as exc:
         return {"ok": False, "error": exc.to_dict()}
     return {"ok": True, "source": source}

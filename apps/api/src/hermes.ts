@@ -62,7 +62,10 @@ export interface HermesClient {
 /** Started; busy (one is already running, its state in `body`); or refused by the engine (why in `body`). */
 export type StartResult = { status: "started" | "busy" | "refused"; body: unknown };
 
-/** A paper in a benchmark, as the container lists it in <bench>/sources.json. */
+/** A paper in a benchmark, as the container lists it in <bench>/sources.json.
+ *  A library paper lands there with status "reading" while the container is
+ *  still fetching and extracting its PDF ("failed" if that did not work);
+ *  until then text/pages/chars are not filled in. */
 export type Source = {
   id: string;
   origin: "conicet" | "upload";
@@ -72,11 +75,13 @@ export type Source = {
   url: string | null;
   pdf_url: string | null;
   file: string;
-  pages: number;
-  chars: number;
+  pages?: number;
+  chars?: number;
   /** "abstract" when there was no PDF or no text in it: only the abstract is kept. */
-  text: "full" | "abstract";
+  text?: "full" | "abstract";
   added: number;
+  status?: "reading" | "failed";
+  error?: { code: string; message: string };
 };
 
 export type SourceResult = { ok: true; source: Source } | { ok: false; error: { code: string; message: string } };
@@ -129,7 +134,8 @@ export class HermesError extends Error {
  *  the conversation (STALE_TURN_MS) has to outlive it. */
 const TURN_TIMEOUT_MS = 25 * 60 * 1000;
 const SESSION_TIMEOUT_MS = 90 * 1000;
-/** Fetching a PDF and extracting its text. */
+/** Fetching a PDF and extracting its text: an upload is still read inside the
+ *  request; a library paper only waits for its entry to be claimed. */
 const SOURCE_TIMEOUT_MS = 2 * 60 * 1000;
 
 export function hermesClient(baseUrl: string, apiKey: string): HermesClient {

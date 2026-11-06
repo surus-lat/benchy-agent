@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { errorText, ApiError } from "./data";
-import { usePlatform } from "./store";
-import { authorsLine, library, libraryErrorText, sources as sourcesApi, TYPE_LABEL, type LibraryHit, type SemanticHit, type Source } from "./library-data";
+import { usePlatform, usePokeWhile } from "./store";
+import { authorsLine, library, libraryErrorText, libraryId, sources as sourcesApi, TYPE_LABEL, type LibraryHit, type SemanticHit, type Source } from "./library-data";
 import { coverage, coverageNote, pickedFromSources, sourceOfPaper } from "./fuentes-model";
 import type { PickedPaper } from "./new-bench-model";
 import type { Design } from "./exam-model";
@@ -46,8 +46,14 @@ export function SourcesStage({
   onChanged: (change: string) => void;
 }) {
   const { pendingSources, failedSources, dismissFailedSource, addSource } = usePlatform();
-  const reading = pendingSources.filter((p) => p.bench === bench);
+  // The container records the paper in sources.json the moment it is added
+  // (status "reading"), so the local card only covers the seconds before that
+  // row arrives: once it is on the list, the list itself shows the reading.
+  const reading = pendingSources.filter((p) => p.bench === bench && !list.some((s) => libraryId(s) === p.id));
   const failed = failedSources.filter((p) => p.bench === bench);
+  // A row the container is still reading: look at the listing often so it
+  // flips to ready without waiting for the 30 s background look.
+  usePokeWhile(list.some((s) => s.status === "reading"));
 
   // Where the curaduría leads: writing the questions from what was picked.
   useStageCta(setStageCta, {
@@ -67,6 +73,7 @@ export function SourcesStage({
   const chosen = useMemo(() => new Set(picked.map((p) => p.id)), [picked]);
   const busy = new Set(reading.map((p) => p.id));
   const cov = coverage(list);
+  const readingAll = reading.length + list.filter((s) => s.status === "reading").length;
 
   const remove = async (s: Source) => {
     if (frozen) {
@@ -128,10 +135,10 @@ export function SourcesStage({
               <span className="ws-eyebrow">Elegidas</span>
               <span className="ws-fnt-count">{list.length === 1 ? "1 fuente" : `${list.length} fuentes`}</span>
             </div>
-            {cov.total > 0 || reading.length > 0 ? (
+            {cov.total > 0 || readingAll > 0 ? (
               <span className="ws-fnt-cov">
                 {coverageNote(cov)}
-                {reading.length ? `${cov.total > 0 ? " · " : ""}${reading.length} leyéndose` : ""}
+                {readingAll ? `${cov.total > 0 ? " · " : ""}${readingAll} leyéndose` : ""}
               </span>
             ) : null}
             <div className="ws-fnt-design">
@@ -175,6 +182,30 @@ export function SourcesStage({
           ))}
           {list.map((s) => {
             const href = s.pdf_url ?? s.url;
+            // A row the container is still reading (or that failed): it is in
+            // the collection, but without text yet.
+            if (s.status === "reading")
+              return (
+                <div key={s.id} className="ws-fnt-src reading">
+                  <span className="t">{s.title}</span>
+                  <span className="m">Leyendo el PDF: puede tardar un minuto</span>
+                  <span className="ws-indet" aria-hidden="true">
+                    <span />
+                  </span>
+                </div>
+              );
+            if (s.status === "failed")
+              return (
+                <div key={s.id} className="ws-fnt-src failed">
+                  <span className="t">{s.title}</span>
+                  <span className="m">No se pudo agregar: {libraryErrorText(s.error?.code ?? "")}</span>
+                  <div className="h">
+                    <button className="ws-link" disabled={removing !== null || frozen} title="Sacalo y volvé a elegirlo para reintentar" onClick={() => void remove(s)}>
+                      Sacar para reintentar
+                    </button>
+                  </div>
+                </div>
+              );
             return (
               <div key={s.id} className="ws-fnt-src">
                 <div className="h">

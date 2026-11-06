@@ -324,7 +324,11 @@ function PaperDetail({ id, onClose }: { id: number; onClose: () => void }) {
             ) : added ? (
               <p className="lib-ok">
                 Agregado a {benches.find((b) => b.slug === added.bench)?.doc?.title ?? added.bench}
-                {added.source.text === "full" ? ` · ${added.source.pages} páginas de texto` : " · solo el resumen (sin PDF abierto)"}.{" "}
+                {added.source.status === "reading"
+                  ? ": el agente lo está leyendo, puede tardar un minuto"
+                  : added.source.text === "full"
+                    ? ` · ${added.source.pages} páginas de texto`
+                    : " · solo el resumen (sin PDF abierto)"}.{" "}
                 <button className="lib-link" onClick={() => navigate(`/app/b/${encodeURIComponent(added.bench)}/fuentes`)}>
                   Abrir el benchmark →
                 </button>
@@ -561,7 +565,7 @@ export function LibraryBrowser({
 export function SourceRow({ s, action }: { s: Source; action?: ReactNode }) {
   const href = s.pdf_url ?? s.url;
   return (
-    <div className="lib-source">
+    <div className={`lib-source${s.status ? ` ${s.status}` : ""}`}>
       <span className={`lib-tag ${s.origin}`}>{s.origin === "conicet" ? "CONICET" : s.origin === "bicyt" ? "BICyT" : "PDF"}</span>
       <span className="b">
         {href ? (
@@ -573,7 +577,15 @@ export function SourceRow({ s, action }: { s: Source; action?: ReactNode }) {
         )}
         <span className="m">
           {[authorsLine(s.authors, 2), s.year].filter(Boolean).join(" · ")} ·{" "}
-          {s.text === "full" ? `${s.pages} páginas` : <span className="warn">solo el resumen</span>}
+          {s.status === "reading" ? (
+            <span>leyendo el PDF: puede tardar un minuto</span>
+          ) : s.status === "failed" ? (
+            <span className="warn">no se pudo leer: {libraryErrorText(s.error?.code ?? "")}</span>
+          ) : s.text === "full" ? (
+            `${s.pages} páginas`
+          ) : (
+            <span className="warn">solo el resumen</span>
+          )}
         </span>
       </span>
       {action}
