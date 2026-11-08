@@ -34,6 +34,7 @@ import {
   libraryId,
   sources as sourcesApi,
   libraryErrorText,
+  sourceNeedsValidation,
   sourceState,
   validation as validationApi,
   type ChecklistItem,
@@ -311,10 +312,11 @@ export default function Workspace({ slug, stage: stageParam }: { slug: string; s
   // whose row has not arrived yet.
   const readingLocal: PendingSource[] = pendingSources.filter((p) => p.bench === slug && !papers.some((s) => libraryId(s) === p.id));
   const readingCount = readingLocal.length + papers.filter((s) => s.status === "reading").length;
-  // The papers the agent may write questions from: the validated ones. A
-  // pending paper waits for the org's checklist in the Papers drawer and stays
-  // out of generation (the batch prompt names only the validated ids).
-  const validPapers = papers.filter((s) => sourceState(validations[s.id]) === "validated");
+  // The papers the agent may write questions from: a library paper (CONICET /
+  // BICyT) is legitimized by its repository and counts as validated by
+  // construction; an uploaded PDF waits for the org's checklist in the Papers
+  // drawer and stays out of generation (the batch prompt names only the valid ids).
+  const validPapers = papers.filter((s) => !sourceNeedsValidation(s) || sourceState(validations[s.id]) === "validated");
   // The exam is "concretado" when the grader has reviewed every question as it
   // stands, the researcher approved each one, and it compiles.
   // An open exam with no criteria has nothing to grade with: that blocks what
@@ -752,7 +754,8 @@ function Authoring({
   const [filter, setFilter] = useState<"all" | "pend" | "issues">("all");
   const [batchOpen, setBatchOpen] = useState(false);
   const [batchN, setBatchN] = useState(5);
-  // Papers waiting for the org's checklist: they stay out of generation.
+  // Papers still waiting for the org's checklist: with library papers valid by
+  // construction, these are exactly the uploaded PDFs not yet validated.
   const pendingCount = papers.length - validPapers.length;
   // MC exams get the same authoring affordances (papers, batches, the approval
   // status) minus the rubric ones (quality scoring): its judge assumes open answers.
@@ -1733,7 +1736,9 @@ const MAX_UPLOAD = 24 * 1024 * 1024;
 
 /** One source's validation under the org's checklist: "Validada ✓" (with who
  *  and when, when there's a row), or "Pendiente de validación" with the items
- *  to tick. A source without a row predates the feature and shows as validated. */
+ *  to tick. A library paper (CONICET / BICyT) is legitimized by its repository:
+ *  it shows as validated by construction, with no checklist to tick. An upload
+ *  without a row predates the feature and shows as validated. */
 function ValidationRow({
   source,
   checklist,
@@ -1747,6 +1752,10 @@ function ValidationRow({
   ticking: string | null;
   onTick: (s: Source, itemId: string, on: boolean) => void;
 }) {
+  if (!sourceNeedsValidation(source)) {
+    // Legitimized by the institutional repository: no org checklist applies.
+    return <p className="ws-val-line ok">✓ Validada · viene de la biblioteca {source.origin === "bicyt" ? "BICyT" : "CONICET"}</p>;
+  }
   if (sourceState(v) === "validated") {
     const when = v?.validatedAt ? new Date(v.validatedAt) : null;
     return (
@@ -1814,7 +1823,7 @@ function ChecklistSection({ checklist, onChecklist }: { checklist: ChecklistItem
   return (
     <div className="ws-checklist">
       <p className="ws-eyebrow" style={{ marginTop: 10 }}>Checklist de validación</p>
-      <p className="ws-note">Lo que tiene que cumplir un paper nuevo antes de que el agente escriba preguntas desde él. Cambiarlo no afecta lo ya validado.</p>
+      <p className="ws-note">Lo que tiene que cumplir un PDF subido antes de que el agente escriba preguntas desde él. Cambiarlo no afecta lo ya validado.</p>
       {editing ? (
         <div className="ws-val-edit">
           {draft.map((item, i) => (
@@ -1972,7 +1981,8 @@ function PapersDrawer({
         <div className="ws-drawer-body">
           <p className="ws-note">
             Las preguntas salen de estos papers: el agente los lee y en cada pregunta cita el paper y la página. Si un paper no tiene PDF abierto,
-            el agente solo tiene su resumen. Un paper nuevo entra pendiente de validación y el agente no lo usa hasta que pase el checklist.
+            el agente solo tiene su resumen. Un PDF subido por la organización entra pendiente de validación y el agente no lo usa hasta que pase el
+            checklist; un paper de la biblioteca ya viene validado.
           </p>
           <Link href={`/app/b/${encodeURIComponent(bench)}/fuentes`} className="ws-fuentes-link" onClick={onClose}>
             Abrir Fuentes → la bibliografía en pantalla completa

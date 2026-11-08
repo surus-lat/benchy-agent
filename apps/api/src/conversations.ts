@@ -561,11 +561,9 @@ export function createConversationsApp(deps: ConversationsDeps) {
     try {
       const result = await agent.addSource(body.bench, paper);
       if (result.ok) {
-        const user = c.get("user");
-        await log(user, body.bench, "paper", `agregó «${paper.title}»`);
-        // New material starts pending: it passes the org's checklist before
-        // the agent writes questions from it.
-        await markPending(user.orgId, body.bench, result.source.id);
+        await log(c.get("user"), body.bench, "paper", `agregó «${paper.title}»`);
+        // A library paper is legitimized by its repository (CONICET / BICyT):
+        // no pending validation row — only uploaded PDFs go through the checklist.
       }
       return c.json(result);
     } catch (err) {
@@ -1300,9 +1298,10 @@ export function createConversationsApp(deps: ConversationsDeps) {
     return DEFAULT_CHECKLIST.map((it) => ({ id: it.id, label: it.label }));
   }
 
-  /** A source added from the platform starts pending: it passes the org's
-   *  checklist before the agent writes questions from it. Re-adding one that
-   *  was removed starts it over. */
+  /** An uploaded PDF starts pending: it passes the org's checklist before the
+   *  agent writes questions from it (a library paper is legitimized by its
+   *  repository and never gets a row). Re-adding one that was removed starts
+   *  it over. */
   async function markPending(orgId: string, bench: string, sourceId: string) {
     const now = new Date();
     await db

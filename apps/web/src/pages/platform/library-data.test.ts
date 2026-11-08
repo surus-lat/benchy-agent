@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
-import { authorsLine, citation, parseSources, sourceState, type Source } from "./library-data";
+import { readFileSync } from "fs";
+import { resolve } from "path";
+import { authorsLine, citation, parseSources, sourceNeedsValidation, sourceState, type Source } from "./library-data";
 
 const paper: Source = {
   id: "conicet-179477",
@@ -56,6 +58,27 @@ describe("validation of new material", () => {
     expect(sourceState({ sourceId: "pdf-1", checked: [], validatedAt: null, validatedByName: null })).toBe("pending");
     expect(sourceState({ sourceId: "pdf-1", checked: ["respaldo"], validatedAt: null, validatedByName: null })).toBe("pending");
     expect(sourceState({ sourceId: "pdf-1", checked: [], validatedAt: "2026-10-20T00:00:00.000Z", validatedByName: "Ana" })).toBe("validated");
+  });
+});
+
+describe("who goes through the source checklist", () => {
+  it("library papers (conicet / bicyt) are validated by construction; only an upload needs the checklist", () => {
+    const bicyt: Source = { ...paper, id: "bicyt-12599897", origin: "bicyt" };
+    expect(sourceNeedsValidation(paper)).toBe(false);
+    expect(sourceNeedsValidation(bicyt)).toBe(false);
+    expect(sourceNeedsValidation(upload)).toBe(true);
+  });
+});
+
+// The Papers drawer's ValidationRow, without a DOM renderer: guard the source.
+describe("ValidationRow in the Papers drawer", () => {
+  const workspace = readFileSync(resolve(__dirname, "workspace.tsx"), "utf-8");
+  const rowFn = workspace.slice(workspace.indexOf("function ValidationRow("), workspace.indexOf("function ChecklistSection("));
+
+  it("settles a library source as validated by its repository, before any checkbox", () => {
+    expect(rowFn).toMatch(/sourceNeedsValidation\(source\)/);
+    expect(rowFn).toMatch(/✓ Validada · viene de la biblioteca/);
+    expect(rowFn.indexOf("viene de la biblioteca")).toBeLessThan(rowFn.indexOf('type="checkbox"'));
   });
 });
 

@@ -8,11 +8,12 @@ import type { HermesClient, Source } from "../src/hermes";
 import type { Paper } from "../src/library";
 
 // The org's checklist for validating new material (sourceChecklistItems) and
-// one benchmark source's state against it (sourceValidations): material added
-// from the platform starts pending and is validated when every item of the
-// org's checklist is ticked; material from before this feature has no row and
-// counts as validated (grandfathered). Editing the checklist never revalidates
-// what already passed. Hermes is a fake whose adds succeed.
+// one benchmark source's state against it (sourceValidations): an uploaded PDF
+// starts pending and is validated when every item of the org's checklist is
+// ticked; a library paper (CONICET / BICyT) is legitimized by its repository
+// and gets no row. Material from before this feature has no row and counts as
+// validated (grandfathered). Editing the checklist never revalidates what
+// already passed. Hermes is a fake whose adds succeed.
 
 const db = drizzle(env.DB, { schema });
 
@@ -186,6 +187,15 @@ async function tick(
   return ((await res.json()) as { validation: Validation }).validation;
 }
 
+async function uploadPdf(app: ReturnType<typeof makeApp>, user: CurrentUser, bench: string) {
+  const res = await app.request(`/api/workspace/sources/upload?bench=${bench}&name=apunte.pdf`, {
+    method: "POST",
+    headers: { "x-test-user": user.id, "content-type": "application/pdf" },
+    body: new TextEncoder().encode("%PDF-1.7 fake"),
+  });
+  expect(res.status).toBe(200);
+}
+
 beforeEach(async () => {
   // Adding or removing a source logs activity rows that point at the org.
   await db.delete(schema.activity);
@@ -279,41 +289,36 @@ it("seeds each org's checklist with the placeholder items and persists its edits
   expect(await db.select().from(schema.sourceChecklistItems).where(eq(schema.sourceChecklistItems.orgId, "org_otra"))).toHaveLength(3);
 });
 
-it("starts platform-added material pending and validates it when the checklist is fully ticked", async () => {
+it("does not mark a library paper pending: it comes legitimized from the repository", async () => {
   const hermes = fakeHermes();
   const app = makeApp(hermes.client);
 
-  // Adding a library paper to the bench records its validation row as pending.
   const add = await req(app, "POST", "/api/workspace/sources", ana, { bench: "qa", paperId: 42 });
   expect(add.status).toBe(200);
   expect(hermes.added).toEqual(["conicet-42"]);
+  // No row: the paper is from the institutional repository, already legitimized.
+  expect(await validations(app, ana, "qa")).toEqual([]);
+});
+
+it("starts an uploaded PDF pending and validates it when the checklist is fully ticked", async () => {
+  const app = makeApp(fakeHermes().client);
+
+  await uploadPdf(app, ana, "qa");
   const pending = await validations(app, ana, "qa");
-  expect(pending).toEqual([{ sourceId: "conicet-42", checked: [], validatedAt: null, validatedByName: null }]);
+  expect(pending).toEqual([{ sourceId: "pdf-9f8e7d", checked: [], validatedAt: null, validatedByName: null }]);
 
   // Ticking one item of three: still pending.
-  const partial = await tick(app, ana, "qa", "conicet-42", ["respaldo"]);
+  const partial = await tick(app, ana, "qa", "pdf-9f8e7d", ["respaldo"]);
   expect(partial).toMatchObject({ checked: ["respaldo"], validatedAt: null });
 
   // Ticking every item of the current checklist: validated, with who and when.
-  const done = await tick(app, ana, "qa", "conicet-42", ["respaldo", "formato", "trazabilidad"]);
+  const done = await tick(app, ana, "qa", "pdf-9f8e7d", ["respaldo", "formato", "trazabilidad"]);
   expect(done.checked).toHaveLength(3);
   expect(done.validatedAt).not.toBeNull();
   expect(done.validatedByName).toBe("Ana Pérez");
   const [row] = await db.select().from(schema.sourceValidations);
-  expect(row).toMatchObject({ orgId: "org_uni", bench: "qa", sourceId: "conicet-42", validatedBy: "user_ana" });
+  expect(row).toMatchObject({ orgId: "org_uni", bench: "qa", sourceId: "pdf-9f8e7d", validatedBy: "user_ana" });
   expect((await validations(app, ana, "qa"))[0].validatedAt).not.toBeNull();
-});
-
-it("marks uploaded material pending too", async () => {
-  const app = makeApp(fakeHermes().client);
-  const pdf = new TextEncoder().encode("%PDF-1.7 fake");
-  const res = await app.request("/api/workspace/sources/upload?bench=qa&name=apunte.pdf", {
-    method: "POST",
-    headers: { "x-test-user": ana.id, "content-type": "application/pdf" },
-    body: pdf,
-  });
-  expect(res.status).toBe(200);
-  expect(await validations(app, ana, "qa")).toEqual([{ sourceId: "pdf-9f8e7d", checked: [], validatedAt: null, validatedByName: null }]);
 });
 
 it("treats material with no row as validated (grandfathered) and never revalidates what passed", async () => {
@@ -362,19 +367,19 @@ it("forgets the validation when the source is removed, and starts it over if re-
   const hermes = fakeHermes();
   const app = makeApp(hermes.client);
 
-  await req(app, "POST", "/api/workspace/sources", ana, { bench: "qa", paperId: 42 });
-  await tick(app, ana, "qa", "conicet-42", DEFAULT_IDS);
+  await uploadPdf(app, ana, "qa");
+  await tick(app, ana, "qa", "pdf-9f8e7d", DEFAULT_IDS);
   expect(await validations(app, ana, "qa")).toHaveLength(1);
 
-  const del = await req(app, "DELETE", "/api/workspace/sources?bench=qa&id=conicet-42", ana);
+  const del = await req(app, "DELETE", "/api/workspace/sources?bench=qa&id=pdf-9f8e7d", ana);
   expect(del.status).toBe(200);
-  expect(hermes.removed).toEqual(["conicet-42"]);
+  expect(hermes.removed).toEqual(["pdf-9f8e7d"]);
   expect(await validations(app, ana, "qa")).toEqual([]);
   expect(await db.select().from(schema.sourceValidations)).toHaveLength(0);
 
-  // Re-adding the same paper is new material: pending again.
-  await req(app, "POST", "/api/workspace/sources", ana, { bench: "qa", paperId: 42 });
-  expect(await validations(app, ana, "qa")).toEqual([{ sourceId: "conicet-42", checked: [], validatedAt: null, validatedByName: null }]);
+  // Re-adding the same PDF is new material: pending again.
+  await uploadPdf(app, ana, "qa");
+  expect(await validations(app, ana, "qa")).toEqual([{ sourceId: "pdf-9f8e7d", checked: [], validatedAt: null, validatedByName: null }]);
 });
 
 it("ignores ticked items that are not in the checklist", async () => {
