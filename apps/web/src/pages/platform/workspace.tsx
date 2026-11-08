@@ -214,7 +214,7 @@ export default function Workspace({ slug, stage: stageParam }: { slug: string; s
     }
   }, []);
 
-  // ⌘J / Ctrl+J swaps the windows; Escape closes the rubric.
+  // ⌘J / Ctrl+J expands or collapses the agent panel; Escape closes the rubric.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "j") {
@@ -233,7 +233,7 @@ export default function Workspace({ slug, stage: stageParam }: { slug: string; s
     return () => window.removeEventListener("keydown", onKey);
   }, []);
 
-  // A new agent reply while A is in front counts as unread.
+  // A new agent reply while the agent panel is collapsed counts as unread.
   const replies = chat.messages.filter((m) => m.role === "assistant").length;
   const seen = useRef(replies);
   useEffect(() => {
@@ -366,7 +366,6 @@ export default function Workspace({ slug, stage: stageParam }: { slug: string; s
         </div>
 
         <section className={`ws-win ws-a${front === "A" ? " front" : ""}${instant ? " instant" : ""}`} aria-label="A · Interfaz">
-          {front === "B" && <button className="ws-win-back" onClick={() => bringFront("A")} aria-label="Traer la interfaz al frente" />}
           <div className="ws-toolbar">
             <span className="ws-tag">A</span>
             <span className="ws-crumb">
@@ -643,7 +642,7 @@ function WsHeader({ org, front, unread, onFront }: { org?: string; front: "A" | 
       </Link>
       {org && <Link href="/app" className="ws-org">{org}</Link>}
       <div className="ws-head-right">
-        <div role="group" aria-label="Ventana al frente" className="ws-seg">
+        <div role="group" aria-label="Panel del agente" className="ws-seg">
           <button aria-pressed={front === "A"} className={front === "A" ? "on" : ""} onClick={() => onFront("A")}>
             <span className="k">A</span>Interfaz
           </button>
@@ -2373,7 +2372,6 @@ function AgentWindow({
 
   return (
     <section className={`ws-win ws-b${front === "B" ? " front" : ""}${instant ? " instant" : ""}`} aria-label="B · Agente">
-      {front === "A" && <button className="ws-win-back" onClick={() => onFront("B")} aria-label="Traer el agente al frente" />}
       <div className="ws-b-main">
         <div className="ws-b-head">
           <span className="ws-tag b">B</span>
@@ -2388,6 +2386,9 @@ function AgentWindow({
           </span>
           <span className="t">Agente</span>
           <span className="s">trabaja sobre el mismo examen</span>
+          <button className="ws-b-collapse" onClick={() => onFront("A")} aria-label="Colapsar el panel del agente" title="Colapsar el panel del agente (⌘J)">
+            »
+          </button>
         </div>
         <div className="ws-thread" ref={thread}>
           {items.length === 0 && (
@@ -2516,7 +2517,7 @@ function AgentWindow({
           </form>
         </div>
       </div>
-      <button className="ws-strip" onClick={() => onFront("B")} aria-label="Agente">
+      <button className="ws-strip" onClick={() => onFront("B")} aria-label="Expandir el panel del agente" title="Expandir el panel del agente (⌘J)">
         <span className="d" />
         <span className="v">B · Agente</span>
         {unread > 0 && <span className="ws-unread">{unread}</span>}
