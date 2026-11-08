@@ -131,7 +131,8 @@ async def benchy_run(path: str, model: str | None = None) -> dict:
 async def benchy_review(path: str) -> dict:
     """Before running a rubric benchmark, grade every expert answer (the
     exam's `expected` answer) against the benchmark's own rubric, with its
-    grader.
+    grader. In a mixed exam, rows carrying `options` are routed to their
+    exact-match metric and are not graded against the rubric.
 
     The expert answer should meet every criterion. Rows that miss one are a
     weak answer key or a criterion worded too strictly: show the researcher

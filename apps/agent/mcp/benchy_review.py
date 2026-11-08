@@ -1,12 +1,17 @@
 """Review an exam before running it: the grader grades every expert answer
-against the benchmark's own rubric.
+against the benchmark's own rubric — except rows the benchmark routes away
+from the rubric (a mixed exam's multiple-choice rows), which never reach
+the grader.
 
 The expert answer is the answer key, so it should meet every criterion. A
 criterion it misses is either a weak answer or a criterion worded so even the
-expert fails it, and both are worth fixing before any model is scored. The
-result goes to `<benchmark folder>/review.json`, which the app reads; it keeps
-each question and answer verbatim so the app can tell when a row changed after
-its review.
+expert fails it, and both are worth fixing before any model is scored. A row
+whose input carries the field a `route` points at (e.g. `options`) scores by
+the routed metric against itself — the engine's own per-row resolution
+(`score.dimension_metric`), which is what a run scores for a perfect
+prediction on that row. The result goes to `<benchmark folder>/review.json`,
+which the app reads; it keeps each question and answer verbatim so the app
+can tell when a row changed after its review.
 
 Shared by the MCP server (`benchy_review`) and the proxy (`POST /benchy/review`).
 """
@@ -18,7 +23,7 @@ import json
 import time
 from pathlib import Path
 
-from benchy import data, providers, score, types
+from benchy import data, metrics, providers, score, types
 from benchy.errors import BenchyError
 
 from benchy_shared import check_models
@@ -46,6 +51,20 @@ async def review(ir: dict, source: Path) -> dict:
 
     async def one(index: int, inputs: dict, expected: dict) -> dict:
         reference = score.value_at(expected, path)
+        name, params = score.dimension_metric(dimension, inputs)
+        if name != score.RUBRIC:
+            # A routed row (it carries the routed optional input field, e.g.
+            # options in a mixed exam) is excluded from rubric grading, exactly
+            # as the engine scores it: by the routed metric. The expert answer
+            # is the answer key, so it matches itself — a run's perfect
+            # prediction on this row. `exact` mirrors score.score_example's
+            # schema-aware comparison; the registry metrics score directly.
+            value = (
+                1.0 if types.equal(reference, reference, types.at(ir["program"]["output"], path)) else 0.0
+                if name == "exact"
+                else metrics.score(name, reference, reference, params)
+            )
+            return {"index": index, "input": inputs, "answer": reference, "score": value, "metric": name}
         async with gate:
             try:
                 reply = await grader.invoke(score.grader_input(inputs, reference, reference, criteria))
