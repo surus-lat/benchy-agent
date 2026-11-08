@@ -901,6 +901,7 @@
 .ws-kw-chip button { border: 0; background: transparent; padding: 2px 4px; font-size: 11px; line-height: 1; color: var(--muted); }
 .ws-kw-chip button:hover:not(:disabled) { color: var(--fail); }
 .ws-kw-none { align-self: center; font-size: 12px; color: var(--muted); }
+.ws-kw-chips .ws-crit-count { align-self: center; }
 .ws-kw-row { display: flex; align-items: center; gap: 8px; }
 .ws-kw-input { flex: 1; min-width: 0; border: 1px solid var(--line); border-radius: 9px; background: #fff; padding: 7px 10px; font: 13px var(--sans); color: var(--ink); }
 .ws-kw-input:focus { outline: none; border-color: var(--ink); box-shadow: 0 0 0 3px rgba(42, 46, 58, 0.1); }

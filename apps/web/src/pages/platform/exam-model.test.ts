@@ -4,6 +4,7 @@ import {
   correctOptionKey,
   criterionMet,
   criteriaEntryStep,
+  designKeywords,
   groupsOf,
   parseBenchDoc,
   parseDesign,
@@ -26,6 +27,7 @@ import {
   setCriterion,
   shareOf,
   hasDesign,
+  MAX_KEYWORDS,
   EMPTY_DESIGN,
   type Quality,
   type Review,
@@ -253,6 +255,17 @@ describe("benchmark design (design.json)", () => {
     expect(parseDesign('{"keywords":"a, a, a"}').keywords).toEqual(["a"]);
     expect(parseDesign('{"keywords":{}}').keywords).toEqual([]);
     expect(parseDesign(`{"keywords":${JSON.stringify(Array.from({ length: 30 }, (_, i) => `t${i}`))}}`).keywords).toHaveLength(12);
+  });
+
+  it("caps the keywords at twelve, folding case-insensitive duplicates first", () => {
+    const many = Array.from({ length: 20 }, (_, i) => `t${i}`);
+    expect(designKeywords(many)).toEqual(many.slice(0, MAX_KEYWORDS));
+    // Duplicates fold before the cap, so they never take a slot.
+    expect(designKeywords(["A", "a", " b "])).toEqual(["A", "b"]);
+    // A partial add: ten already in, four typed at once — only the first two fit.
+    const ten = Array.from({ length: 10 }, (_, i) => `k${i}`);
+    expect(designKeywords([...ten, "n1, n2, n3, n4"])).toEqual([...ten, "n1", "n2"]);
+    expect(MAX_KEYWORDS).toBe(12);
   });
 
   it("round-trips through serializeDesign with an updatedAt stamp", () => {
