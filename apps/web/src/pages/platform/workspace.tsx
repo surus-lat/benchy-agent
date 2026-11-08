@@ -448,6 +448,7 @@ export default function Workspace({ slug, stage: stageParam }: { slug: string; s
             ) : stage === "criterios" ? (
               <CriteriaStage
                 bench={slug}
+                benchTitle={exam.doc?.title ?? slug}
                 exam={exam}
                 openExam={openExam}
                 mcExam={mcExam}
@@ -460,6 +461,7 @@ export default function Workspace({ slug, stage: stageParam }: { slug: string; s
             ) : stage === "fuentes" ? (
               <SourcesStage
                 bench={slug}
+                benchTitle={exam.doc?.title ?? slug}
                 list={papers}
                 design={exam.design}
                 criteriaCount={exam.criteria?.length ?? 0}
@@ -477,6 +479,7 @@ export default function Workspace({ slug, stage: stageParam }: { slug: string; s
             ) : stage === "autoria" ? (
               <Authoring
                 exam={exam}
+                benchTitle={exam.doc?.title ?? slug}
                 author={me?.user.name?.trim() || me?.user.email || "vos"}
                 openExam={openExam}
                 mcExam={mcExam}
@@ -670,6 +673,7 @@ function ValidationBadge({ bench }: { bench: BenchSummary }) {
 
 function Authoring({
   exam,
+  benchTitle,
   author,
   openExam,
   mcExam,
@@ -700,6 +704,8 @@ function Authoring({
   onNext,
 }: {
   exam: ExamState;
+  /** The benchmark display name, kept visible as orientation while the stage is open. */
+  benchTitle: string;
   /** The researcher's name, recorded as who wrote a question. */
   author: string;
   openExam: boolean;
@@ -878,6 +884,7 @@ function Authoring({
     <div className="ws-aut">
       <aside className="ws-qlist" aria-label="Preguntas">
         <div className="ws-qlist-head">
+          <p className="ws-eyebrow">03 · Preguntas · {benchTitle}</p>
           <div className="ws-eyebrow-row">
             <span>Preguntas</span>
             <span>{qs.length}</span>
@@ -2158,6 +2165,7 @@ function EvaluationStage({
   const top = board[0]?.result.benchmark_score ?? 0;
   return (
     <div className="ws-scroll ws-pad-lg ws-grid2">
+      <p className="ws-eyebrow ws-stage-id">04 · Evaluación · {bench.doc?.title ?? bench.slug}</p>
       <div className="ws-card ws-clip">
         <div className="ws-pad">
           <p className="ws-eyebrow">Sistemas de IA</p>

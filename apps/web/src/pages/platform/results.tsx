@@ -113,6 +113,7 @@ export function ResultsStage({
     <>
       <div className="ws-scroll ws-pad-lg">
         <div className="ws-ana">
+          <p className="ws-eyebrow">05 · Resultados · {bench.doc?.title ?? bench.slug}</p>
           {running && ev && (
             <div className="ws-res-live">
               <EvaluationProgress bench={bench} ev={ev} catalog={catalog} onReport={() => void evaluation.startReport()} />

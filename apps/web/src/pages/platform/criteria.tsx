@@ -115,6 +115,7 @@ const localForget = (key: string) => {
 
 export function CriteriaStage({
   bench,
+  benchTitle,
   exam,
   openExam,
   mcExam,
@@ -126,6 +127,8 @@ export function CriteriaStage({
 }: {
   /** The benchmark folder: the agent needs it to find design.json and the rubric. */
   bench: string;
+  /** The benchmark display name, kept visible as orientation while the stage is open. */
+  benchTitle: string;
   exam: ExamState;
   openExam: boolean;
   mcExam: boolean;
@@ -342,7 +345,7 @@ export function CriteriaStage({
       <div className="ws-crit-page ws-pad-lg">
         <div className="ws-criteria">
           <header className="ws-crit-hero">
-            <p className="ws-eyebrow">01 · Criterios de evaluación · Paso {step === "design" ? "1" : "2"} de 2</p>
+            <p className="ws-eyebrow">01 · Criterios de evaluación · {benchTitle} · Paso {step === "design" ? "1" : "2"} de 2</p>
             <div className="ws-crit-title">
               <h2>{step === "design" ? "¿Qué queremos averiguar?" : "¿Cómo se mide cada respuesta?"}</h2>
               {step === "criteria" && (
