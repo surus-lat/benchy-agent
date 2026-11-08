@@ -34,7 +34,8 @@ export function PublicationStage({
   bench: BenchSummary;
   exam: ExamState;
   openExam: boolean;
-  /** Multiple choice: published as exact-match questions, no rubric line. */
+  /** Multiple choice: published as exact-match questions, no rubric line. A mixed
+   *  exam passes both flags true (its open rows keep the rubric line). */
   mcExam: boolean;
   go: (s: PubStage) => void;
   showAgent: () => void;
@@ -282,7 +283,9 @@ function PublishView({ bench, exam, openExam, mcExam, go }: { bench: BenchSummar
                 {openExam
                   ? rubricCount === 0
                     ? " de respuesta abierta, todavía sin criterios de evaluación."
-                    : ` de respuesta abierta, cada una juzgada contra una respuesta experta con ${rubricCount} criterios de evaluación.`
+                    : mcExam
+                      ? ` —abiertas y de opción múltiple—: las abiertas se juzgan contra una respuesta experta con ${rubricCount} criterios de evaluación y las de opción múltiple se corrigen por coincidencia exacta con la respuesta correcta.`
+                      : ` de respuesta abierta, cada una juzgada contra una respuesta experta con ${rubricCount} criterios de evaluación.`
                   : mcExam
                     ? " de opción múltiple, corregidas por coincidencia exacta con la respuesta correcta."
                     : "."}

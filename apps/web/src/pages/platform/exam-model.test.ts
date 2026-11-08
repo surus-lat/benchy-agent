@@ -6,6 +6,7 @@ import {
   criteriaEntryStep,
   designKeywords,
   groupsOf,
+  isMultipleChoiceExam,
   parseBenchDoc,
   parseDesign,
   parseExam,
@@ -16,6 +17,7 @@ import {
   readInputFields,
   readMetric,
   readOptions,
+  readRoute,
   rubricMissing,
   addCriterion,
   removeCriterion,
@@ -222,6 +224,46 @@ data: { path: ./exam.jsonl }
     expect(readMetric(parseBenchDoc(mcYaml))).toBe("casefold_strip");
     expect(readMetric(parseBenchDoc(YAML))).toBe("rubric");
     expect(readMetric(parseBenchDoc("benchmark: { task: extract }"))).toBeNull();
+  });
+
+  it("reads the route that makes a mixed exam both open and multiple choice", () => {
+    const mixedYaml = `# Morfología del mapudungun
+version: "1.0"
+ontology_version: "1.1"
+benchmark: { task: answer, domain: linguistics, language: es }
+program:
+  input:
+    question: string
+    options?: { a: string, b: string, c: string, d: string }
+  output: { answer: string }
+scoring:
+  weights: { answer: 1 }
+  aggregator: weighted_mean
+  field_metrics:
+    answer:
+      metric: rubric
+      params:
+        criteria:
+          c1:
+            weight: 5
+            description: Identifica las ideas centrales.
+            levels: { 0: No lo cumple, 1: Lo cumple }
+      route: { options: casefold_strip }
+  grader: { type: model, provider: bedrock, model: us.moonshotai.kimi-k3 }
+data: { path: ./exam.jsonl }
+`;
+    const mixed = parseBenchDoc(mixedYaml);
+    // The mixed exam keeps its rubric (open) and routes MC rows to exact match (MC).
+    expect(readMetric(mixed)).toBe("rubric");
+    expect(readRoute(mixed)).toBe("options");
+    expect(readCriteria(mixed)?.map((c) => c.key)).toEqual(["c1"]);
+    expect(isMultipleChoiceExam("answer", "rubric", "options")).toBe(true);
+    // A pure open exam routes nothing and stays open-only.
+    expect(readRoute(parseBenchDoc(YAML))).toBeNull();
+    expect(isMultipleChoiceExam("answer", "rubric", null)).toBe(false);
+    // A pure MC exam scores everything by exact match, with no route to read.
+    expect(isMultipleChoiceExam("answer", "casefold_strip", null)).toBe(true);
+    expect(isMultipleChoiceExam("extract", "casefold_strip", null)).toBe(false);
   });
 });
 

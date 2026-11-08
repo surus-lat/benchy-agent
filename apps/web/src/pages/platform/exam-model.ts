@@ -283,9 +283,22 @@ export function readMetric(doc: Document): string | null {
   return typeof m === "string" ? m : null;
 }
 
-/** Is this benchmark the multiple-choice shape: the answer task scored by exact match? */
-export function isMultipleChoiceExam(task: string | undefined, metric: string | null): boolean {
-  return task === "answer" && metric === "casefold_strip";
+/** Is this benchmark the multiple-choice shape: the answer task scored by exact match —
+ *  either the whole exam (casefold_strip on the answer) or the rows carrying an optional
+ *  input field (route), when it mixes both question kinds. A mixed exam is also an open
+ *  exam: isOpenQuestionExam stays true on its rubric. */
+export function isMultipleChoiceExam(task: string | undefined, metric: string | null, route: string | null = null): boolean {
+  return task === "answer" && (metric === "casefold_strip" || route !== null);
+}
+
+/** The input field a mixed exam routes to exact match: the key of
+ *  scoring.field_metrics.answer.route (`options`). A row carrying that field scores by
+ *  the route's metric; every other row goes the answer field's own metric (the rubric). */
+export function readRoute(doc: Document): string | null {
+  const r = (doc.toJS() as Record<string, any>)?.scoring?.field_metrics?.answer?.route;
+  if (!r || typeof r !== "object" || Array.isArray(r)) return null;
+  const keys = Object.keys(r);
+  return keys.length > 0 ? keys[0] : null;
 }
 
 const text = (v: unknown) => (typeof v === "string" ? v : v == null ? "" : JSON.stringify(v));

@@ -86,16 +86,21 @@ const CONTEXT = /^\(Benchmark abierto en la app: [^)]*\)\n\n/;
 
 /** What the agent is asked for a batch: from the benchmark's papers when it has
  *  them. Only the validated papers are named (ids): a pending one stays out of
- *  generation until the org ticks it off in the Papers drawer. Multiple-choice
- *  exams get a different prompt: four options and the exact text of the correct one. */
-function batchPrompt(n: number, slug: string, ids: string[] = [], mc = false): string {
+ *  generation until the org ticks it off in the Papers drawer. The prompt follows the
+ *  exam's shape: a pure open exam asks for open questions, a pure multiple-choice one
+ *  for four-option rows with the exact text of the correct one, and a mixed exam (the
+ *  shape every new benchmark gets) for a deliberate mix — each question the type that
+ *  fits what it measures. */
+function batchPrompt(n: number, slug: string, ids: string[] = [], exam: { mc: boolean; open: boolean }): string {
   const tail = `Agregalas al final de exam.jsonl y de questions.json (status draft, by agente, con su group). No toques las preguntas existentes.`;
   const which =
     ids.length > 0
       ? `estos papers del benchmark: ${ids.join(", ")} (la lista en ${slug}/sources.json, el texto de cada uno en ${slug}/sources/)`
       : `los papers del benchmark (${slug}/sources.json)`;
   const design = `Antes de escribirlas, leé el diseño del benchmark en ${slug}/design.json (qué queremos averiguar, qué debería poder hacer un modelo que domina el tema y qué errores buscamos exponer) y la rúbrica en ${slug}/benchmark.yaml: los criterios son de donde salen las preguntas. Planificá antes de escribir, criterio por criterio —qué respondería un modelo que incumple cada uno— y escribí las preguntas que provocan esas respuestas: entre las ${n}, cubrí criterios distintos (si hay criterios sin cubrir, no midas dos veces el mismo) y nombrá en el campo why de questions.json los criterios que prueba cada una. Que ninguna pregunta mida lo mismo que otra, y no todas pueden ser de identificar una palabra o un dato: alguna situada en un caso o un testimonio, alguna que pida razonar —explicar, comparar, aplicar— y no solo reconocer. Y la pregunta es de la disciplina, no del material fuente: nunca la encuadres en el corpus —«según el artículo», «basándote en el estudio», «¿qué documenta el paper?», «con este corpus»—, porque eso la vuelve comprensión de lectura; presentá el caso o la afirmación y pedí el juicio disciplinario, y dejá los papers en sources como respaldo de la respuesta experta. Apuntá a un error del diseño; si design.json no nombra errores, deriválos de los criterios. Si el benchmark toca ejes culturales —lengua o variedad local, prácticas, tradiciones de una comunidad—, leé antes tu skill benchy-cultural-benchmark-design y aplicá su diseño de tareas y sus anti-patrones: una tanda en la que todo es recordación es la advertencia AP-2, y si ${slug}/cultural-design.md no existe, escribilo.`;
-  if (mc)
+  if (exam.mc && exam.open)
+    return `Generá ${n} preguntas nuevas para este examen a partir de ${which}: leé los papers primero y para cada pregunta elegí el tipo que le conviene —de opción múltiple cuando mida reconocer un dato o una clasificación y haya distractores plausibles, abierta cuando pida razonar, explicar, comparar o aplicar—, y que la tanda mezcle las dos. ${design} En exam.jsonl una pregunta abierta lleva input.question y expected.answer anidados, así: {"input": {"question": "…"}, "expected": {"answer": "…"}}; una de opción múltiple lleva además input.options como objeto {"a": "…", "b": "…", "c": "…", "d": "…"} y su expected.answer es el texto EXACTO de la opción correcta (se corrige por coincidencia exacta, sin variantes). En questions.json, sources lleva el id del paper y la página (por ejemplo "conicet-179477 p. 4"). ${tail}`;
+  if (exam.mc)
     return `Generá ${n} preguntas nuevas de opción múltiple para este examen a partir de ${which}: leé los papers primero y escribí cada pregunta con sus 4 opciones (una sola correcta) desde lo que el paper sostiene. ${design} En exam.jsonl cada fila lleva input.question e input.options como objeto {"a": "…", "b": "…", "c": "…", "d": "…"}, y expected.answer con el texto EXACTO de la opción correcta (se corrige por coincidencia exacta, sin variantes). En questions.json, sources lleva el id del paper y la página (por ejemplo "conicet-179477 p. 4"). ${tail}`;
   return `Generá ${n} preguntas nuevas para este examen a partir de ${which}: leé los papers primero y escribí cada pregunta desde lo que el paper sostiene, con su respuesta experta y por qué la pregunta importa. ${design} En exam.jsonl cada fila lleva input.question y expected.answer anidados, así: {"input": {"question": "…"}, "expected": {"answer": "…"}} — esas claves exactas, no las sueltas arriba. En questions.json, sources lleva el id del paper y la página (por ejemplo "conicet-179477 p. 4"). ${tail}`;
 }
@@ -282,7 +287,9 @@ export default function Workspace({ slug, stage: stageParam }: { slug: string; s
 
   const openExam = isOpenQuestionExam(exam.doc?.task, exam.criteria);
   // Multiple choice is the other editable shape: question + 4 options + exact answer.
-  const mcExam = isMultipleChoiceExam(exam.doc?.task, exam.metric);
+  // A mixed exam (a route on the answer metric) is both at once: its open rows are
+  // judged by the rubric and its MC rows score by exact match.
+  const mcExam = isMultipleChoiceExam(exam.doc?.task, exam.metric, exam.route);
   // Authoring, papers and generation work for both editable kinds; only the
   // rubric affordances (criteria, judge review, quality) stay open-exam only.
   const editable = openExam || mcExam;
@@ -541,7 +548,7 @@ export default function Workspace({ slug, stage: stageParam }: { slug: string; s
                 onBatch={async (n) => {
                   const before = qs.length;
                   setGenerating({ n, before });
-                  await ask(batchPrompt(n, slug, validPapers.map((s) => s.id), mcExam));
+                  await ask(batchPrompt(n, slug, validPapers.map((s) => s.id), { mc: mcExam, open: openExam }));
                   setGenerating(null);
                   setQIndex(before);
                 }}
@@ -616,7 +623,7 @@ export default function Workspace({ slug, stage: stageParam }: { slug: string; s
           noCriteria={noCriteria}
           onRun={requestRun}
           onCriteria={() => go("criterios")}
-          generatePrompt={validPapers.length > 0 ? batchPrompt(5, slug, validPapers.map((s) => s.id), mcExam) : null}
+          generatePrompt={validPapers.length > 0 ? batchPrompt(5, slug, validPapers.map((s) => s.id), { mc: mcExam, open: openExam }) : null}
         />
       </main>
 
@@ -867,10 +874,11 @@ function Authoring({
     pushEvent({ who: "Vos", path: `${q.num}.fuentes`, change: "editado → guardado", open: () => setQIndex(q.index) });
   };
 
-  const addQuestion = () => {
+  const addQuestion = (mc: boolean) => {
     // An MC row carries its four options from the start: the engine rejects rows
-    // whose options object misses one of a, b, c, d.
-    const row = mcExam ? { input: { question: "", options: { a: "", b: "", c: "", d: "" } }, expected: { answer: "" } } : { input: { question: "" }, expected: { answer: "" } };
+    // whose options object misses one of a, b, c, d. In a mixed exam the researcher
+    // picks the type of each question when adding it (the two buttons below).
+    const row = mc ? { input: { question: "", options: { a: "", b: "", c: "", d: "" } }, expected: { answer: "" } } : { input: { question: "" }, expected: { answer: "" } };
     const rows = [...exam.rows, row];
     const meta = [...exam.meta];
     while (meta.length < rows.length - 1) meta.push({});
@@ -984,7 +992,10 @@ function Authoring({
           <div className="ws-batch" role="dialog" aria-label="Nuevo lote de preguntas">
             <p className="h">
               Nuevo lote{" "}
-              <span>· el agente las redacta con {mcExam ? "sus opciones y la respuesta correcta" : "su respuesta experta"}</span>
+              <span>
+              · el agente las redacta con{" "}
+              {mcExam && openExam ? "su respuesta experta o sus opciones, según el tipo de cada una" : mcExam ? "sus opciones y la respuesta correcta" : "su respuesta experta"}
+            </span>
             </p>
             <div className="ws-batch-grid">
               <label>
@@ -1074,9 +1085,22 @@ function Authoring({
           </div>
         )}
         <div className="ws-qlist-foot">
-          <button onClick={addQuestion} disabled={blocked || !editable}>
-            <span className="ico dashed">+</span>Pregunta
-          </button>
+          {openExam && mcExam ? (
+            // A mixed exam asks which kind the new question is; a single-kind exam
+            // adds its only shape without asking.
+            <>
+              <button onClick={() => addQuestion(false)} disabled={blocked || !editable}>
+                <span className="ico dashed">+</span>Abierta
+              </button>
+              <button onClick={() => addQuestion(true)} disabled={blocked || !editable}>
+                <span className="ico dashed">+</span>Opción múltiple
+              </button>
+            </>
+          ) : (
+            <button onClick={() => addQuestion(mcExam)} disabled={blocked || !editable}>
+              <span className="ico dashed">+</span>Pregunta
+            </button>
+          )}
           <button className="warm" onClick={() => setBatchOpen((o) => !o)} disabled={!editable || frozen}>
             <span className="ico amberbox">[·]</span>Nuevo lote
           </button>
@@ -1169,7 +1193,7 @@ function Authoring({
               text="Las preguntas salen de los papers: elegilos en 02 · Fuentes o agregalos acá, de la biblioteca de CONICET o subiendo el PDF. El agente los lee y escribe cada pregunta con su respuesta experta y la página que la respalda."
               onAgent={onPapers}
               agentLabel="Agregar fuentes"
-              onSelf={addQuestion}
+              onSelf={() => addQuestion(mcExam && !openExam)}
               locked={frozen}
             />
           ) : validPapers.length === 0 ? (
@@ -1178,7 +1202,7 @@ function Authoring({
               text="Antes de que el agente escriba preguntas desde un paper, alguien de la organización tiene que validarlo con el checklist de Papers. Mientras tanto, podés escribir la primera pregunta vos."
               onAgent={onPapers}
               agentLabel="Validar fuentes"
-              onSelf={addQuestion}
+              onSelf={() => addQuestion(mcExam && !openExam)}
               locked={false}
             />
           ) : (
@@ -1191,7 +1215,7 @@ function Authoring({
               }
               onAgent={noCriteria ? onCriteria : () => onBatch(5)}
               agentLabel={noCriteria ? "Escribir los criterios" : "Pedile 5 preguntas al agente"}
-              onSelf={addQuestion}
+              onSelf={() => addQuestion(mcExam && !openExam)}
               locked={blocked}
             />
           )
@@ -1208,7 +1232,7 @@ function Authoring({
         ) : (
           <QuestionEditor
             q={q}
-            mc={mcExam}
+            mc={q.options !== null}
             criteria={exam.criteria ?? []}
             total={qs.length}
             locked={locked}
