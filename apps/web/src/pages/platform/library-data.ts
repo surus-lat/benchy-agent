@@ -149,10 +149,17 @@ export const validation = {
 };
 
 /** A source's validation state. A source without a row predates this feature:
- *  it counts as validated (grandfathered); only material added from the
+ *  it counts as validated (grandfathered); only an uploaded PDF added from the
  *  platform afterwards starts pending. */
 export function sourceState(v: SourceValidation | undefined): "validated" | "pending" {
   return !v || v.validatedAt ? "validated" : "pending";
+}
+
+/** Only a PDF the org uploads goes through the source checklist: a library
+ *  paper (CONICET Digital / BICyT) comes from the institutional repository,
+ *  already legitimized, and counts as validated by construction. */
+export function sourceNeedsValidation(s: Source): boolean {
+  return s.origin === "upload";
 }
 
 export function parseSources(text: string | null | undefined): Source[] {
