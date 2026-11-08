@@ -6,6 +6,7 @@ import {
   designKeywords,
   hasDesign,
   MAX_CRITERIA,
+  MAX_KEYWORDS,
   removeCriterion,
   setCriterion,
   type Criterion,
@@ -579,11 +580,16 @@ function KeywordEditor({
   const lang = useContext(Lang);
   // Typing "a, b" adds two searches: the box is the same one as the library's.
   const pending = designKeywords(draft);
+  const atCap = keywords.length >= MAX_KEYWORDS;
 
   const add = () => {
     if (!pending.length) return;
-    onChange(designKeywords([...keywords, ...pending]));
-    setDraft("");
+    const merged = designKeywords([...keywords, ...pending]);
+    onChange(merged);
+    // Only what fit under the cap went in; the rest stays in the draft,
+    // never silently eaten.
+    const remaining = pending.filter((p) => !merged.some((m) => m.toLowerCase() === p.toLowerCase()));
+    setDraft(remaining.join(", "));
   };
 
   return (
@@ -605,6 +611,9 @@ function KeywordEditor({
           </span>
         ))}
         {keywords.length === 0 && <span className="ws-kw-none">Ninguna todavía.</span>}
+        <span className="ws-crit-count mono" title={`Máximo ${MAX_KEYWORDS} palabras clave`}>
+          {keywords.length} de {MAX_KEYWORDS}
+        </span>
       </div>
       <div className="ws-kw-row">
         <input
@@ -612,7 +621,7 @@ function KeywordEditor({
           value={draft}
           lang={lang}
           spellCheck={spellcheckFor(lang)}
-          disabled={frozen}
+          disabled={frozen || atCap}
           placeholder="Ej.: reciprocidad ritual andina (separá varias con coma)"
           aria-label="Agregá una palabra clave"
           onChange={(e) => setDraft(e.target.value)}
@@ -623,13 +632,14 @@ function KeywordEditor({
             }
           }}
         />
-        <button className="ws-btn-line sm" disabled={frozen || !pending.length} onClick={add}>
+        <button className="ws-btn-line sm" disabled={frozen || atCap || !pending.length} onClick={add}>
           {pending.length > 1 ? `Agregar ${pending.length}` : "Agregar"}
         </button>
         <button className="ws-link" disabled={frozen} title={keywordsPromptTitle} onClick={onAsk}>
           {keywords.length === 0 ? "Pedídselas al agente" : "Que el agente las complete"}
         </button>
       </div>
+      {atCap && <p className="ws-note">Máximo {MAX_KEYWORDS} palabras clave — quitá alguna para agregar otra.</p>}
     </section>
   );
 }

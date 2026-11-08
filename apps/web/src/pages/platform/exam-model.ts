@@ -101,7 +101,7 @@ const designField = (v: unknown) => (typeof v === "string" ? v : "");
 
 /** One design's worth of searches: more than this and the researcher is typing
  *  the library's whole vocabulary into the design. */
-const MAX_KEYWORDS = 12;
+export const MAX_KEYWORDS = 12;
 
 /**
  * The keywords box: short search strings, deduplicated. The agent often hands
