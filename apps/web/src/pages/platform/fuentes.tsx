@@ -16,11 +16,18 @@ import "./library.css";
 // (autores, año, origen, tipo de publicación, una muestra del texto y si hay
 // PDF legible); el cabezal de la colección resume con qué se queda el agente
 // (textos completos vs solo resúmenes). El paso a 03 · Preguntas está en el
-// cabezal de la ventana, con su explicación en el tooltip; el drawer de Papers
-// en Preguntas sigue como la entrada rápida.
+// cabezal de la ventana, con su explicación en el tooltip. Un PDF propio entra
+// desde el cabezal de la colección («Subí un PDF propio»); el drawer de Papers
+// en Preguntas sigue como la otra entrada.
+
+/** An own-PDF upload in flight: the row by the collection head shows its state. */
+type Upload = { name: string; state: "waiting" | "reading" | "ok" | "error"; note?: string };
+/** One PDF ceiling: the same MAX_PDF_BYTES the Worker enforces. */
+const MAX_UPLOAD = 24 * 1024 * 1024;
 
 export function SourcesStage({
   bench,
+  benchTitle,
   list,
   design,
   criteriaCount,
@@ -33,6 +40,8 @@ export function SourcesStage({
   onChanged,
 }: {
   bench: string;
+  /** The benchmark display name, kept visible as orientation while the stage is open. */
+  benchTitle: string;
   list: Source[];
   /** What the researcher set out to evaluate (design.json), shown as context. */
   design: Design;
@@ -79,6 +88,10 @@ export function SourcesStage({
   );
   const [removing, setRemoving] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // Own-PDF uploads in flight: each row shows its state until the source lands
+  // in the collection (or the reason it failed, next to its name).
+  const [uploads, setUploads] = useState<Upload[]>([]);
+  const uploading = uploads.some((u) => u.state === "waiting" || u.state === "reading");
   // On narrow screens the two panes become tabs; wide screens keep both up.
   const [pane, setPane] = useState<"col" | "lib">(list.length || reading.length ? "col" : "lib");
 
@@ -87,6 +100,31 @@ export function SourcesStage({
   const busy = new Set(reading.map((p) => p.id));
   const cov = coverage(list);
   const readingAll = reading.length + list.filter((s) => s.status === "reading").length;
+
+  /** Own PDFs, straight into the collection: the same call the Papers drawer uses. */
+  const upload = async (files: File[]) => {
+    const queue: Upload[] = files.map((f) => ({ name: f.name, state: "waiting" }));
+    setUploads(queue);
+    const set = (i: number, u: Partial<Upload>) => setUploads((all) => all.map((x, j) => (j === i ? { ...x, ...u } : x)));
+    for (const [i, file] of files.entries()) {
+      if (file.size > MAX_UPLOAD) {
+        set(i, { state: "error", note: libraryErrorText("TOO_LARGE") });
+        continue;
+      }
+      set(i, { state: "reading" });
+      try {
+        const r = await sourcesApi.upload(bench, file);
+        if (r.ok) {
+          set(i, { state: "ok", note: r.source.pages ? `${r.source.pages} páginas` : "en la colección" });
+          // onChanged reloads sources.json: the new source shows in the
+          // collection (as "reading" while its text is extracted).
+          onChanged(`+ ${r.source.title}`);
+        } else set(i, { state: "error", note: libraryErrorText(r.error.code) });
+      } catch (err) {
+        set(i, { state: "error", note: err instanceof ApiError && !err.code.startsWith("AGENT") && err.code !== "NETWORK" ? libraryErrorText(err.code) : errorText(err) });
+      }
+    }
+  };
 
   const remove = async (s: Source) => {
     if (frozen) {
@@ -144,6 +182,7 @@ export function SourcesStage({
 
         <aside className="ws-fnt-col" aria-label="Fuentes elegidas">
           <div className="ws-fnt-col-head">
+            <span className="ws-eyebrow">02 · Fuentes · {benchTitle}</span>
             <div className="top">
               <span className="ws-eyebrow">Elegidas</span>
               <span className="ws-fnt-count">{list.length === 1 ? "1 fuente" : `${list.length} fuentes`}</span>
@@ -154,6 +193,32 @@ export function SourcesStage({
                 {readingAll ? `${cov.total > 0 ? " · " : ""}${readingAll} leyéndose` : ""}
               </span>
             ) : null}
+            <label
+              className={`ws-fnt-upload${frozen || uploading ? " off" : ""}`}
+              title={frozen ? "El benchmark está publicado: sus fuentes están congeladas" : "Un PDF tuyo entra a la colección como una fuente más"}
+            >
+              <input
+                type="file"
+                accept="application/pdf,.pdf"
+                multiple
+                disabled={frozen || uploading}
+                onChange={(e) => {
+                  const files = Array.from(e.target.files ?? []);
+                  e.target.value = "";
+                  if (files.length) void upload(files);
+                }}
+              />
+              <span className="t">{uploading ? "Subiendo…" : "Subí un PDF propio"}</span>
+              <span className="d">Hasta 24 MB · el agente lo lee como a los papers de la biblioteca</span>
+            </label>
+            {uploads.map((u, i) => (
+              <div key={i} className="ws-up-row">
+                <span className="n">{u.name}</span>
+                <span className={`s ${u.state}`}>
+                  {u.state === "waiting" ? "en cola" : u.state === "reading" ? "leyendo…" : u.state === "ok" ? `✓ ${u.note}` : u.note}
+                </span>
+              </div>
+            ))}
             <div className="ws-fnt-design">
               <span className="ws-eyebrow">Qué vamos a evaluar</span>
               <p>{design.purpose.trim() || "Todavía no lo definiste: 01 · Criterios dice qué querés averiguar."}</p>
@@ -266,7 +331,7 @@ export function SourcesStage({
                 <li>Evaluá cada candidata: quién la publica, de qué año es y si tiene PDF legible.</li>
                 <li>Elegila: el agente lee el PDF y cada pregunta cita el paper y la página.</li>
               </ol>
-              <span className="d">¿Un PDF propio? Se sube desde el botón Papers, en 03 · Preguntas.</span>
+              <span className="d">¿Un PDF propio? Subilo desde el botón de arriba: entra a la colección como una fuente más.</span>
             </div>
           )}
         </div>

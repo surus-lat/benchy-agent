@@ -44,6 +44,7 @@ export function PublicationStage({
   const { analysis } = useAnalysis(bench);
   return (
     <div className="ws-scroll ws-pad-lg">
+      <p className="ws-eyebrow">06 · Publicación · {bench.doc?.title ?? bench.slug}</p>
       <div className="ws-pub-tabs" role="tablist" aria-label="Publicación">
         {(
           [
