@@ -11,6 +11,7 @@ import {
   readCriteria,
   readInputFields,
   readMetric,
+  readRoute,
   reviewMatchesRubric,
   serializeDesign,
   serializeExam,
@@ -77,13 +78,16 @@ export function useExam(bench: BenchSummary | undefined) {
   const doc: BenchDoc | null = yaml && slug ? readBenchYaml(yaml.value, slug) : null;
   let criteria: Criterion[] | null = null;
   let metric: string | null = null;
+  let route: string | null = null;
   try {
     const parsed = yaml ? parseBenchDoc(yaml.value) : null;
     criteria = parsed ? readCriteria(parsed) : null;
     metric = parsed ? readMetric(parsed) : null;
+    route = parsed ? readRoute(parsed) : null;
   } catch {
     criteria = null;
     metric = null;
+    route = null;
   }
   const examPath = doc?.examPath ?? (slug ? `${slug}/exam.jsonl` : null);
   const metaPath = slug ? `${slug}/questions.json` : null;
@@ -429,6 +433,8 @@ export function useExam(bench: BenchSummary | undefined) {
     criteria,
     /** The answer field's scoring metric (casefold_strip marks multiple choice). */
     metric,
+    /** The optional input field a mixed exam routes to exact match; null on a single-kind exam. */
+    route,
     rows: rows.value,
     meta: meta.value,
     review,

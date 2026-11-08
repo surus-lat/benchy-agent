@@ -1,9 +1,10 @@
 // A new benchmark, made by the app without the agent: the wizard asks only
-// for the benchmark itself — the folder, a benchmark.yaml for open questions
-// with a starting rubric, an empty exam and its notes — and the researcher
-// lands in 01 · Fuentes to curate the bibliography (the papers and
-// publications the questions are written from). The agent is there in B if
-// they want it, never in the way.
+// for the benchmark itself — the folder, a benchmark.yaml whose exam mixes
+// open and multiple-choice questions (the kind is chosen per question, when it
+// is written), an empty exam and its notes — and the researcher lands in
+// 01 · Fuentes to curate the bibliography (the papers and publications the
+// questions are written from). The agent is there in B if they want it, never
+// in the way.
 
 /** The engine's academic domains (its closed vocabulary), with their names in Spanish. */
 export const DOMAINS: [string, string][] = [
@@ -84,39 +85,15 @@ export const STARTER_CRITERIA: [number, string][] = [
 
 const MODEL = "us.moonshotai.kimi-k3";
 
-/** How a new benchmark is graded: open questions judged by a rubric, or multiple choice by exact match. */
-export type ExamKind = "open" | "multiple_choice";
-
-/** benchmark.yaml for an open-question exam graded with a rubric, or a multiple-choice
- *  exam scored by casefold_strip (the shape the editors read). The MC program declares
- *  its four options as a nested object — the engine has no array type and rejects extra
- *  or missing option keys in a row, so an exam row spells options as a, b, c, d. */
-export function benchmarkYaml(title: string, domain: string, language: string, kind: ExamKind = "open"): string {
+/** benchmark.yaml for an exam where open and multiple-choice questions coexist (the
+ *  shape the editors read as both kinds at once): open rows are judged by the rubric
+ *  and a row carrying options scores by casefold_strip. The input schema declares the
+ *  options optional (`options?` — the engine's optional-field marker) and the answer
+ *  metric routes a row that carries them to exact match. The MC options are a nested
+ *  object: the engine has no array type and rejects extra or missing option keys in a
+ *  row, so an exam row spells options as a, b, c, d. */
+export function benchmarkYaml(title: string, domain: string, language: string): string {
   const name = title.replace(/\s+/g, " ").trim();
-  if (kind === "multiple_choice") {
-    return `# ${name}
-version: "1.0"
-ontology_version: "1.1"
-benchmark: { task: answer, domain: ${domain}, language: ${language} }
-program:
-  input:
-    question: string
-    options: { a: string, b: string, c: string, d: string }
-  output: { answer: string }
-scoring:
-  weights: { answer: 1 }
-  aggregator: weighted_mean
-  field_metrics:
-    answer: { metric: casefold_strip }
-data:
-  path: ./exam.jsonl
-ai-system:
-  type: model
-  provider: bedrock
-  model: ${MODEL}
-  parameters: { temperature: 0, max_tokens: 4096 }
-`;
-  }
   const criteria = STARTER_CRITERIA.map(
     ([weight, description], i) =>
       `          c${i + 1}:\n            weight: ${weight}\n            description: ${JSON.stringify(description)}\n            levels: { 0: No lo cumple, 1: Lo cumple }`,
@@ -126,7 +103,9 @@ version: "1.0"
 ontology_version: "1.1"
 benchmark: { task: answer, domain: ${domain}, language: ${language} }
 program:
-  input:  { question: string }
+  input:
+    question: string
+    options?: { a: string, b: string, c: string, d: string }
   output: { answer: string }
 scoring:
   weights: { answer: 1 }
@@ -137,6 +116,7 @@ scoring:
       params:
         criteria:
 ${criteria}
+      route: { options: casefold_strip }
   grader: { type: model, provider: bedrock, model: ${MODEL} }
 data:
   path: ./exam.jsonl
