@@ -19,7 +19,8 @@ FROM ghcr.io/astral-sh/uv:0.11.6 AS uv
 
 FROM nousresearch/hermes-agent@sha256:444b42594e7f467425872fc35e077a227d377f0fe0726bc818706d62175fad8b
 
-ARG BENCHY_ENGINE_REF=543104f744732a3e39e5799c9db1996cc6e4aad5
+# Mixed exams (optional input fields `campo?`, per-row metric `route`): f0a6513.
+ARG BENCHY_ENGINE_REF=f0a6513e0a504345a8f3d67f8b4fbd9f16addded
 
 USER root
 # Railway's builder supports only cache mounts, so uv is copied in and removed.

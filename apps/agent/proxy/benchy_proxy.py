@@ -9,6 +9,7 @@ Hermes's API server listens on 127.0.0.1 only; this process fronts it:
   GET /benchy/models             the models a benchmark may run
   PUT /benchy/file               write one benchmark text file (the app's editors)
   POST /benchy/review?path=...   grade the expert answers against the rubric
+                                 (routed rows, e.g. multiple-choice, exact-match themselves)
   POST /benchy/quality?path=...   score each question: claridad, relevancia, respaldo, calibre
   GET /benchy/analysis?path=...  the results beyond the score: criteria, topics, papers, answers
   POST /benchy/evaluation        run a benchmark with several models, then write its report (background)
