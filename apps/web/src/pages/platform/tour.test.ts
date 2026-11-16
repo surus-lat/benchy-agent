@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   TOUR_STEPS,
   advanceFrom,
+  advanceWouldStall,
   currentStepIndex,
   loadTourState,
   resolveTourRoute,
@@ -88,5 +89,36 @@ describe("walkthrough step model", () => {
     expect(resolveTourRoute(TOUR_STEPS[0], "x")).toBeNull();
     // No benchmark known yet: the tour does not navigate to a workspace step.
     expect(resolveTourRoute(TOUR_STEPS[3])).toBeNull();
+  });
+});
+
+describe("walkthrough stall guard", () => {
+  it("reproduces the bug: Siguiente on the nuevo step would advance into the void", () => {
+    // On /app/nuevo there is no slug, so the next step's route can't open and
+    // every later step is dormant on this page — the card would vanish.
+    expect(advanceFrom(TOUR_STEPS, 1, undefined).route).toBeNull();
+    expect(advanceWouldStall(TOUR_STEPS, 1, NO_BENCH, "nuevo")).toBe(true);
+    // Same with a benchmark the page doesn't know: still no route from here.
+    expect(advanceWouldStall(TOUR_STEPS, 1, WITH_BENCH, "nuevo")).toBe(true);
+  });
+
+  it("never stalls when the advance opens a route or finishes the tour", () => {
+    expect(advanceWouldStall(TOUR_STEPS, 0, NO_BENCH, "home")).toBe(false); // /app/nuevo
+    expect(advanceWouldStall(TOUR_STEPS, 0, WITH_BENCH, "home")).toBe(false);
+    expect(advanceWouldStall(TOUR_STEPS, 2, WITH_BENCH, "workspace", "b1")).toBe(false);
+    expect(advanceWouldStall(TOUR_STEPS, 6, WITH_BENCH, "workspace", "b1")).toBe(false);
+    expect(advanceWouldStall(TOUR_STEPS, 7, WITH_BENCH, "workspace", "b1")).toBe(false); // done
+  });
+
+  it("does not stall when the next step renders on this same page", () => {
+    // Persisted at a home step while on home: advancing walks to nuevo-create,
+    // whose route opens — covered above. A step whose successor lives on the
+    // same page is fine even without a route: build a two-step home-only tour.
+    const steps: typeof TOUR_STEPS = [
+      { id: "a", anchor: "a", page: "home", title: "a", text: "a" },
+      { id: "b", anchor: "b", page: "home", title: "b", text: "b" },
+    ];
+    expect(advanceWouldStall(steps, 0, NO_BENCH, "home")).toBe(false);
+    expect(advanceWouldStall(steps, 0, NO_BENCH, "workspace")).toBe(true);
   });
 });

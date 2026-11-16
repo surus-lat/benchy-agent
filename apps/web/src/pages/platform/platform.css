@@ -330,6 +330,9 @@ button.bp-row:hover { background: var(--paper); }
 .tour-actions { display: flex; align-items: center; gap: 10px; margin-top: 14px; }
 .bp .tour-btn { border: 0; border-radius: 9px; padding: 8px 14px; background: var(--ink); color: #fff; font-size: 13px; font-weight: 600; cursor: pointer; transition: background 160ms ease; }
 .bp .tour-btn:hover { background: #1b1e27; }
+.bp .tour-btn:disabled { background: var(--muted); cursor: default; }
+.bp .tour-btn:disabled:hover { background: var(--muted); }
+.tour-card .tour-hint { margin: 10px 0 0; font-size: 12px; line-height: 1.5; color: var(--muted); }
 .bp .tour-btn-line { border: 0; background: none; padding: 8px 4px; font-size: 13px; color: var(--muted); cursor: pointer; }
 .bp .tour-btn-line:hover { color: var(--ink); }
 @keyframes tour-pop { from { opacity: 0; transform: translateY(4px) scale(0.985); } }

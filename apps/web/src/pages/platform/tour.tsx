@@ -185,6 +185,21 @@ export function advanceFrom(steps: TourStep[], i: number, slug?: string): { stat
   return { state: { s: "on", i: i + 1 }, route: resolveTourRoute(steps[i + 1], slug) };
 }
 
+/**
+ * True when advancing from step `i` would leave the tour with nothing to show
+ * on `page`: the next step opens no route from here and no step from there on
+ * is renderable on this page. The walkthrough must never advance into that
+ * void — the card would vanish mid-tour (Siguiente on the nuevo step without
+ * a benchmark persisted {s:"on", i:2} with every later step dormant here).
+ * It stays on the current step instead and resumes on its own once the flow
+ * reaches the next step's page.
+ */
+export function advanceWouldStall(steps: TourStep[], i: number, o: TourOpts, page: TourPage, slug?: string): boolean {
+  const { state, route } = advanceFrom(steps, i, slug);
+  if (state.s !== "on" || route) return false;
+  return currentStepIndex(steps, state.i, o, page) === null;
+}
+
 // ── anchor registry ────────────────────────────────────────────────────────
 // Anchors register their DOM node by id; the overlay re-renders when the
 // registry version changes, and waits (capped) for an anchor to appear.
@@ -266,6 +281,11 @@ export function Tour({
   const opts: TourOpts = { hasBench };
   const idx = st && st.s === "on" ? currentStepIndex(TOUR_STEPS, st.i, opts, page) : null;
   const step = idx != null ? TOUR_STEPS[idx] : null;
+  // Siguiente on the nuevo step without a benchmark used to advance into steps
+  // that can't render here: the card vanished mid-walkthrough. When the advance
+  // would stall, stay on the current step — the tour resumes once the benchmark
+  // exists (creating one navigates to its workspace).
+  const stalled = idx != null && advanceWouldStall(TOUR_STEPS, idx, opts, page, slug);
 
   // Leave behind steps from earlier pages (persist so a reload doesn't walk back).
   useEffect(() => {
@@ -273,7 +293,7 @@ export function Tour({
   }, [st, idx]);
 
   function advance() {
-    if (!st || idx == null) return;
+    if (!st || idx == null || stalled) return;
     const { state, route } = advanceFrom(TOUR_STEPS, idx, slug);
     persist(state);
     if (route) navigate(route);
@@ -375,13 +395,14 @@ export function Tour({
         <h3>{step.title}</h3>
         <p className="tour-text">{step.text}</p>
         <div className="tour-actions">
-          <button ref={btnRef} className="tour-btn" onClick={advance}>
+          <button ref={btnRef} className="tour-btn" onClick={advance} disabled={stalled}>
             {last ? "Empezar" : "Siguiente"}
           </button>
           <button className="tour-btn-line" onClick={dismiss}>
             Saltar walkthrough
           </button>
         </div>
+        {stalled && <p className="tour-hint">El recorrido continúa dentro del benchmark: crealo con este formulario y retomamos en 01 · Criterios.</p>}
       </div>
     </div>
   );
