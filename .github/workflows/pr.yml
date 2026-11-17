@@ -1,0 +1,92 @@
+name: PR checks
+
+# The Deploy workflow already runs these exact commands on every push to main
+# before deploying anything; this workflow runs the same gate on pull
+# requests, so a red change is caught BEFORE merge instead of after.
+# No secrets are needed (tests, typecheck and py_compile only), so it is safe
+# for pull requests from forks.
+#
+# What runs per area (same commands as deploy.yml):
+#   api    pnpm --filter @benchy/api test && pnpm --filter @benchy/api test:scripts
+#   web    pnpm --filter @benchy/web typecheck && pnpm --filter @benchy/web test
+#   agent  python -m py_compile over apps/agent/{mcp,proxy} (the deploy smoke
+#          also import-checks inside the Docker image; that needs the
+#          llm-client deploy key and is out of scope for PRs)
+
+on:
+  pull_request:
+    branches: [main]
+
+concurrency:
+  group: pr-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  changes:
+    runs-on: ubuntu-latest
+    outputs:
+      api: ${{ steps.filter.outputs.api }}
+      web: ${{ steps.filter.outputs.web }}
+      agent: ${{ steps.filter.outputs.agent }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          filters: |
+            api:
+              - 'apps/api/**'
+              - 'packages/**'
+              - 'pnpm-lock.yaml'
+              - '.github/workflows/pr.yml'
+            web:
+              - 'apps/web/**'
+              - 'pnpm-lock.yaml'
+              - '.github/workflows/pr.yml'
+            agent:
+              - 'apps/agent/**'
+              - '.github/workflows/pr.yml'
+
+  api:
+    needs: changes
+    if: needs.changes.outputs.api == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm --filter @benchy/api test && pnpm --filter @benchy/api test:scripts
+
+  web:
+    needs: changes
+    if: needs.changes.outputs.web == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm --filter @benchy/web typecheck && pnpm --filter @benchy/web test
+
+  agent:
+    needs: changes
+    if: needs.changes.outputs.agent == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Compile-check every agent-side Python file
+        # Same first half of the deploy smoke test: a syntax error fails the
+        # PR before merge. ubuntu-latest already ships python3.
+        run: |
+          python3 -m py_compile $(find apps/agent/mcp apps/agent/proxy -name '*.py' | sort)
+          echo "py_compile ok: $(find apps/agent/mcp apps/agent/proxy -name '*.py' | wc -l) files"
