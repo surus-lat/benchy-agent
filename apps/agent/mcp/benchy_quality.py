@@ -21,9 +21,10 @@ import json
 import time
 from pathlib import Path
 
-from benchy import data, providers, score, types
+from benchy import data, score, types
 from benchy.errors import BenchyError
 
+import benchy_adapters
 from benchy_shared import check_models
 
 CONCURRENCY = 4
@@ -79,11 +80,11 @@ async def quality(ir: dict, source: Path) -> dict:
     """Score every question of the benchmark at `source`; write and return quality.json."""
     if not (ir.get("scoring") or {}).get("grader"):
         raise BenchyError("runtime", "adapter_not_bound", "this benchmark has no grader to score its questions with", ["scoring", "grader"])
-    check_models(ir)
+    await check_models(ir)
     workspace = source.parent
     criteria = _criteria()
     # The benchmark's own grader, pointed at the fixed quality program instead of its rubric.
-    grader = providers.for_system(
+    grader = benchy_adapters.for_system(
         {"ai-system": ir["scoring"]["grader"], "program": quality_program()},
         workspace, None, QUALITY_PROMPT, at=("scoring", "grader"),
     )

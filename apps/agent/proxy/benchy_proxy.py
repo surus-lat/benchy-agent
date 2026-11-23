@@ -71,7 +71,7 @@ from benchy_analysis import analyze  # noqa: E402
 from benchy_review import review as review_answers  # noqa: E402
 from benchy_quality import quality as score_questions  # noqa: E402
 import benchy_publication  # noqa: E402
-from benchy_shared import MODELS, catalog, inside as _ws_inside  # noqa: E402
+from benchy_shared import available_models, global_catalog_enabled, inside as _ws_inside  # noqa: E402
 from benchy_shared import workspace as _workspace, workspace_override  # noqa: E402
 
 from benchy import types  # noqa: E402
@@ -300,7 +300,11 @@ async def exam(request: web.Request) -> web.Response:
 async def models(request: web.Request) -> web.Response:
     if not _authorized(request):
         return web.json_response({"error": "unauthorized"}, status=401)
-    return web.json_response({"provider": "bedrock", "models": MODELS, "catalog": catalog()})
+    try:
+        return web.json_response(await available_models())
+    except Exception as exc:
+        print(f"[benchy-proxy] model discovery unavailable ({type(exc).__name__})", file=sys.stderr)
+        return web.json_response({"error": "model_discovery_unavailable"}, status=503)
 
 
 async def write_file(request: web.Request) -> web.Response:
@@ -429,7 +433,7 @@ async def evaluation(request: web.Request) -> web.Response:
         body = await request.json()
         path, models = body["path"], body["models"]
         grader_model = body.get("grader_model")
-        if not isinstance(path, str) or not isinstance(models, list) or not models or len(models) > len(MODELS):
+        if not isinstance(path, str) or not isinstance(models, list) or not models or len(models) > 100:
             raise TypeError
         if not all(isinstance(m, str) for m in models):
             raise TypeError
@@ -440,7 +444,9 @@ async def evaluation(request: web.Request) -> web.Response:
     try:
         source, ir = _compile(path)
         write_report = functools.partial(_write_report, org=request.get("org") if MULTIPLEX else None)
-        state = benchy_evaluation.start(source, ir, list(dict.fromkeys(models)), write_report, grader_model=grader_model)
+        if global_catalog_enabled() and any(not m.startswith("global.") for m in models):
+            return web.json_response({"error": "global_models_required"}, status=400)
+        state = await benchy_evaluation.start(source, ir, list(dict.fromkeys(models)), write_report, grader_model=grader_model)
     except benchy_evaluation.Busy as busy:
         return web.json_response({"error": "busy", "evaluation": busy.status}, status=409)
     except BenchyError as exc:

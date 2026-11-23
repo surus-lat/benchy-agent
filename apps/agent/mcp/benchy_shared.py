@@ -74,6 +74,17 @@ def catalog() -> list[dict]:
     ]
 
 
+def global_catalog_enabled() -> bool:
+    return os.environ.get("BENCHY_ORG") == "surus"
+
+
+async def available_models() -> dict:
+    if global_catalog_enabled():
+        from benchy_catalog import CATALOG as discovery
+        return await discovery.get()
+    return {"provider": "bedrock", "models": MODELS, "catalog": catalog()}
+
+
 def inside(rel: str) -> Path | None:
     """`rel` resolved against the workspace, or None if it escapes it."""
     root = workspace()
@@ -87,7 +98,7 @@ def model_slug(model: str) -> str:
     return "".join(c if c.isalnum() or c in ".-_" else "-" for c in model)
 
 
-def check_models(ir: dict) -> None:
+async def check_models(ir: dict) -> None:
     """Refuse a Bedrock model this deployment cannot call — for the AI-system
     and, when the benchmark has a rubric, for its grader."""
     from benchy.errors import BenchyError
@@ -97,9 +108,14 @@ def check_models(ir: dict) -> None:
     if grader:
         seats.append((grader, ["scoring", "grader", "model"]))
     for system, path in seats:
-        if system.get("type") == "model" and system.get("provider") == "bedrock" and system.get("model") not in MODELS:
+        # Historical benchmarks may still name a legacy judge.
+        model = system.get("model")
+        allowed = MODELS
+        if global_catalog_enabled() and isinstance(model, str) and model.startswith("global."):
+            allowed = (await available_models())["models"]
+        if system.get("type") == "model" and system.get("provider") == "bedrock" and system.get("model") not in allowed:
             raise BenchyError(
                 "runtime", "adapter_not_bound",
-                f"model {system.get('model')!r} is not available here; use one of: {', '.join(MODELS)}",
+                f"model {system.get('model')!r} is not available here; use one of: {', '.join(allowed)}",
                 path,
             )

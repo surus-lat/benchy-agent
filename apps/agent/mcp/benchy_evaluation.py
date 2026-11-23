@@ -27,10 +27,10 @@ import time
 from pathlib import Path
 from typing import Awaitable, Callable
 
-from benchy import providers
 from benchy.errors import BenchyError
 from benchy.run import run
 
+import benchy_adapters
 from benchy_shared import check_models, model_slug, workspace
 
 MAX_ROWS = int(os.environ.get("BENCHY_MAX_ROWS", "500"))
@@ -67,14 +67,14 @@ async def run_model(source: Path, ir: dict, model: str | None = None) -> dict:
     if model:
         ir = {**ir, "ai-system": {**ir["ai-system"], "model": model}}
     system = ir["ai-system"]
-    check_models(ir)
+    await check_models(ir)
     workspace = source.parent
     rows = exam_rows(source, ir)
     if rows > MAX_ROWS:
         raise BenchyError("runtime", "dataset_too_large", f"the exam has {rows} rows; the limit here is {MAX_ROWS}")
-    adapter = providers.for_system(ir, workspace)
+    adapter = benchy_adapters.for_system(ir, workspace)
     # A rubric benchmark is graded by its declared grader (scoring.grader).
-    grader = providers.for_grader(ir, workspace) if ir["scoring"].get("grader") else None
+    grader = benchy_adapters.for_grader(ir, workspace) if ir["scoring"].get("grader") else None
     started = time.time()
     result = await run(ir, workspace, adapter, grader=grader)
     runs_dir = workspace / "runs"
@@ -109,7 +109,7 @@ def _busy(folder: Path) -> bool:
     return task is not None and not task.done()
 
 
-def start(source: Path, ir: dict, models: list[str], write_report: ReportWriter | None, grader_model: str | None = None) -> dict:
+async def start(source: Path, ir: dict, models: list[str], write_report: ReportWriter | None, grader_model: str | None = None) -> dict:
     """Start an evaluation of the benchmark at `source` with `models`; returns its first state.
     `grader_model`, when given, is the judge these runs grade with instead of the
     benchmark's own scoring.grader (the org's judge config); a benchmark with no
@@ -120,7 +120,10 @@ def start(source: Path, ir: dict, models: list[str], write_report: ReportWriter 
     if grader_model and ir["scoring"].get("grader"):
         ir = {**ir, "scoring": {**ir["scoring"], "grader": {**ir["scoring"]["grader"], "model": grader_model}}}
     for m in models:  # refuse a model this deployment cannot call before starting anything
-        check_models({**ir, "ai-system": {**ir["ai-system"], "model": m}})
+        await check_models({**ir, "ai-system": {**ir["ai-system"], "model": m}})
+    # Model discovery can yield while another request starts this benchmark.
+    if _busy(folder):
+        raise Busy(status(folder) or {})
     if exam_rows(source, ir) == 0:
         raise BenchyError("runtime", "empty_exam", "the exam has no questions yet")
     state = {

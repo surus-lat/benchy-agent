@@ -23,9 +23,10 @@ import json
 import time
 from pathlib import Path
 
-from benchy import data, metrics, providers, score, types
+from benchy import data, metrics, score, types
 from benchy.errors import BenchyError
 
+import benchy_adapters
 from benchy_shared import check_models
 
 CONCURRENCY = 4
@@ -41,10 +42,10 @@ def rubric_dimension(ir: dict) -> dict:
 async def review(ir: dict, source: Path) -> dict:
     """Grade every expected answer of the benchmark at `source`; write and return review.json."""
     dimension = rubric_dimension(ir)
-    check_models(ir)
+    await check_models(ir)
     path, criteria = dimension["path"], dimension["params"]["criteria"]
     workspace = source.parent
-    grader = providers.for_grader(ir, workspace)
+    grader = benchy_adapters.for_grader(ir, workspace)
     program = score.grader_program(ir)
     rows = list(data.examples(ir, workspace))
     gate = asyncio.Semaphore(CONCURRENCY)

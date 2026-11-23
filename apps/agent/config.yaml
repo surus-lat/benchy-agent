@@ -34,6 +34,7 @@ mcp_servers:
     # A stdio MCP child gets a minimal environment, not the gateway's; pass
     # exactly what the engine needs and nothing else. Hermes interpolates ${VAR}.
     env:
+      BENCHY_ORG: ${BENCHY_ORG}
       AWS_REGION: ${AWS_REGION}
       AWS_BEARER_TOKEN_BEDROCK: ${AWS_BEARER_TOKEN_BEDROCK}
       BENCHY_WORKSPACE: ${BENCHY_WORKSPACE}

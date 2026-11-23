@@ -10,7 +10,7 @@
 # Needs: gh (authenticated with access to surus-lat/llm-client) and uv; or,
 # as in CI, LLM_CLIENT_SRC set to a full clone of it (then gh is not needed).
 set -eu
-LLM_CLIENT_REF="${LLM_CLIENT_REF:-d00cdbbbb63d831687942a279af9760207a51695}"
+LLM_CLIENT_REF="${LLM_CLIENT_REF:-5e991aaaf697817262f2cd2cbaa66ba3319bca6e}"
 here="$(cd "$(dirname "$0")" && pwd)"
 work="$(mktemp -d)"
 trap 'rm -rf "$work"' EXIT
