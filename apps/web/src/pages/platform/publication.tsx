@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { api, newestPerModel, publicPath, since, type Analysis } from "./data";
+import { api, rankedRuns, publicPath, since, type Analysis } from "./data";
 import { usePlatform, type BenchSummary } from "./store";
 import { useRunResults, type EvaluationState, type ExamState } from "./use-exam";
 import { hasDesign } from "./exam-model";
@@ -181,7 +181,8 @@ function ReportView({
 function PublishView({ bench, exam, openExam, mcExam, go }: { bench: BenchSummary; exam: ExamState; openExam: boolean; mcExam: boolean; go: (s: PubStage) => void }) {
   const { me } = usePlatform();
   const results = useRunResults(bench);
-  const board = newestPerModel(results, bench.doc?.model);
+  const { analysis } = useAnalysis(bench);
+  const board = rankedRuns(results, analysis);
   const [scope, setScope] = useState<"approved" | "all">("approved");
   const [visibility, setVisibility] = useState<"private" | "public">("private");
   /** One line for this version: what it measures or what changed. */
@@ -297,9 +298,9 @@ function PublishView({ bench, exam, openExam, mcExam, go }: { bench: BenchSummar
                     <div key={r.model} className="ws-bar-row sm">
                       <span className="m">{r.model}</span>
                       <span className="track">
-                        <span className={i === 0 ? "top" : ""} style={{ width: `${r.result.benchmark_score * 100}%` }} />
+                        <span className={i === 0 ? "top" : ""} style={{ width: `${r.score * 100}%` }} />
                       </span>
-                      <span className="v">{r.result.benchmark_score.toFixed(2)}</span>
+                      <span className="v">{r.score.toFixed(2)}</span>
                     </div>
                   ))
                 ) : (

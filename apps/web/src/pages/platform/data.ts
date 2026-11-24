@@ -49,6 +49,7 @@ export type ExamCheck =
 export type RunResult = {
   ai_system?: AiSystem;
   benchmark_score: number;
+  quality_score?: number | null;
   summary: { examples: number; valid: number; invalid_outputs: number; execution_errors: number };
   results: { index: number; status: string; prediction: unknown; field_scores: { path: string[]; score: number; weight: number; criteria?: Record<string, { grade: number; justification: string }> }[] | null; error: EngineError | null }[];
 };
@@ -85,6 +86,8 @@ export const REGIONS = ["Norteamérica", "Europa", "China", "Otras"];
 export type Analysis = {
   ok: true;
   grader: string | null;
+  ranking: string[];
+  comparison_blocked: string | null;
   criteria: { key: string; weight: number; description: string; top: number }[];
   groups: string[];
   papers: { id: string; title: string; year: number | null }[];
@@ -98,6 +101,9 @@ export type Analysis = {
     score: number | null;
     summary: { examples?: number; valid?: number; invalid_outputs?: number; execution_errors?: number };
     stale: boolean;
+    grader: string | null;
+    latest_error: EngineError | null;
+    operational_score: number | null;
     criteria: Record<string, number | null>;
     groups: Record<string, number | null>;
     papers: Record<string, number | null>;
@@ -110,7 +116,7 @@ export type Analysis = {
     group: string;
     papers: string[];
     mean: number | null;
-    models: Record<string, { score: number; status: string; answer: string; missed: { criterion: string; justification: string }[]; error: string | null }>;
+    models: Record<string, { score: number | null; status: string; answer: string; missed: { criterion: string; justification: string }[]; error: string | null }>;
   }[];
   hardest: number[];
   regions: Record<string, number | null>;
@@ -183,6 +189,7 @@ export type Evaluation = {
     state: "pending" | "running" | "done" | "error";
     score?: number | null;
     summary?: { examples?: number; valid?: number; invalid_outputs?: number; execution_errors?: number };
+    operational_score?: number | null;
     seconds?: number;
     error?: EngineError;
   }[];
@@ -427,14 +434,13 @@ export function runModel(file: WorkspaceFile, result?: RunResult, benchModel?: s
   return parts.length === 3 ? parts[1] : benchModel ?? "modelo del benchmark";
 }
 
-/** The newest run per model: that set is "the comparison". */
-export function newestPerModel(runs: { file: WorkspaceFile; result: RunResult }[], benchModel?: string) {
-  const seen = new Map<string, { file: WorkspaceFile; result: RunResult; model: string }>();
-  for (const r of [...runs].sort((a, b) => b.file.modified - a.file.modified)) {
-    const model = runModel(r.file, r.result, benchModel);
-    if (!seen.has(model)) seen.set(model, { ...r, model });
-  }
-  return [...seen.values()].sort((a, b) => b.result.benchmark_score - a.result.benchmark_score);
+/** Use exactly the artifacts admitted by the worker, in its ranking order. */
+export function rankedRuns(runs: { file: WorkspaceFile; result: RunResult }[], analysis: Analysis | null) {
+  return (analysis?.ranking ?? []).flatMap((model) => {
+    const row = analysis?.models.find((m) => m.model === model);
+    const run = runs.find((r) => r.file.path === row?.file);
+    return run && row?.score != null ? [{ ...run, model, score: row.score }] : [];
+  });
 }
 
 /** Mean score per output field across a run's valid results. */

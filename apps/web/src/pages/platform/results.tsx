@@ -26,10 +26,12 @@ const when = (t: number) => new Date(t * 1000).toLocaleString("es-AR", { dateSty
 export function useAnalysis(bench: BenchSummary) {
   const { files } = usePlatform();
   const key = (files ?? [])
-    .filter((f) => f.path.startsWith(`${bench.slug}/runs/`) || f.path === `${bench.slug}/questions.json` || f.path === `${bench.slug}/exam.jsonl`)
+    .filter((f) => f.path.startsWith(`${bench.slug}/runs/`) || f.path === `${bench.slug}/questions.json` || f.path === bench.doc?.examPath || f.path === bench.yamlPath || f.path === `${bench.slug}/evaluation.json`)
     .map((f) => `${f.path}@${f.modified}`)
     .join("|");
-  const [analysis, setAnalysis] = useState<Analysis | null>(null);
+  const requestKey = `${bench.yamlPath}:${key}`;
+  const [snapshot, setSnapshot] = useState<{ key: string; analysis: Analysis } | null>(null);
+  const analysis = snapshot?.key === requestKey ? snapshot.analysis : null;
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   useEffect(() => {
@@ -40,16 +42,19 @@ export function useAnalysis(bench: BenchSummary) {
       .then((r) => {
         if (cancelled) return;
         if (r.ok) {
-          setAnalysis(r);
+          setSnapshot({ key: requestKey, analysis: r });
           setError(null);
-        } else setError(`${r.error.code} · ${r.error.message}`);
+        } else {
+          setSnapshot(null);
+          setError(`${r.error.code} · ${r.error.message}`);
+        }
       })
-      .catch((err) => !cancelled && setError(errorText(err)))
+      .catch((err) => { if (!cancelled) { setSnapshot(null); setError(errorText(err)); } })
       .finally(() => !cancelled && setLoading(false));
     return () => {
       cancelled = true;
     };
-  }, [bench.yamlPath, key]);
+  }, [bench.yamlPath, requestKey]);
   return { analysis, error, loading };
 }
 
@@ -104,6 +109,7 @@ export function ResultsStage({
   });
 
   const models = analysis?.models ?? [];
+  const ranked = (analysis?.ranking ?? []).flatMap((id) => models.filter((m) => m.model === id));
   const detail = openModel ? models.find((m) => m.model === openModel) ?? null : null;
   // A run in progress: the blocks below still show the previous one until it ends.
   const ev = evaluation.evaluation;
@@ -142,8 +148,8 @@ export function ResultsStage({
                   Por modelo · {models.length} {models.length === 1 ? "sistema evaluado" : "sistemas evaluados"} · abrí un bloque para ver sus respuestas
                 </p>
                 <div className="ws-res-grid">
-                  {models.map((m, i) => (
-                    <ModelBlock key={m.model} m={m} top={i === 0} criteria={analysis.criteria} onOpen={() => setOpenModel(m.model)} />
+                  {models.map((m) => (
+                    <ModelBlock key={m.model} m={m} top={ranked.length > 1 && ranked[0]?.model === m.model} criteria={analysis.criteria} onOpen={() => setOpenModel(m.model)} />
                   ))}
                 </div>
               </section>
@@ -175,7 +181,7 @@ export function ResultsStage({
                 </section>
               )}
 
-              {analysis.criteria.length > 0 && (
+              {ranked.length > 1 && analysis.criteria.length > 0 && (
                 <section className="ws-card ws-clip">
                   <div className="ws-pad ws-bb">
                     <p className="ws-eyebrow">Por criterio de evaluación · % de preguntas en que se cumplió</p>
@@ -185,7 +191,7 @@ export function ResultsStage({
                       <thead>
                         <tr>
                           <th>Criterio</th>
-                          {models.map((m) => (
+                          {ranked.map((m) => (
                             <th key={m.model} title={`${m.model} · ${m.region}`}>{m.name}</th>
                           ))}
                         </tr>
@@ -197,7 +203,7 @@ export function ResultsStage({
                               {c.description || c.key}
                               <span className="w">importancia {c.weight}</span>
                             </td>
-                            {models.map((m) => (
+                            {ranked.map((m) => (
                               <Heat key={m.model} v={m.criteria[c.key]} />
                             ))}
                           </tr>
@@ -208,7 +214,7 @@ export function ResultsStage({
                 </section>
               )}
 
-              {analysis.groups.length > 1 && (
+              {ranked.length > 1 && analysis.groups.length > 1 && (
                 <section className="ws-card ws-clip">
                   <div className="ws-pad ws-bb">
                     <p className="ws-eyebrow">Por tema · puntaje medio, en % del máximo</p>
@@ -218,7 +224,7 @@ export function ResultsStage({
                       <thead>
                         <tr>
                           <th>Tema</th>
-                          {models.map((m) => (
+                          {ranked.map((m) => (
                             <th key={m.model} title={`${m.model} · ${m.region}`}>{m.name}</th>
                           ))}
                         </tr>
@@ -227,7 +233,7 @@ export function ResultsStage({
                         {analysis.groups.map((g) => (
                           <tr key={g}>
                             <td>{g}</td>
-                            {models.map((m) => (
+                            {ranked.map((m) => (
                               <Heat key={m.model} v={m.groups[g]} />
                             ))}
                           </tr>
@@ -238,7 +244,7 @@ export function ResultsStage({
                 </section>
               )}
 
-              {analysis.papers.length > 0 && (
+              {ranked.length > 1 && analysis.papers.length > 0 && (
                 <section className="ws-card ws-clip">
                   <div className="ws-pad ws-bb">
                     <p className="ws-eyebrow">Por paper · puntaje medio de las preguntas que lo citan, en % del máximo</p>
@@ -248,7 +254,7 @@ export function ResultsStage({
                       <thead>
                         <tr>
                           <th>Paper</th>
-                          {models.map((m) => (
+                          {ranked.map((m) => (
                             <th key={m.model} title={`${m.model} · ${m.region}`}>{m.name}</th>
                           ))}
                         </tr>
@@ -260,7 +266,7 @@ export function ResultsStage({
                               {p.title}
                               {p.year ? <span className="wi"> · {p.year}</span> : null}
                             </td>
-                            {models.map((m) => (
+                            {ranked.map((m) => (
                               <Heat key={m.model} v={m.papers[p.id]} />
                             ))}
                           </tr>
@@ -285,23 +291,24 @@ export function ResultsStage({
                         <span className="t">{q.question}</span>
                         <span className="mono muted">{num(q.mean)}</span>
                         <span className="mini">
-                          {models.map((m) => {
+                          {ranked.map((m) => {
                             const r = q.models[m.model];
-                            const cls = !r ? "" : r.error || r.score < 1 ? "no" : "ok";
+                            const cls = !r ? "" : r.error || (r.score ?? 0) < 1 ? "no" : "ok";
                             return <span key={m.model} className={cls} title={`${m.name} · ${r ? num(r.score) : "sin datos"}`} />;
                           })}
                         </span>
                         <span className="chev" aria-hidden="true">›</span>
                       </button>
-                      {isOpen && <QuestionDetail q={q} models={models} analysis={analysis} talk={talk} busy={busy} />}
+                      {isOpen && <QuestionDetail q={q} models={ranked} analysis={analysis} talk={talk} busy={busy} />}
                     </div>
                   );
                 })}
               </section>
 
               <p className="ws-note">
-                Juez: <span className="mono">{analysis.grader ?? "—"}</span> · mejor puntaje {num(models[0].score)} ({models[0].name}). Las diferencias
-                de pocas centésimas con una corrida por modelo no son un hallazgo.
+                {analysis.comparison_blocked ? "Sin ranking: se usaron jueces distintos o no se pudo verificar su identidad." : ranked.length > 1
+                  ? `Mejor puntaje comparable: ${num(ranked[0].score)} (${ranked[0].name}). Juez: ${analysis.grader ?? "no aplica"}.`
+                  : "Sin comparación entre modelos: se requiere el mismo examen, el mismo juez y cobertura completa."}
               </p>
 
               <div className="ws-next">
@@ -334,7 +341,6 @@ const QUESTIONS_TO_ASK = [
 
 function ModelBlock({ m, top, criteria, onOpen }: { m: ModelRow; top: boolean; criteria: Analysis["criteria"]; onOpen: () => void }) {
   const s = m.summary;
-  const bad = (s.invalid_outputs ?? 0) + (s.execution_errors ?? 0);
   return (
     <button className="ws-res-block" onClick={onOpen} title={`Abrir el detalle de ${m.name}: sus métricas y cada respuesta que dio`}>
       <span className="head">
@@ -345,8 +351,10 @@ function ModelBlock({ m, top, criteria, onOpen }: { m: ModelRow; top: boolean; c
         <span className={top ? "top" : ""} style={{ width: `${(m.score ?? 0) * 100}%` }} />
       </span>
       <span className="meta">
-        {bad === 0 ? `todas válidas · ${s.examples ?? "?"} preguntas` : `${bad} sin respuesta válida de ${s.examples ?? "?"}`}
-        {m.stale && <span className="stale"> · corrida de una versión anterior del examen</span>}
+        {`${s.valid ?? "?"} de ${s.examples ?? "?"} válidas · calidad sobre respuestas válidas`}
+        {m.grader && ` · juez: ${m.grader}`}
+        {m.latest_error && <span className="stale"> · último intento fallido: {m.latest_error.code}</span>}
+        {m.stale && <span className="stale"> · versión del examen distinta o no verificable</span>}
       </span>
       {criteria.length > 0 && (
         <span className="crit">
@@ -392,7 +400,7 @@ function ModelDetail({ m, analysis, talk, busy, onClose }: { m: ModelRow; analys
   const byTitle = new Map(analysis.papers.map((p) => [p.id, p.title]));
   const fails = (q: QuestionRow) => {
     const r = q.models[m.model];
-    return !!r && (!!r.error || r.score < 1);
+    return !!r && (!!r.error || (r.score ?? 0) < 1);
   };
   const failCount = analysis.questions.filter(fails).length;
   const query = term.trim().toLowerCase();
@@ -417,13 +425,15 @@ function ModelDetail({ m, analysis, talk, busy, onClose }: { m: ModelRow; analys
         <span className="sp" />
         <span className="sc">{num(m.score)}</span>
         <span className="mono muted">{when(m.run_at)}</span>
-        {m.stale && <span className="ws-flag amber">corrida de una versión anterior del examen</span>}
+        {m.stale && <span className="ws-flag amber">versión del examen distinta o no verificable</span>}
       </div>
 
       <div className="ws-res-detail-body">
         <aside className="ws-res-metrics" aria-label="Métricas del modelo">
           <div className="ws-card ws-pad ws-stack">
-            <p className="ws-eyebrow">Puntaje</p>
+            <p className="ws-eyebrow">Calidad sobre respuestas válidas</p>
+            {m.grader && <p className="ws-note">Juez: {m.grader}</p>}
+            {m.latest_error && <p className="ws-note">Último intento fallido: {m.latest_error.code}</p>}
             <p className="ws-res-score">{num(m.score)}</p>
             <span className="track">
               <span style={{ width: `${(m.score ?? 0) * 100}%` }} />
@@ -521,7 +531,7 @@ function AnswerRow({ q, m, criteria, byTitle, talk, busy }: { q: QuestionRow; m:
       ? "sin respuesta"
       : missed.length
         ? `${missed.length} criterio${missed.length === 1 ? "" : "s"} sin cumplir`
-        : r.score < 1
+        : (r.score ?? 0) < 1
           ? "incorrecta"
           : "completa";
   return (

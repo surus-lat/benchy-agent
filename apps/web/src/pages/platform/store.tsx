@@ -9,7 +9,6 @@ import {
   type BenchDoc,
   type Me,
   type PublicationSummary,
-  type RunResult,
   type Validation,
   type WorkspaceFile,
 } from "./data";
@@ -140,12 +139,9 @@ async function summarize(b: Bench, cache: Map<string, BenchSummary>): Promise<Be
           .then((t) => t.split("\n").filter((l) => l.trim()).length)
           .catch(() => undefined)
       : Promise.resolve(undefined),
-    Promise.all(b.runs.slice(0, 8).map((r) => api.text(r.path).then((t) => JSON.parse(t) as RunResult).catch(() => null))).then(
-      (rs) => {
-        const scores = rs.filter((r): r is RunResult => !!r).map((r) => r.benchmark_score);
-        return scores.length ? Math.max(...scores) : null;
-      },
-    ),
+    b.runs.length ? api.analysis(b.yamlPath).then((r) =>
+      r.ok && r.ranking?.length ? r.models.find((m) => m.model === r.ranking[0])?.score ?? null : null,
+    ).catch(() => null) : Promise.resolve(null),
   ]);
   const s: BenchSummary = { ...b, doc, validation, items, best };
   cache.set(key, s);

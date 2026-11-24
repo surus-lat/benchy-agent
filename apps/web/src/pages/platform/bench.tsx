@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useAnalysis } from "./results";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useLocation } from "wouter";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
@@ -8,7 +9,7 @@ import {
   fieldMeans,
   firstText,
   leafSummary,
-  newestPerModel,
+  rankedRuns,
   spellcheckFor,
   splitAsk,
   type ExamCheck,
@@ -501,7 +502,8 @@ function ResultsTab({ bench }: { bench: BenchSummary }) {
     };
   }, [bench.runs]);
 
-  const comparison = useMemo(() => (loaded ? newestPerModel(loaded, bench.doc?.model) : []), [loaded, bench.doc?.model]);
+  const { analysis } = useAnalysis(bench);
+  const comparison = rankedRuns(loaded ?? [], analysis);
   const dims = bench.validation?.ok ? bench.validation.dimensions : [];
 
   if (!loaded) return <section className="bp-page"><p className="body">Cargando corridas…</p></section>;
@@ -509,13 +511,13 @@ function ResultsTab({ bench }: { bench: BenchSummary }) {
     return (
       <section className="bp-page">
         <div className="card-plain" style={{ padding: "32px 24px", textAlign: "center" }}>
-          <p style={{ margin: 0, fontSize: 16 }}>Todavía no hay resultados.</p>
+          <p style={{ margin: 0, fontSize: 16 }}>Todavía no hay corridas comparables.</p>
           <p style={{ margin: "6px 0 0", fontSize: 14 }} className="body">Ejecutá una comparación y los puntajes aparecen acá.</p>
         </div>
       </section>
     );
 
-  const top = Math.max(...comparison.map((c) => c.result.benchmark_score));
+  const top = Math.max(...comparison.map((c) => c.score));
   const examples = comparison[0].result.summary.examples;
   const means = comparison.map((c) => fieldMeans(c.result));
   const worst = comparison.find((c) => c.result.summary.invalid_outputs + c.result.summary.execution_errors > 0);
@@ -539,9 +541,9 @@ function ResultsTab({ bench }: { bench: BenchSummary }) {
             <div className="bp-res-row">
               <span className="mono" style={{ fontSize: 13, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{c.model}</span>
               <span className="bp-res-bar">
-                <span className={c.result.benchmark_score === top && comparison.length > 1 ? "top" : ""} style={{ width: `${c.result.benchmark_score * 100}%` }} />
+                <span className={c.score === top && comparison.length > 1 ? "top" : ""} style={{ width: `${c.score * 100}%` }} />
               </span>
-              <span style={{ textAlign: "right", fontSize: 15, fontWeight: 500, fontVariantNumeric: "tabular-nums" }}>{c.result.benchmark_score.toFixed(2)}</span>
+              <span style={{ textAlign: "right", fontSize: 15, fontWeight: 500, fontVariantNumeric: "tabular-nums" }}>{c.score.toFixed(2)}</span>
             </div>
             <div style={{ marginTop: 6, display: "flex", flexWrap: "wrap", gap: "4px 14px", fontSize: 12 }} className="body">
               <span>{c.result.summary.valid} válidos</span>

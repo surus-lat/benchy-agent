@@ -23,14 +23,17 @@ import asyncio
 import json
 import os
 import shutil
+import tempfile
 import time
 from pathlib import Path
 from typing import Awaitable, Callable
 
+from benchy import data
 from benchy.errors import BenchyError
 from benchy.run import run
 
 import benchy_adapters
+from benchy_metrics import failure_path, identity, quality
 from benchy_shared import check_models, model_slug, workspace
 
 MAX_ROWS = int(os.environ.get("BENCHY_MAX_ROWS", "500"))
@@ -75,14 +78,30 @@ async def run_model(source: Path, ir: dict, model: str | None = None) -> dict:
     adapter = benchy_adapters.for_system(ir, workspace)
     # A rubric benchmark is graded by its declared grader (scoring.grader).
     grader = benchy_adapters.for_grader(ir, workspace) if ir["scoring"].get("grader") else None
+    exam = data.resolve_within(ir["data"]["path"], workspace, workspace, ["data", "path"])
     started = time.time()
-    result = await run(ir, workspace, adapter, grader=grader)
+    if not exam.is_file():
+        raise BenchyError("dataset", "data_not_found", "no se encontró el examen")
+    # Keep relative attachments resolvable and run the exact bytes we fingerprint.
+    with tempfile.NamedTemporaryFile(dir=exam.parent, prefix=".exam-run-", suffix=".jsonl") as snapshot:
+        with exam.open("rb") as original:
+            shutil.copyfileobj(original, snapshot)
+        snapshot.flush()
+        snapshot_path = Path(snapshot.name)
+        before = identity(ir, snapshot_path)
+        frozen = {**ir, "data": {**ir["data"], "path": str(snapshot_path.relative_to(workspace))}}
+        result = await run(frozen, workspace, adapter, grader=grader)
+    if not exam.is_file() or before != identity(ir, exam):
+        raise BenchyError("runtime", "exam_changed", "el examen cambió durante la corrida; volvé a evaluar")
+    result.update(exam_identity=before, quality_score=quality(result))
     runs_dir = workspace / "runs"
     runs_dir.mkdir(exist_ok=True)
     # <stem>__<model>__<timestamp>.json: the app groups the newest run per
     # model into a comparison, and the result itself records the AI-system.
-    out = runs_dir / f"{source.stem}__{model_slug(system.get('model', 'external'))}__{time.strftime('%Y%m%d-%H%M%S')}.json"
-    out.write_text(json.dumps({"ai_system": system, **result}, indent=2, ensure_ascii=False), encoding="utf-8")
+    out = runs_dir / f"{source.stem}__{model_slug(system.get('model', 'external'))}__{time.time_ns()}.json"
+    with tempfile.NamedTemporaryFile(dir=runs_dir, prefix=".run-", delete=False, mode="w", encoding="utf-8") as temp:
+        json.dump({"ai_system": system, **result}, temp, indent=2, ensure_ascii=False)
+    os.replace(temp.name, out)
     return {"system": system, "result": result, "file": out, "seconds": round(time.time() - started, 1)}
 
 
@@ -171,15 +190,24 @@ async def _evaluate(source: Path, ir: dict, state: dict, write_report: ReportWri
                 done = await run_model(source, ir, entry["model"])
                 entry.update(
                     state="done",
-                    score=done["result"].get("benchmark_score"),
+                    score=done["result"]["quality_score"],
+                    operational_score=done["result"].get("benchmark_score"),
                     summary=done["result"].get("summary"),
                     file=str(done["file"].relative_to(workspace())),
                     seconds=done["seconds"],
                 )
+                if not entry["summary"]["valid"] and entry["summary"]["execution_errors"]:
+                    entry.update(state="error", error={"code": "no_valid_results", "message": "Sin resultados válidos; hubo fallas de ejecución."})
             except BenchyError as exc:
                 entry.update(state="error", error=exc.to_dict())
             except Exception as exc:  # a provider failure must not leave the state "running"
                 entry.update(state="error", error={"code": "runtime_error", "message": str(exc)[:300]})
+            if entry["state"] == "error":
+                failure = failure_path(folder, entry["model"])
+                failure.parent.mkdir(exist_ok=True)
+                temp = failure.with_suffix(".tmp")
+                temp.write_text(json.dumps(entry["error"]), encoding="utf-8")
+                os.replace(temp, failure)
             _write(folder, state)
 
     await asyncio.gather(*(one(e) for e in state["models"]))

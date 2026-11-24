@@ -13,6 +13,15 @@ publish: an academic paper, a note for the press, a talk.
 Call `benchy_analysis("<slug>/benchmark.yaml")` before saying anything about
 the results. It reads the newest run of each model and returns:
 
+- Use `ranking` as the only permitted set for cross-model comparisons. If it
+  contains fewer than two models, do not compare them. Do not reconstruct a
+  ranking from raw scores. `comparison_blocked` explains judge incompatibility.
+- `score` is quality on valid responses. State `summary.valid` of
+  `summary.examples` with quality scores; distinguish invalid outputs and
+  execution errors. `operational_score` includes failed attempts and is not
+  quality. Report the effective `grader` per model. A missing score is not zero.
+- A stale result or one with `latest_error` cannot support a current finding.
+
 - `models`: name, maker and region (Norteamérica, Europa, China), score,
   `summary` (valid / invalid_outputs / execution_errors),
   `criteria` (share of questions where each rubric criterion was met),

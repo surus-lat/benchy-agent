@@ -1,8 +1,9 @@
+import { useAnalysis } from "./results";
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { Link, useLocation } from "wouter";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
-import { api, errorText, newestPerModel, REGIONS, spellcheckFor, splitAsk, type JudgeConfig, type Message } from "./data";
+import { api, errorText, rankedRuns, REGIONS, spellcheckFor, splitAsk, type JudgeConfig, type Message } from "./data";
 import { useAgentChat } from "./agent-chat";
 import { usePlatform, usePokeWhile, type BenchSummary, type PendingSource } from "./store";
 import { useEvaluation, useExam, useModelCatalog, useRunResults, useSelectedModels, type EvaluationState, type ExamState } from "./use-exam";
@@ -2164,7 +2165,8 @@ function EvaluationStage({
   }
   const judgeName = (id: string) => catalog.find((c) => c.id === id)?.name ?? id;
   const results = useRunResults(bench);
-  const board = newestPerModel(results, bench.doc?.model);
+  const { analysis } = useAnalysis(bench);
+  const board = rankedRuns(results, analysis);
 
   // Where to go from here, in the toolbar's corner: with no rubric the next
   // step is writing it, otherwise reading what the run returned.
@@ -2195,7 +2197,7 @@ function EvaluationStage({
     void start();
   }, [runRequest, models.length, start]);
 
-  const top = board[0]?.result.benchmark_score ?? 0;
+  const top = board[0]?.score ?? 0;
   return (
     <div className="ws-scroll ws-pad-lg ws-grid2">
       <p className="ws-eyebrow ws-stage-id">04 · Evaluación · {bench.doc?.title ?? bench.slug}</p>
@@ -2324,9 +2326,9 @@ function EvaluationStage({
               <span className="ws-bar-row">
                 <span className="m" title={r.model}>{r.model}</span>
                 <span className="track">
-                  <span className={i === 0 ? "top" : ""} style={{ width: `${r.result.benchmark_score * 100}%` }} />
+                  <span className={i === 0 ? "top" : ""} style={{ width: `${r.score * 100}%` }} />
                 </span>
-                <span className="v">{r.result.benchmark_score.toFixed(2)}</span>
+                <span className="v">{r.score.toFixed(2)}</span>
               </span>
               <span className="ws-bar-line">
                 {bad === 0 ? `todas válidas · ${s.examples} preguntas` : [s.invalid_outputs && `${s.invalid_outputs} invalid_output`, s.execution_errors && `${s.execution_errors} execution_error`].filter(Boolean).join(" · ")}
