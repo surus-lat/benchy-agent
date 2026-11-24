@@ -498,48 +498,7 @@ def _drop_review(folder: Path, index: int) -> None:
     _write(folder / "review.json", json.dumps({**data, "rows": kept}, ensure_ascii=False, indent=2) + "\n")
 
 
-def _contribution(row: dict) -> float:
-    c = row.get("contribution")
-    if isinstance(c, (int, float)):
-        return float(c)
-    s = row.get("score")
-    return float(s) if isinstance(s, (int, float)) else 0.0
-
-
-def _drop_run_rows(folder: Path, index: int) -> None:
-    """Every run's results, without the answer to the deleted question. The
-    answers below it move up one (the exam did), and the run's score and
-    summary are recomputed over what stays with the engine's own formulas
-    (failures contribute zero; the score is the mean over every example)."""
-    runs = folder / "runs"
-    for file in sorted(runs.glob("*.json")) if runs.is_dir() else []:
-        result = _read_json(file)
-        rows = (result or {}).get("results")
-        if not isinstance(result, dict) or not isinstance(rows, list):
-            continue
-        if not any(isinstance(r.get("index"), int) and r["index"] >= index for r in rows):
-            continue
-        kept = [r for r in (_shifted(row, index) for row in rows) if r is not None]
-        summary = result.get("summary")
-        if isinstance(summary, dict):
-            summary["examples"] = len(kept)
-            summary["valid"] = sum(1 for r in kept if r.get("status") == "valid")
-            summary["invalid_outputs"] = sum(1 for r in kept if r.get("status") == "invalid_output")
-            summary["execution_errors"] = sum(1 for r in kept if r.get("status") == "execution_error")
-        result["results"] = kept
-        result["benchmark_score"] = (
-            round(sum(_contribution(r) for r in kept) / len(kept), 4) if kept else None
-        )
-        _write(file, json.dumps(result, ensure_ascii=False, indent=2) + "\n")
-
-
 async def remove_question(bench: str, q: int) -> None:
-    """Take one question out of a benchmark's exam: its row, its notes, its
-    review, and — in every run of the benchmark — the answers to it. `q` is
-    the 1-based question number the app shows ("pregunta 03" is q=3); the exam
-    and the runs key rows 0-based. The runs the cascade touches read as what
-    they are — a run of a previous version of the exam (the exam's mtime is
-    newer, the same staleness any exam edit produces)."""
     folder = bench_dir(bench)
     async with _locked(folder):
         _writable(folder)
@@ -554,4 +513,3 @@ async def remove_question(bench: str, q: int) -> None:
         _write(exam, "\n".join(lines[:index] + lines[index + 1:]) + "\n")
         _drop_meta(folder, index)
         _drop_review(folder, index)
-        _drop_run_rows(folder, index)

@@ -1,8 +1,9 @@
+import { useAnalysis } from "./results";
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { Link, useLocation } from "wouter";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
-import { api, errorText, newestPerModel, REGIONS, spellcheckFor, splitAsk, type JudgeConfig, type Message } from "./data";
+import { api, errorText, rankedRuns, REGIONS, spellcheckFor, splitAsk, type JudgeConfig, type Message } from "./data";
 import { useAgentChat } from "./agent-chat";
 import { usePlatform, usePokeWhile, type BenchSummary, type PendingSource } from "./store";
 import { useEvaluation, useExam, useModelCatalog, useRunResults, useSelectedModels, type EvaluationState, type ExamState } from "./use-exam";
@@ -28,7 +29,8 @@ import { CriteriaStage } from "./criteria";
 import { SourcesStage } from "./fuentes";
 import { useStageCta, type StageCta } from "./stage-next";
 import { PublicationStage } from "./publication";
-import { EvaluationProgress, ResultsStage } from "./results";
+import { evaluationRecovery, type Recovery } from "./evaluation-recovery";
+import { EvaluationProgress, RecoveryAction, ResultsStage } from "./results";
 import {
   citation,
   libraryId,
@@ -2127,7 +2129,16 @@ function EvaluationStage({
   onDetail: (model: string) => void;
 }) {
   const running = evaluation.active;
-  const { models, catalog } = useModelCatalog();
+  const { models, catalog, loading: catalogLoading, error: catalogError, reload: reloadCatalog } = useModelCatalog();
+  const systemsRef = useRef<HTMLDivElement>(null);
+  const judgeRef = useRef<HTMLSelectElement>(null);
+  const recover = (action: Recovery) => {
+    if (action.target === "status") { void evaluation.reload(); return; }
+    if (action.target === "questions") { onReview(); return; }
+    if (action.target === "catalog") reloadCatalog();
+    if (action.target === "judge" && judgeRef.current) { judgeRef.current.focus(); return; }
+    systemsRef.current?.focus();
+  };
   const [selected, setSelected] = useSelectedModels(
     bench.slug,
     models,
@@ -2137,19 +2148,25 @@ function EvaluationStage({
   // The judge of the next evaluation: this benchmark's override ("" when none),
   // else the org's default, else the benchmark's own grader. Saved on change.
   const [judge, setJudge] = useState<JudgeConfig | null>(null);
+  const [judgeLoadError, setJudgeLoadError] = useState(false);
+  const [judgeAttempt, setJudgeAttempt] = useState(0);
   const [judgePick, setJudgePick] = useState("");
   const [judgeSaving, setJudgeSaving] = useState<"idle" | "saving" | "error">("idle");
   useEffect(() => {
+    let cancelled = false;
     setJudge(null);
+    setJudgeLoadError(false);
     setJudgePick("");
     void api
       .benchJudge(bench.slug)
       .then((j) => {
+        if (cancelled) return;
         setJudge(j);
         setJudgePick(j.override ?? "");
       })
-      .catch(() => {});
-  }, [bench.slug]);
+      .catch(() => { if (!cancelled) setJudgeLoadError(true); });
+    return () => { cancelled = true; };
+  }, [bench.slug, judgeAttempt]);
   async function pickJudge(id: string) {
     setJudgePick(id);
     setJudgeSaving("saving");
@@ -2164,7 +2181,8 @@ function EvaluationStage({
   }
   const judgeName = (id: string) => catalog.find((c) => c.id === id)?.name ?? id;
   const results = useRunResults(bench);
-  const board = newestPerModel(results, bench.doc?.model);
+  const { analysis, error: analysisError, retry: retryAnalysis } = useAnalysis(bench);
+  const board = rankedRuns(results, analysis);
 
   // Where to go from here, in the toolbar's corner: with no rubric the next
   // step is writing it, otherwise reading what the run returned.
@@ -2183,19 +2201,18 @@ function EvaluationStage({
       });
   const start = useCallback(async () => {
     const chosen = models.filter((m) => selected.has(m));
-    if (chosen.length === 0 || running || noCriteria) return;
+    if (!bench.validation?.ok || chosen.length === 0 || running || noCriteria || catalogLoading || !!catalogError || !judge || judgeSaving === "saving" || judgeSaving === "error") return;
     await evaluation.start(chosen);
-  }, [models, selected, running, evaluation, noCriteria]);
+  }, [models, selected, running, evaluation, noCriteria, bench.validation?.ok, catalogLoading, catalogError, judge, judgeSaving]);
 
   // The toolbar's "Ejecutar evaluación" and B's chip land here, once the models are known.
   const handled = useRef(runRequest);
   useEffect(() => {
-    if (runRequest === handled.current || models.length === 0) return;
+    if (runRequest === handled.current || catalogLoading || !judge) return;
     handled.current = runRequest;
     void start();
-  }, [runRequest, models.length, start]);
+  }, [runRequest, catalogLoading, judge, start]);
 
-  const top = board[0]?.result.benchmark_score ?? 0;
   return (
     <div className="ws-scroll ws-pad-lg ws-grid2">
       <p className="ws-eyebrow ws-stage-id">04 · Evaluación · {bench.doc?.title ?? bench.slug}</p>
@@ -2221,7 +2238,7 @@ function EvaluationStage({
             </button>
           ))}
         </div>
-        <div className="ws-systems">
+        <div className="ws-systems" ref={systemsRef} tabIndex={-1}>
           {byRegion.map((g) => (
             <div key={g.region}>
               <p className="ws-region">{g.region}</p>
@@ -2255,13 +2272,16 @@ function EvaluationStage({
               })}
             </div>
           ))}
-          {models.length === 0 && <p className="ws-note" style={{ padding: "11px 0" }}>Cargando modelos…</p>}
+          {catalogLoading ? <p className="ws-note">Verificando qué modelos están disponibles…</p> : catalogError || models.length === 0 ? <p className="ws-note" role="status">{catalogError ? "No pudimos cargar el catálogo." : "No hay modelos habilitados. Si persiste, pedile al administrador que revise el acceso del proveedor."}{" "}<button className="ws-link" onClick={reloadCatalog}>Actualizar modelos</button></p> : !models.some(m => selected.has(m)) && <p className="ws-note">Activá al menos un modelo de la lista para evaluar.</p>}
         </div>
+        {judgeSaving === "error" && <p className="ws-eval-warn stop" role="alert">No se pudo guardar el juez elegido. <button className="ws-link" onClick={() => void pickJudge(judgePick)}>Reintentar guardado</button> o elegí otro juez.</p>}
+        {!bench.validation?.ok && <p className="ws-eval-warn stop">El examen no está listo para evaluar. <button className="ws-link" onClick={onReview}>Revisar examen</button></p>}
+        {judgeLoadError && <p className="ws-eval-warn stop" role="alert">No pudimos leer la configuración del juez. <button className="ws-link" onClick={() => setJudgeAttempt(n => n + 1)}>Volver a cargar el juez</button></p>}
         {judge && (
           <div className="ws-pad" style={{ display: "grid", gap: 6 }}>
             <p className="ws-eyebrow" style={{ margin: 0 }}>Modelo juez</p>
             <p className="ws-note" style={{ margin: 0 }}>Califica cada respuesta contra los criterios de evaluación.</p>
-            <select value={judgePick} onChange={(e) => void pickJudge(e.target.value)} disabled={judgeSaving === "saving"}>
+            <select ref={judgeRef} aria-label="Modelo juez" value={judgePick} onChange={(e) => void pickJudge(e.target.value)} disabled={judgeSaving === "saving"}>
               <option value="">
                 {judge.orgDefault ? `Sin override — ${judgeName(judge.orgDefault)} (default de la organización)` : "Sin override — el del benchmark (default del sistema)"}
               </option>
@@ -2276,7 +2296,7 @@ function EvaluationStage({
             <p className="ws-note" style={{ margin: 0 }}>
               Juez de la próxima evaluación: {judge.effective ? judgeName(judge.effective) : "el del benchmark"} ·{" "}
               {judge.source === "override" ? "override de esta evaluación" : judge.source === "org" ? "default de la organización" : "default del sistema"}
-              {judgeSaving === "saving" ? " · guardando…" : judgeSaving === "error" ? " · no se pudo guardar" : ""}
+              {judgeSaving === "saving" ? " · guardando…" : ""}
             </p>
           </div>
         )}
@@ -2304,7 +2324,7 @@ function EvaluationStage({
           </span>
           <button
             className="ws-btn-dark sm"
-            disabled={!bench.validation?.ok || running || noCriteria || !models.some((m) => selected.has(m))}
+            disabled={!bench.validation?.ok || running || noCriteria || catalogLoading || !!catalogError || !judge || judgeSaving !== "idle" || !models.some((m) => selected.has(m))}
             onClick={() => void start()}
           >
             {running ? "Evaluando…" : "Ejecutar evaluación"}
@@ -2314,8 +2334,10 @@ function EvaluationStage({
 
       <div className="ws-card ws-pad ws-results">
         <p className="ws-eyebrow">{board.length ? "La corrida · abrí un modelo para ver sus respuestas" : "La corrida"}</p>
-        {evaluation.error && <p className="ws-note fail">{evaluation.error}</p>}
-        {evaluation.evaluation && <EvaluationProgress bench={bench} ev={evaluation.evaluation} catalog={catalog} onReport={() => void evaluation.startReport()} />}
+        {evaluation.statusError && <p role="alert" className="ws-note">No pudimos leer el estado de la corrida. <button className="ws-link" onClick={() => void evaluation.reload()}>Actualizar estado</button></p>}
+        {analysisError && <p role="alert" className="ws-note">No pudimos cargar los resultados. <button className="ws-link" onClick={retryAnalysis}>Reintentar análisis</button></p>}
+        {evaluation.error && <div role="alert" className="ws-note"><p>{evaluation.failure?.kind === "report" && evaluation.failure.code !== "no_runs" && evaluationRecovery(evaluation.failure.code).target !== "status" ? <>No se pudo iniciar el informe. <button disabled={running} className="ws-link" onClick={() => void evaluation.startReport()}>Reintentar informe</button></> : <RecoveryAction action={evaluationRecovery(evaluation.failure?.code)} onRecover={recover} />}</p><details><summary>Detalle técnico</summary>{evaluation.error}</details></div>}
+        {evaluation.evaluation && <EvaluationProgress bench={bench} ev={evaluation.evaluation} catalog={catalog} onReport={() => void evaluation.startReport()} onRecover={recover} />}
         {board.map((r, i) => {
           const s = r.result.summary;
           const bad = s.invalid_outputs + s.execution_errors;
@@ -2324,9 +2346,9 @@ function EvaluationStage({
               <span className="ws-bar-row">
                 <span className="m" title={r.model}>{r.model}</span>
                 <span className="track">
-                  <span className={i === 0 ? "top" : ""} style={{ width: `${r.result.benchmark_score * 100}%` }} />
+                  <span className={i === 0 ? "top" : ""} style={{ width: `${r.score * 100}%` }} />
                 </span>
-                <span className="v">{r.result.benchmark_score.toFixed(2)}</span>
+                <span className="v">{r.score.toFixed(2)}</span>
               </span>
               <span className="ws-bar-line">
                 {bad === 0 ? `todas válidas · ${s.examples} preguntas` : [s.invalid_outputs && `${s.invalid_outputs} invalid_output`, s.execution_errors && `${s.execution_errors} execution_error`].filter(Boolean).join(" · ")}
@@ -2337,7 +2359,6 @@ function EvaluationStage({
             </button>
           );
         })}
-        {board.length > 0 && top === 0 && <p className="ws-note">Todos en 0: revisá las fallas antes de leer el puntaje.</p>}
         {board.length === 0 && !evaluation.evaluation && (
           <p className="ws-note">Todavía sin corridas: cuando termines una evaluación, cada modelo queda acá como atajo a su detalle en 05 · Resultados.</p>
         )}

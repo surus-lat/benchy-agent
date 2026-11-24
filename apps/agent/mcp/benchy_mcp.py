@@ -24,7 +24,7 @@ except ImportError:  # mcp 1.x
 import sys
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from benchy_shared import MODELS, catalog, inside, workspace  # noqa: E402
+from benchy_shared import available_models, inside, workspace  # noqa: E402
 from benchy_review import review  # noqa: E402
 from benchy_quality import quality  # noqa: E402
 import benchy_sources  # noqa: E402
@@ -300,13 +300,13 @@ async def benchy_add_paper(bench: str, paper_id: int) -> dict:
 
 
 @mcp.tool()
-def benchy_models() -> dict:
+async def benchy_models() -> dict:
     """The Bedrock model ids an AI-system may name, as `ai-system.model` with
     `provider: bedrock`, each with its maker and region (Norteamérica, Europa,
     China). To compare how models from different regions answer a field —
     Latin America is often answered through another region's lens — run at
     least one per region; `default` marks one per region."""
-    return {"provider": "bedrock", "models": MODELS, "catalog": catalog()}
+    return await available_models()
 
 
 if __name__ == "__main__":

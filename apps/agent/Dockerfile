@@ -31,6 +31,7 @@ COPY vendor/ /tmp/vendor/
 # onnxruntime + tokenizers replace sentence-transformers + torch for embeddings.
 RUN uv pip install --python /opt/hermes/.venv/bin/python --no-cache /tmp/vendor/llm_client-*.whl \
       "benchy @ git+https://github.com/surus-lat/benchy.git@${BENCHY_ENGINE_REF}" \
+      "boto3>=1.38,<2" \
       pypdfium2==5.13.0 \
       onnxruntime \
       tokenizers \

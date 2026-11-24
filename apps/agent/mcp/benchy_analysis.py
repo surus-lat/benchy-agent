@@ -17,9 +17,10 @@ import json
 import re
 from pathlib import Path
 
-from benchy import score
+from benchy import data, score
 
 from benchy_shared import CATALOG
+from benchy_metrics import exam_digest, failure_path, judge_key, mean as _mean, quality, valid_score
 
 CITED = re.compile(r"^((?:conicet|bicyt|pdf)-[a-z0-9-]+?)(?=[\s,;:]|$)", re.I)
 
@@ -43,7 +44,7 @@ def _json(path: Path, default):
 
 def _runs(folder: Path) -> list[tuple[str, Path, dict]]:
     """The newest run file per model: (model, file, result)."""
-    newest: dict[str, tuple[float, Path, dict]] = {}
+    newest: dict[str, tuple[int, Path, dict]] = {}
     for file in (folder / "runs").glob("*.json") if (folder / "runs").is_dir() else []:
         result = _json(file, None)
         if not isinstance(result, dict) or "results" not in result:
@@ -52,14 +53,10 @@ def _runs(folder: Path) -> list[tuple[str, Path, dict]]:
         if not model:
             parts = file.stem.split("__")
             model = parts[1] if len(parts) == 3 else "modelo del benchmark"
-        mtime = file.stat().st_mtime
+        mtime = file.stat().st_mtime_ns
         if model not in newest or mtime > newest[model][0]:
             newest[model] = (mtime, file, result)
     return [(m, f, r) for m, (_, f, r) in newest.items()]
-
-
-def _mean(values: list[float]) -> float | None:
-    return round(sum(values) / len(values), 4) if values else None
 
 
 def analyze(ir: dict, source: Path, answer_chars: int = 1500) -> dict:
@@ -69,15 +66,21 @@ def analyze(ir: dict, source: Path, answer_chars: int = 1500) -> dict:
         {"key": c["name"], "weight": c.get("weight", 1), "description": c.get("description", ""), "top": c["levels"][-1]["grade"]}
         for c in (rubric["params"]["criteria"] if rubric else [])
     ]
-    exam_file = (folder / ir["data"]["path"]).resolve()
+    exam_file = data.resolve_within(ir["data"]["path"], folder, folder, ["data", "path"])
     rows = []
+    exam_identity = None
     if exam_file.is_file():
-        for line in exam_file.read_text(encoding="utf-8").splitlines():
-            if line.strip():
-                try:
-                    rows.append(json.loads(line))
-                except ValueError:
-                    rows.append({"input": {}, "expected": {}})
+        digest = exam_digest(ir)
+        with exam_file.open("rb") as stream:
+            for line in stream:
+                digest.update(line)
+                if line.strip():
+                    try:
+                        row = json.loads(line)
+                        rows.append(row if isinstance(row, dict) else {})
+                    except ValueError:
+                        rows.append({})
+        exam_identity = digest.hexdigest()
     meta = _json(folder / "questions.json", {}).get("rows") or []
     papers = {s.get("id"): s for s in _json(folder / "sources.json", {}).get("sources") or [] if isinstance(s, dict)}
 
@@ -93,7 +96,6 @@ def analyze(ir: dict, source: Path, answer_chars: int = 1500) -> dict:
         g = meta[i].get("group") if i < len(meta) and isinstance(meta[i], dict) else None
         return (g or "").strip() or "Preguntas"
 
-    exam_mtime = exam_file.stat().st_mtime if exam_file.is_file() else 0
     questions = [
         {
             "index": i,
@@ -108,15 +110,24 @@ def analyze(ir: dict, source: Path, answer_chars: int = 1500) -> dict:
     ]
 
     models = []
+    judges = {}
+    evaluation = _json(folder / "evaluation.json", {}) or {}
+    latest = {e["model"]: e for e in evaluation.get("models", [])}
     for model, file, result in _runs(folder):
         per_criterion = {c["key"]: [] for c in criteria}
         scores = {}
-        for r in result.get("results", []):
+        stale = not exam_identity or result.get("exam_identity") != exam_identity
+        summary = result.get("summary") or {}
+        entry = latest.get(model, {})
+        failure = failure_path(folder, model)
+        latest_error = _json(failure, None) if failure.is_file() and failure.stat().st_mtime_ns >= file.stat().st_mtime_ns else None
+        grader = ((result.get("grader") or {}).get("system") or {}).get("model")
+        key = judge_key(result) if rubric else "deterministic"
+        for r in ([] if stale else result.get("results", [])):
             i = r.get("index")
-            s = r.get("score") if r.get("status") == "valid" else 0.0
-            s = float(s or 0.0)
+            s = valid_score(r)
             scores[i] = s
-            graded = next((f.get("criteria") for f in r.get("field_scores") or [] if f.get("criteria")), None) or {}
+            graded = next((f.get("criteria") for f in r.get("field_scores") or [] if f.get("criteria")), {}) if s is not None else {}
             missed = []
             for c in criteria:
                 g = graded.get(c["key"])
@@ -126,7 +137,7 @@ def analyze(ir: dict, source: Path, answer_chars: int = 1500) -> dict:
                 per_criterion[c["key"]].append(1.0 if met else 0.0)
                 if not met:
                     missed.append({"criterion": c["key"], "justification": g.get("justification", "")})
-            if isinstance(i, int) and i < len(questions):
+            if isinstance(i, int) and 0 <= i < len(questions):
                 answer = _text(r.get("prediction"))
                 questions[i]["models"][model] = {
                     "score": s,
@@ -138,11 +149,15 @@ def analyze(ir: dict, source: Path, answer_chars: int = 1500) -> dict:
         by_group: dict[str, list[float]] = {}
         by_paper: dict[str, list[float]] = {}
         for q in questions:
-            s = scores.get(q["index"], 0.0)
+            s = scores.get(q["index"])
+            if s is None:
+                continue
             by_group.setdefault(q["group"], []).append(s)
             for p in q["papers"]:
                 by_paper.setdefault(p, []).append(s)
-        summary = result.get("summary") or {}
+        current = not stale and not latest_error and entry.get("state") not in ("pending", "running")
+        if current and summary.get("valid", 0):
+            judges[model] = key
         known = next((c for c in CATALOG if c["id"] == model), {})
         models.append({
             "model": model,
@@ -151,26 +166,36 @@ def analyze(ir: dict, source: Path, answer_chars: int = 1500) -> dict:
             "region": known.get("region", "Otras"),
             "file": str(file.relative_to(folder.parent)),
             "run_at": int(file.stat().st_mtime),
-            "score": result.get("benchmark_score"),
+            "score": None if stale else quality(result),
+            "operational_score": result.get("benchmark_score"),
             "summary": summary,
-            # The exam changed after this run: its score is for a previous version.
-            "stale": exam_mtime > file.stat().st_mtime or summary.get("examples") not in (None, len(rows)),
+            "stale": stale,
+            "grader": grader,
+            "latest_error": latest_error,
+            "comparable": current and key is not None and bool(questions)
+            and all(scores.get(q["index"]) is not None for q in questions),
             "criteria": {k: _mean(v) for k, v in per_criterion.items()},
             "groups": {g: _mean(v) for g, v in by_group.items()},
             "papers": {p: _mean(v) for p, v in by_paper.items()},
         })
-    models.sort(key=lambda m: -(m["score"] or 0))
+    models.sort(key=lambda m: m["model"])
+    judge_keys = set(judges.values())
+    blocked = "unknown_judge" if None in judge_keys else "different_judges" if len(judge_keys) > 1 else None
+    ranked = sorted((m for m in models if m["comparable"] and m["score"] is not None and not blocked), key=lambda m: -m["score"])
+    ranking = [m["model"] for m in ranked]
     regions: dict[str, list[float]] = {}
-    for m in models:
-        regions.setdefault(m["region"], []).append(m["score"] or 0.0)
+    for m in ranked:
+        regions.setdefault(m["region"], []).append(m["score"])
 
     for q in questions:
-        q["mean"] = _mean([m["score"] for m in q["models"].values()])
+        q["mean"] = _mean([q["models"][m]["score"] for m in ranking if m in q["models"] and q["models"][m]["score"] is not None])
     hardest = [q["index"] for q in sorted((q for q in questions if q["mean"] is not None), key=lambda q: q["mean"])[:8]]
     return {
         "ok": True,
         "benchmark": str(source.relative_to(folder.parent)),
-        "grader": (ir["scoring"].get("grader") or {}).get("model"),
+        "grader": next((m["grader"] for m in models if m["model"] in judges), None) if not blocked else None,
+        "ranking": ranking,
+        "comparison_blocked": blocked,
         "criteria": criteria,
         "groups": sorted({q["group"] for q in questions}),
         "papers": [

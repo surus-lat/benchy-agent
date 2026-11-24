@@ -245,15 +245,16 @@ export default function ReportPage({ slug }: { slug: string }) {
                 <section className="rp-annex">
                   <h2>Anexo · Resultados</h2>
                   <p>
-                    La corrida más reciente de cada modelo. Puntaje de 0 a 1; juez: {analysis?.grader ?? "—"}.
-                    {models.some((m) => m.stale) ? " Las marcadas con * son de una versión anterior del examen." : ""}
+                    Calidad de 0 a 1, calculada solo sobre respuestas válidas. Este anexo no es un ranking.
+                    {models.some((m) => m.stale) ? " Las marcadas con * tienen una versión del examen distinta o no verificable." : ""}
                   </p>
                   <table>
                     <thead>
                       <tr>
                         <th>Modelo</th>
                         <th>Región</th>
-                        <th>Puntaje</th>
+                        <th>Calidad</th>
+                        <th>Juez efectivo</th>
                         <th>Respuestas válidas</th>
                       </tr>
                     </thead>
@@ -264,9 +265,11 @@ export default function ReportPage({ slug }: { slug: string }) {
                             {m.name}
                             {m.maker ? ` (${m.maker})` : ""}
                             {m.stale ? " *" : ""}
+                            {m.latest_error ? " (último intento fallido)" : ""}
                           </td>
                           <td>{m.region}</td>
                           <td>{m.score?.toFixed(2) ?? "—"}</td>
+                          <td>{m.grader ?? "—"}</td>
                           <td>
                             {m.summary.valid ?? "—"} de {m.summary.examples ?? "—"}
                           </td>

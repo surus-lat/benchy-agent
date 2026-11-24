@@ -497,18 +497,26 @@ export function useRunResults(bench: BenchSummary | undefined) {
  */
 export function useModelCatalog() {
   const [state, setState] = useState<{ models: string[]; catalog: CatalogModel[] }>({ models: [], catalog: [] });
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [attempt, setAttempt] = useState(0);
   useEffect(() => {
+    let cancelled = false;
+    setLoading(true);
+    setError(null);
     void api
       .models()
       .then((r) =>
-        setState({
+        !cancelled && setState({
           models: r.models,
           catalog: r.catalog ?? r.models.map((id) => ({ id, name: id, maker: "", region: "Otras", default: false })),
         }),
       )
-      .catch(() => {});
-  }, []);
-  return state;
+      .catch((err) => { if (!cancelled) setError(errorText(err)); })
+      .finally(() => { if (!cancelled) setLoading(false); });
+    return () => { cancelled = true; };
+  }, [attempt]);
+  return { ...state, loading, error, reload: () => setAttempt(n => n + 1) };
 }
 
 /** The AI systems chosen to evaluate a benchmark, remembered in this browser. */
@@ -548,6 +556,9 @@ export function useEvaluation(bench: BenchSummary | undefined, onChange: () => v
   const path = bench?.yamlPath;
   const [evaluation, setEvaluation] = useState<Evaluation | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [statusError, setStatusError] = useState<string | null>(null);
+  const [failure, setFailure] = useState<{ kind: "evaluation" | "report"; code?: string } | null>(null);
+  const starting = useRef(false);
   const last = useRef<string | null>(null);
   const changed = useRef(onChange);
   changed.current = onChange;
@@ -563,15 +574,20 @@ export function useEvaluation(bench: BenchSummary | undefined, onChange: () => v
     if (!path) return;
     try {
       const r = await api.evaluation(path);
-      take(r.ok ? r.evaluation : null);
-    } catch {
-      // The next poll tries again.
+      if (!r.ok) { setStatusError(r.error.message); return; }
+      setStatusError(null);
+      take(r.evaluation);
+    } catch (err) {
+      setStatusError(errorText(err));
     }
   }, [path, take]);
 
   useEffect(() => {
     last.current = null;
     setEvaluation(null);
+    setStatusError(null);
+    setFailure(null);
+    setError(null);
     void load();
   }, [load]);
 
@@ -583,23 +599,33 @@ export function useEvaluation(bench: BenchSummary | undefined, onChange: () => v
   }, [active, load]);
 
   const begin = useCallback(
-    async (call: () => Promise<{ ok: true; evaluation: Evaluation } | { ok: false; error: { code: string; message: string } }>, what: string) => {
+    async (call: () => Promise<{ ok: true; evaluation: Evaluation } | { ok: false; error: { code: string; message: string } }>, what: string, kind: "evaluation" | "report") => {
+      if (starting.current) return;
+      starting.current = true;
       setError(null);
+      setFailure(null);
       try {
         const r = await call();
         if (r.ok) take(r.evaluation);
-        else setError(`${what} no pudo empezar: ${r.error.code} · ${r.error.message}`);
+        else {
+          setFailure({ kind, code: r.error.code });
+          setError(`${what} no pudo empezar: ${r.error.code} · ${r.error.message}`);
+          void load();
+        }
       } catch (err) {
+        setFailure({ kind, code: err instanceof ApiError ? err.code : undefined });
         setError(errorText(err));
         void load();
+      } finally {
+        starting.current = false;
       }
     },
     [take, load],
   );
-  const start = useCallback((models: string[]) => (path ? begin(() => api.startEvaluation(path, models), "La evaluación") : Promise.resolve()), [path, begin]);
-  const startReport = useCallback(() => (path ? begin(() => api.startReport(path), "El informe") : Promise.resolve()), [path, begin]);
+  const start = useCallback((models: string[]) => (path ? begin(() => api.startEvaluation(path, models), "La evaluación", "evaluation") : Promise.resolve()), [path, begin]);
+  const startReport = useCallback(() => (path ? begin(() => api.startReport(path), "El informe", "report") : Promise.resolve()), [path, begin]);
 
-  return { evaluation, active, error, setError, start, startReport, reload: load };
+  return { evaluation, active, error, statusError, failure, setError, start, startReport, reload: load };
 }
 
 export type EvaluationState = ReturnType<typeof useEvaluation>;

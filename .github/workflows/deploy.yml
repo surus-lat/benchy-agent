@@ -172,6 +172,13 @@ jobs:
             cd /opt/benchy/mcp
             BENCHY_WORKSPACE=/tmp/smoke-ws $PY -c "import benchy_publication, benchy_sources; print(\"mcp import smoke ok\")"
           '
+      - name: Check metric integrity over HTTP
+        run: |
+          docker run --rm --entrypoint /opt/hermes/.venv/bin/python \
+            -e API_SERVER_KEY=sandbox-fixture \
+            -e PYTHONPATH=/opt/benchy/mcp:/opt/benchy/proxy \
+            -v "$PWD/apps/agent/tests/metric_integrity_http.py:/metric_integrity_http.py:ro" \
+            benchy-agent /metric_integrity_http.py
       - name: Push the image to ECR
         run: |
           aws ecr get-login-password | docker login --username AWS --password-stdin ${ECR_IMAGE%/*}
