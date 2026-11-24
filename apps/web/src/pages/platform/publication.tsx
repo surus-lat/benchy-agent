@@ -1,3 +1,4 @@
+import { evaluationRecovery } from "./evaluation-recovery";
 import { useEffect, useState } from "react";
 import { api, rankedRuns, publicPath, since, type Analysis } from "./data";
 import { usePlatform, type BenchSummary } from "./store";
@@ -42,7 +43,7 @@ export function PublicationStage({
   evaluation: EvaluationState;
 }) {
   const [tab, setTab] = useState<Tab>("informe");
-  const { analysis } = useAnalysis(bench);
+  const { analysis, error: analysisError, retry: retryAnalysis } = useAnalysis(bench);
   return (
     <div className="ws-scroll ws-pad-lg">
       <p className="ws-eyebrow">06 · Publicación · {bench.doc?.title ?? bench.slug}</p>
@@ -59,7 +60,7 @@ export function PublicationStage({
         ))}
       </div>
       {tab === "informe" ? (
-        <ReportView bench={bench} analysis={analysis} showAgent={showAgent} evaluation={evaluation} />
+        <ReportView bench={bench} analysis={analysis} showAgent={showAgent} evaluation={evaluation} go={go} analysisError={analysisError} retryAnalysis={retryAnalysis} />
       ) : (
         <PublishView bench={bench} exam={exam} openExam={openExam} mcExam={mcExam} go={go} />
       )}
@@ -73,8 +74,11 @@ function ReportView({
   bench,
   analysis,
   showAgent,
-  evaluation,
+  evaluation, go, analysisError, retryAnalysis,
 }: {
+  go: (s: PubStage) => void;
+  analysisError: string | null;
+  retryAnalysis: () => void;
   bench: BenchSummary;
   analysis: Analysis | null;
   showAgent: () => void;
@@ -84,19 +88,24 @@ function ReportView({
   const path = `${bench.slug}/report.md`;
   const file = files?.find((f) => f.path === path);
   const [text, setText] = useState<string | null>(null);
+  const [readFailed, setReadFailed] = useState(false);
+  const [attempt, setAttempt] = useState(0);
   useEffect(() => {
+    let cancelled = false;
+    setReadFailed(false);
     if (!file) {
       setText(null);
       return;
     }
-    void api.text(path).then(setText, () => setText(null));
-  }, [path, file?.modified]); // eslint-disable-line react-hooks/exhaustive-deps
+    void api.text(path).then(value => { if (!cancelled) setText(value); }, () => { if (!cancelled) { setText(null); setReadFailed(true); } });
+    return () => { cancelled = true; };
+  }, [path, file?.modified, attempt]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const ev = evaluation.evaluation;
   // The exam was edited (a question deleted, a row changed) after the report was written.
   const examFile = files?.find((f) => f.path === bench.doc?.examPath);
   const reportStale = !!file && !!examFile && examFile.modified > file.modified;
-  const writing = ev?.report.state === "running";
+  const writing = ev?.state !== "interrupted" && ev?.report.state === "running";
   const evaluating = ev?.state === "running";
   const hasRuns = (analysis?.models.length ?? 0) > 0;
   const title = text?.match(/^#\s+(.+)$/m)?.[1];
@@ -126,8 +135,10 @@ function ReportView({
   return (
     <div className="ws-narrow">
       {status}
-      {failed && !writing && <p className="ws-note fail">El informe no se pudo redactar: {failed}</p>}
-      {evaluation.error && <p className="ws-note fail">{evaluation.error}</p>}
+      {analysisError && <p role="alert" className="ws-note">No pudimos cargar los resultados del informe. <button className="ws-link" onClick={retryAnalysis}>Reintentar análisis</button></p>}
+      {evaluation.statusError && <p role="alert" className="ws-note">No pudimos leer el estado del informe. <button className="ws-link" onClick={() => void evaluation.reload()}>Actualizar estado</button></p>}
+      {readFailed && <p role="alert" className="ws-note">El informe existe, pero no pudimos abrirlo. <button className="ws-link" onClick={() => setAttempt(n => n + 1)}>Volver a abrir el informe</button></p>}
+      {(ev?.report.state === "error" || (ev?.state === "interrupted" && ev.report.state === "running") || evaluation.failure?.kind === "report") && !writing && <div role="alert" className="ws-note"><p>{evaluation.failure?.code === "no_runs" ? "Ejecutá una evaluación antes de redactar el informe." : "No se pudo completar el informe."}{" "}{evaluation.failure?.code === "no_runs" ? <button className="ws-link" onClick={() => go("evaluacion")}>Ir a Evaluación</button> : evaluationRecovery(evaluation.failure?.code).target === "status" ? <button className="ws-link" onClick={() => void evaluation.reload()}>Actualizar estado</button> : <button disabled={evaluation.active} className="ws-link" onClick={() => void evaluation.startReport()}>Reintentar informe</button>}</p>{(failed || evaluation.error) && <details><summary>Detalle técnico</summary>{failed ?? evaluation.error}</details>}</div>}
       {!text ? (
         !writing && (
           <div className="ws-empty">
@@ -142,7 +153,7 @@ function ReportView({
                 Redactar el informe
               </button>
             </div>
-            {!hasRuns && <p className="ws-note">Primero hace falta una evaluación: el informe sale de sus resultados.</p>}
+            {!hasRuns && !analysisError && <p className="ws-note">Primero hace falta una evaluación: el informe sale de sus resultados. <button className="ws-link" onClick={() => go("evaluacion")}>Ir a Evaluación</button></p>}
           </div>
         )
       ) : (
@@ -150,7 +161,7 @@ function ReportView({
           <p className="ws-eyebrow">Informe de hallazgos · report.md</p>
           {reportStale && (
             <p className="ws-note amber" style={{ margin: "0 0 8px" }}>
-              El examen cambió desde que se escribió este informe: puede nombrar preguntas que ya no están. Rehacelo con los últimos resultados.
+              El examen cambió desde que se escribió este informe. Evaluá la versión actual antes de rehacerlo. <button className="ws-link" onClick={() => go("evaluacion")}>Ir a Evaluación</button>
             </p>
           )}
           <h3>{title ?? "Informe"}</h3>

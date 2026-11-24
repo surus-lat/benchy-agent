@@ -1,3 +1,4 @@
+import { evaluationRecovery, resultRecoveries, type Recovery } from "./evaluation-recovery";
 import { useEffect, useState } from "react";
 import { api, errorText, type Analysis, type CatalogModel, type Evaluation } from "./data";
 import { usePlatform, type BenchSummary } from "./store";
@@ -12,7 +13,7 @@ import { useStageCta, type StageCta } from "./stage-next";
 // hardest questions), which moved here from Publicación: the findings report
 // and the public card consume these numbers, they no longer repeat them.
 
-export type ResultsStageRoute = "evaluacion" | "publicacion";
+export type ResultsStageRoute = "evaluacion" | "publicacion" | "autoria";
 
 type ModelRow = Analysis["models"][number];
 type QuestionRow = Analysis["questions"][number];
@@ -25,6 +26,7 @@ const when = (t: number) => new Date(t * 1000).toLocaleString("es-AR", { dateSty
 /** The analysis for a benchmark, reloaded when its runs or questions change. */
 export function useAnalysis(bench: BenchSummary) {
   const { files } = usePlatform();
+  const [attempt, setAttempt] = useState(0);
   const key = (files ?? [])
     .filter((f) => f.path.startsWith(`${bench.slug}/runs/`) || f.path === `${bench.slug}/questions.json` || f.path === bench.doc?.examPath || f.path === bench.yamlPath || f.path === `${bench.slug}/evaluation.json`)
     .map((f) => `${f.path}@${f.modified}`)
@@ -54,8 +56,8 @@ export function useAnalysis(bench: BenchSummary) {
     return () => {
       cancelled = true;
     };
-  }, [bench.yamlPath, requestKey]);
-  return { analysis, error, loading };
+  }, [bench.yamlPath, requestKey, attempt]);
+  return { analysis, error, loading, retry: () => setAttempt(n => n + 1) };
 }
 
 export function ResultsStage({
@@ -82,7 +84,8 @@ export function ResultsStage({
   focus: string | null;
   clearFocus: () => void;
 }) {
-  const { analysis, error, loading } = useAnalysis(bench);
+  const { analysis, error, loading, retry } = useAnalysis(bench);
+  const recover = (action: Recovery) => action.target === "status" ? void evaluation.reload() : go(action.target === "questions" ? "autoria" : "evaluacion");
   const { catalog } = useModelCatalog();
   const [openModel, setOpenModel] = useState<string | null>(null);
   const [openQ, setOpenQ] = useState<number | null>(null);
@@ -120,14 +123,16 @@ export function ResultsStage({
       <div className="ws-scroll ws-pad-lg">
         <div className="ws-ana">
           <p className="ws-eyebrow">05 · Resultados · {bench.doc?.title ?? bench.slug}</p>
-          {running && ev && (
+          {ev && (running || ev.state === "interrupted" || ev.models.some(m => m.state === "error") || ev.report.state === "error") && (
             <div className="ws-res-live">
-              <EvaluationProgress bench={bench} ev={ev} catalog={catalog} onReport={() => void evaluation.startReport()} />
-              <p className="ws-note">Hay una corrida en curso: los bloques de abajo siguen mostrando la corrida anterior hasta que termine, y se actualizan solos.</p>
+              <EvaluationProgress bench={bench} ev={ev} catalog={catalog} onReport={() => void evaluation.startReport()} onRecover={recover} />
+              {running && <p className="ws-note">Hay una corrida en curso: los bloques de abajo siguen mostrando la corrida anterior hasta que termine, y se actualizan solos.</p>}
             </div>
           )}
+          {evaluation.failure?.kind === "report" && <p role="alert" className="ws-note">{evaluation.failure.code === "no_runs" ? "Ejecutá una evaluación antes de redactar el informe." : "No se pudo iniciar el informe."}{" "}{evaluation.failure.code === "no_runs" ? <button className="ws-link" onClick={() => go("evaluacion")}>Ir a Evaluación</button> : evaluationRecovery(evaluation.failure.code).target === "status" ? <RecoveryAction action={evaluationRecovery(evaluation.failure.code)} onRecover={recover} /> : <button disabled={running} className="ws-link" onClick={() => void evaluation.startReport()}>Reintentar informe</button>}</p>}
+          {evaluation.statusError && <p className="ws-note" role="alert">No pudimos leer el estado de la corrida. <button className="ws-link" onClick={() => void evaluation.reload()}>Actualizar estado</button></p>}
           {!analysis ? (
-            <p className="ws-note">{error ? `No pudimos analizar los resultados: ${error}` : loading ? "Analizando los resultados…" : ""}</p>
+            error && !loading ? <p className="ws-note" role="alert">No pudimos analizar los resultados. <button className="ws-link" onClick={retry}>Reintentar análisis</button> <span title={error}>(ver detalle)</span></p> : <p className="ws-note">Analizando los resultados…</p>
           ) : models.length === 0 ? (
             <div className="ws-empty">
               <p className="t">Todavía no hay resultados</p>
@@ -152,6 +157,7 @@ export function ResultsStage({
                     <ModelBlock key={m.model} m={m} top={ranked.length > 1 && ranked[0]?.model === m.model} criteria={analysis.criteria} onOpen={() => setOpenModel(m.model)} />
                   ))}
                 </div>
+                {models.flatMap(m => resultRecoveries(m).map((action, index) => <p key={`${m.model}:${index}`} className="ws-note"><strong>{m.name}:</strong> <RecoveryAction action={action} onRecover={recover} /></p>))}
               </section>
 
               <div className="ws-ana-ask">
@@ -299,7 +305,7 @@ export function ResultsStage({
                         </span>
                         <span className="chev" aria-hidden="true">›</span>
                       </button>
-                      {isOpen && <QuestionDetail q={q} models={ranked} analysis={analysis} talk={talk} busy={busy} />}
+                      {isOpen && <QuestionDetail q={q} models={ranked} analysis={analysis} talk={talk} busy={busy} onRecover={recover} />}
                     </div>
                   );
                 })}
@@ -311,6 +317,7 @@ export function ResultsStage({
                   : "Sin comparación entre modelos: se requiere el mismo examen, el mismo juez y cobertura completa."}
               </p>
 
+              {ranked.length < 2 && <p className="ws-note">{analysis.comparison_blocked ? "Elegí un juez y volvé a correr juntos los modelos que querés comparar." : "Corré al menos dos modelos con el examen actual, el mismo juez y cobertura completa."}{" "}<button className="ws-link" onClick={() => go("evaluacion")}>{analysis.comparison_blocked ? "Revisar juez en Evaluación" : "Preparar comparación"}</button></p>}
               <div className="ws-next">
                 <span className="t">
                   Leíste los resultados: contá qué encontraste. En 06 · Publicación van el informe de hallazgos y la ficha pública del benchmark.
@@ -325,7 +332,7 @@ export function ResultsStage({
       </div>
 
       {analysis && detail && (
-        <ModelDetail m={detail} analysis={analysis} talk={talk} busy={busy} onClose={() => setOpenModel(null)} />
+        <ModelDetail m={detail} analysis={analysis} talk={talk} busy={busy} onRecover={recover} onClose={() => setOpenModel(null)} />
       )}
     </>
   );
@@ -353,7 +360,7 @@ function ModelBlock({ m, top, criteria, onOpen }: { m: ModelRow; top: boolean; c
       <span className="meta">
         {`${s.valid ?? "?"} de ${s.examples ?? "?"} válidas · calidad sobre respuestas válidas`}
         {m.grader && ` · juez: ${m.grader}`}
-        {m.latest_error && <span className="stale"> · último intento fallido: {m.latest_error.code}</span>}
+        {m.latest_error && <span className="stale"> · último intento fallido</span>}
         {m.stale && <span className="stale"> · versión del examen distinta o no verificable</span>}
       </span>
       {criteria.length > 0 && (
@@ -385,7 +392,7 @@ function ModelBlock({ m, top, criteria, onOpen }: { m: ModelRow; top: boolean; c
 
 // ---- el detalle de un modelo: cubre todo el stage --------------------------------
 
-function ModelDetail({ m, analysis, talk, busy, onClose }: { m: ModelRow; analysis: Analysis; talk: (t: string) => void; busy: boolean; onClose: () => void }) {
+function ModelDetail({ m, analysis, talk, busy, onClose, onRecover }: { m: ModelRow; analysis: Analysis; talk: (t: string) => void; busy: boolean; onClose: () => void; onRecover: (action: Recovery) => void }) {
   const [term, setTerm] = useState("");
   const [failsOnly, setFailsOnly] = useState(false);
   // Escape leaves the detail: the toolbar and the tabs stay reachable behind it.
@@ -433,7 +440,8 @@ function ModelDetail({ m, analysis, talk, busy, onClose }: { m: ModelRow; analys
           <div className="ws-card ws-pad ws-stack">
             <p className="ws-eyebrow">Calidad sobre respuestas válidas</p>
             {m.grader && <p className="ws-note">Juez: {m.grader}</p>}
-            {m.latest_error && <p className="ws-note">Último intento fallido: {m.latest_error.code}</p>}
+            {m.latest_error && <details className="ws-note"><summary>Detalle del último intento</summary>{m.latest_error.code}: {m.latest_error.message}</details>}
+            {resultRecoveries(m).map((action, index) => <p key={index} className="ws-note"><RecoveryAction action={action} onRecover={onRecover} /></p>)}
             <p className="ws-res-score">{num(m.score)}</p>
             <span className="track">
               <span style={{ width: `${(m.score ?? 0) * 100}%` }} />
@@ -442,8 +450,8 @@ function ModelDetail({ m, analysis, talk, busy, onClose }: { m: ModelRow; analys
               {bad === 0
                 ? `Todas las ${s.examples ?? "?"} respuestas fueron válidas.`
                 : `${bad} de ${s.examples ?? "?"} respuestas sin valorar: ${[
-                    s.invalid_outputs ? `${s.invalid_outputs} invalid_output` : "",
-                    s.execution_errors ? `${s.execution_errors} execution_error` : "",
+                    s.invalid_outputs ? `${s.invalid_outputs} con formato inválido` : "",
+                    s.execution_errors ? `${s.execution_errors} con falla de ejecución` : "",
                   ]
                     .filter(Boolean)
                     .join(" · ")}`}
@@ -486,7 +494,7 @@ function ModelDetail({ m, analysis, talk, busy, onClose }: { m: ModelRow; analys
 
           <div className="ws-card ws-clip">
             {rows.map((q) => (
-              <AnswerRow key={q.index} q={q} m={m} criteria={analysis.criteria} byTitle={byTitle} talk={talk} busy={busy} />
+              <AnswerRow key={q.index} q={q} m={m} criteria={analysis.criteria} byTitle={byTitle} onRecover={onRecover} talk={talk} busy={busy} />
             ))}
             {rows.length === 0 && (
               <p className="ws-note" style={{ padding: "14px 16px" }}>
@@ -521,7 +529,7 @@ function MetricList({ title, items }: { title: string; items: { id: string; labe
 }
 
 /** One question as this model answered it: the row, and what's behind the click. */
-function AnswerRow({ q, m, criteria, byTitle, talk, busy }: { q: QuestionRow; m: ModelRow; criteria: Analysis["criteria"]; byTitle: Map<string, string>; talk: (t: string) => void; busy: boolean }) {
+function AnswerRow({ q, m, criteria, byTitle, talk, busy, onRecover }: { onRecover: (action: Recovery) => void; q: QuestionRow; m: ModelRow; criteria: Analysis["criteria"]; byTitle: Map<string, string>; talk: (t: string) => void; busy: boolean }) {
   const [open, setOpen] = useState(false);
   const r = q.models[m.model];
   const missed = r?.missed ?? [];
@@ -555,10 +563,10 @@ function AnswerRow({ q, m, criteria, byTitle, talk, busy }: { q: QuestionRow; m:
               {m.name} · {m.region} · {r ? num(r.score) : "sin datos"}
             </p>
             {!r ? (
-              <p>Esta pregunta no estaba en la corrida de {m.name}.</p>
+              <p><RecoveryAction action={evaluationRecovery("exam_changed")} onRecover={onRecover} /></p>
             ) : (
               <>
-                <p>{r.error ? `Sin respuesta válida: ${r.error}` : r.answer || "(vacía)"}</p>
+                {r.score == null ? <InvalidAnswer error={r.error} onRecover={onRecover} /> : <p>{r.answer || "(vacía)"}</p>}
                 {missed.map((x) => (
                   <p key={x.criterion} className="ws-hard-miss">
                     <span className="mono">no cumple {criteria.find((c) => c.key === x.criterion)?.description ?? x.criterion}</span>
@@ -589,7 +597,11 @@ function Heat({ v }: { v: number | null | undefined }) {
   );
 }
 
-function QuestionDetail({ q, models, analysis, talk, busy }: { q: QuestionRow; models: ModelRow[]; analysis: Analysis; talk: (t: string) => void; busy: boolean }) {
+function InvalidAnswer({ error, onRecover }: { error: string | null; onRecover: (action: Recovery) => void }) {
+  return <><p><RecoveryAction action={{ message: "Esta respuesta no se pudo puntuar. Revisá el modelo y el juez antes de repetir la evaluación.", label: "Preparar nueva evaluación", target: "evaluation" }} onRecover={onRecover} /></p>{error && <details><summary>Detalle técnico</summary>{error}</details>}</>;
+}
+
+function QuestionDetail({ q, models, analysis, talk, busy, onRecover }: { onRecover: (action: Recovery) => void; q: QuestionRow; models: ModelRow[]; analysis: Analysis; talk: (t: string) => void; busy: boolean }) {
   const byTitle = new Map(analysis.papers.map((p) => [p.id, p.title]));
   return (
     <div className="ws-hard">
@@ -606,7 +618,7 @@ function QuestionDetail({ q, models, analysis, talk, busy }: { q: QuestionRow; m
             <p className="ws-eyebrow">
               {m.name} · {m.region} · {num(r.score)}
             </p>
-            <p>{r.error ? `Sin respuesta válida: ${r.error}` : r.answer || "(vacía)"}</p>
+            {r.score == null ? <InvalidAnswer error={r.error} onRecover={onRecover} /> : <p>{r.answer || "(vacía)"}</p>}
             {r.missed.map((x) => (
               <p key={x.criterion} className="ws-hard-miss">
                 <span className="mono">no cumple {analysis.criteria.find((c) => c.key === x.criterion)?.description ?? x.criterion}</span>
@@ -626,7 +638,11 @@ function QuestionDetail({ q, models, analysis, talk, busy }: { q: QuestionRow; m
 // ---- 04 · Evaluación's corrida ---------------------------------------------------
 
 /** The last evaluation, model by model and then the report: running, done, or what failed. */
-export function EvaluationProgress({ bench, ev, catalog, onReport }: { bench: BenchSummary; ev: Evaluation; catalog: CatalogModel[]; onReport: () => void }) {
+export function RecoveryAction({ action, onRecover }: { action: Recovery; onRecover: (action: Recovery) => void }) {
+  return <>{action.message}{" "}<button className="ws-link" onClick={() => onRecover(action)}>{action.label}</button></>;
+}
+
+export function EvaluationProgress({ bench, ev, catalog, onReport, onRecover }: { bench: BenchSummary; ev: Evaluation; catalog: CatalogModel[]; onReport: () => void; onRecover: (action: Recovery) => void }) {
   const name = (id: string) => catalog.find((c) => c.id === id)?.name ?? id;
   const finished = ev.models.filter((m) => m.state === "done" || m.state === "error").length;
   const head =
@@ -648,6 +664,7 @@ export function EvaluationProgress({ bench, ev, catalog, onReport }: { bench: Be
         </span>
         {head}
       </p>
+      {(ev.state === "interrupted" || (ev.state === "error" && !ev.models.some(m => m.error))) && <p className="ws-note"><RecoveryAction action={{ message: "Revisá la selección antes de iniciar otra corrida.", label: "Preparar nueva evaluación", target: "evaluation" }} onRecover={onRecover} /></p>}
       {ev.models.map((m) => (
         <div key={m.model} className="ws-run-row">
           <span className="m" title={m.model}>{name(m.model)}</span>
@@ -660,10 +677,11 @@ export function EvaluationProgress({ bench, ev, catalog, onReport }: { bench: Be
               [✓] {m.score?.toFixed(2) ?? "—"}
               {m.summary?.examples ? ` · ${m.summary.valid ?? 0}/${m.summary.examples} válidas` : ""}
               {m.seconds ? ` · ${Math.round(m.seconds)} s` : ""}
+              {m.summary?.examples != null && m.summary.valid != null && m.summary.valid < m.summary.examples && <>{" · "}<RecoveryAction action={{ message: "Cobertura incompleta; fuera del ranking.", label: "Preparar nueva evaluación", target: "evaluation" }} onRecover={onRecover} /></>}
             </span>
           ) : (
             <span className="fail mono ws-run-err" title={m.error ? `${m.error.code}: ${m.error.message}` : undefined}>
-              [×] {m.error?.message || m.error?.code || "error"}
+              [×] <RecoveryAction action={evaluationRecovery(m.error?.code)} onRecover={onRecover} />
             </span>
           )}
         </div>
@@ -671,7 +689,9 @@ export function EvaluationProgress({ bench, ev, catalog, onReport }: { bench: Be
       {r.state !== "skipped" && (
         <div className="ws-run-row report">
           <span className="m">Informe de hallazgos</span>
-          {r.state === "pending" ? (
+          {ev.state === "interrupted" && r.state === "running" ? (
+            <span className="fail mono">Informe interrumpido. <button className="ws-link" onClick={onReport}>Reintentar informe</button></span>
+          ) : r.state === "pending" ? (
             <span className="mono muted">cuando terminen los modelos</span>
           ) : r.state === "running" ? (
             <span className="ws-indet" aria-label="redactando"><span /></span>
@@ -689,7 +709,7 @@ export function EvaluationProgress({ bench, ev, catalog, onReport }: { bench: Be
           )}
         </div>
       )}
-      {r.state === "error" && r.error && <p className="ws-note">{r.error}</p>}
+      {r.state === "error" && r.error && <details className="ws-note"><summary>Detalle del error del informe</summary>{r.error}</details>}
       {(ev.state === "running" || ev.state === "reporting") && (
         <p className="ws-note">Corre en el agente de tu organización: podés cerrar la página o seguir con otra cosa; el estado queda acá.</p>
       )}
